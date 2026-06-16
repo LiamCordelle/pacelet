@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="456" viewBox="0 0 200 228">
+<style>
+  .status { font: 700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+  .timer { font: 800 31px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+  .label { font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #3e5459; letter-spacing: 0; }
+  .value { font: 750 19px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #071014; letter-spacing: 0; }
+  .menu { font: 750 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+  .footer { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #3e5459; letter-spacing: 0; }
+  .title { font: 750 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+</style>
+<rect width="200" height="228" fill="#f7fbf8"/>
+<rect width="184" height="2" fill="#007c54"/>
+<text x="8" y="17" class="status" fill="#3e5459">RUNNING</text>
+<text x="184" y="17" class="status" fill="#007c54" text-anchor="end">GPS READY</text>
+<g fill="none" stroke="#3e5459" stroke-width="1">
+<circle cx="92" cy="67" r="21"/>
+<circle cx="92" cy="67" r="29"/>
+</g>
+<g stroke="#007c54" stroke-width="2">
+<path d="M92 40 L92 54 M92 80 L92 94 M65 67 L79 67 M105 67 L119 67"/>
+</g>
+<circle cx="92" cy="67" r="7" fill="#007c54"/>
+<text x="92" y="119" class="title" fill="#007c54" text-anchor="middle">GPS LOCKED</text>
+<text x="92" y="139" class="label" fill="#071014" text-anchor="middle">Accuracy 12m</text>
+<text x="92" y="220" class="footer" text-anchor="middle">Ready to start</text>
+<line x1="186" y1="20" x2="186" y2="220" stroke="#071014" stroke-width="1"/>
+<g fill="none" stroke="#071014" stroke-width="2">
+<circle cx="193" cy="42" r="5"/>
+<path d="M195 36 L199 36 L199 40"/>
+</g>
+<path d="M190 78 L198 84 L190 90 Z" fill="none" stroke="#071014" stroke-width="2"/>
+<g stroke="#071014" stroke-width="2">
+<path d="M188 121 L197 121 M188 126 L197 126 M188 131 L197 131"/>
+</g>
+<g fill="#071014"><circle cx="199" cy="121" r="1.2"/><circle cx="199" cy="126" r="1.2"/><circle cx="199" cy="131" r="1.2"/></g>
+</svg>

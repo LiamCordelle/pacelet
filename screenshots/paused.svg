@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="456" viewBox="0 0 200 228">
+<style>
+  .status { font: 700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+  .timer { font: 800 31px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+  .label { font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #3e5459; letter-spacing: 0; }
+  .value { font: 750 19px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #071014; letter-spacing: 0; }
+  .menu { font: 750 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+  .footer { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #3e5459; letter-spacing: 0; }
+  .title { font: 750 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+</style>
+<rect width="200" height="228" fill="#f7fbf8"/>
+<rect width="184" height="2" fill="#9a6500"/>
+<text x="8" y="17" class="status" fill="#3e5459">RUNNING</text>
+<text x="184" y="17" class="status" fill="#9a6500" text-anchor="end">PAUSED</text>
+<g fill="#9a6500">
+<rect x="80" y="35" width="8" height="25" rx="2"/>
+<rect x="96" y="35" width="8" height="25" rx="2"/>
+</g>
+<text x="92" y="84" class="title" fill="#9a6500" text-anchor="middle">PAUSED</text>
+<text x="8" y="114" class="label">TIME</text>
+<text x="184" y="116" class="value" text-anchor="end">23:14</text>
+<text x="8" y="141" class="label">DIST</text>
+<text x="184" y="143" class="value" text-anchor="end">4.62 km</text>
+<line x1="186" y1="20" x2="186" y2="220" stroke="#071014" stroke-width="1"/>
+
+<path d="M190 78 L198 84 L190 90 Z" fill="none" stroke="#071014" stroke-width="2"/>
+<g fill="none" stroke="#071014" stroke-width="2">
+<rect x="188" y="120" width="11" height="11"/>
+<path d="M190 128 L197 128 M190 134 L197 134"/>
+</g>
+<rect x="191" y="121" width="5" height="3" fill="#071014"/>
+</svg>
