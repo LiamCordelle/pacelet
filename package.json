@@ -1,0 +1,64 @@
+{
+  "name": "pebble-activity-tracker",
+  "author": "Codex",
+  "version": "0.1.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node test/tracker_core.test.js && node test/strava.test.js && node --check src/pkjs/index.js && node --check src/pkjs/tracker_core.js && node --check src/pkjs/strava.js && node --check src/pkjs/config_page.js && node --check tools/render_screenshots.js && python3 -B -c \"import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in ('tools/manual_emery_gps.py','tools/screenshot_emulator.py','tools/pypkjs_gps_sim/sitecustomize.py')]\"",
+    "manual:emery:gps": "python3 tools/manual_emery_gps.py",
+    "screenshots": "node tools/render_screenshots.js",
+    "screenshots:png": "node tools/render_screenshots.js --png",
+    "screenshots:emulator": "python3 tools/screenshot_emulator.py",
+    "screenshots:emulator:all": "python3 tools/screenshot_emulator.py --all-screens"
+  },
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Pebble Tracker",
+    "uuid": "4481EF3F-FB7F-4EE1-85C4-5B3E1DBA08B2",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "basalt",
+      "chalk",
+      "diorite",
+      "emery"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "capabilities": [
+      "location",
+      "health",
+      "configurable"
+    ],
+    "messageKeys": [
+      "REQUEST_GPS",
+      "START_ACTIVITY",
+      "PAUSE_ACTIVITY",
+      "RESUME_ACTIVITY",
+      "FINISH_ACTIVITY",
+      "ACTIVITY_TYPE",
+      "GPS_STATUS",
+      "GPS_ACCURACY",
+      "GPS_AGE",
+      "GPS_ERROR",
+      "DISTANCE_M",
+      "CURRENT_PACE",
+      "CURRENT_SPEED",
+      "HR_BPM",
+      "SUMMARY_DISTANCE_M",
+      "SUMMARY_MOVING_S",
+      "SUMMARY_POINTS",
+      "ACTIVITY_ID",
+      "REQUEST_SETTINGS",
+      "DARK_MODE"
+    ],
+    "resources": {
+      "media": []
+    }
+  }
+}
