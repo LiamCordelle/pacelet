@@ -1,11 +1,11 @@
 # AGENTS.md
 
-This file gives AI coding agents the local context needed to work on Pebble
-Activity Tracker without rediscovering the project shape every time.
+This file gives AI coding agents the local context needed to work on Pacelet
+without rediscovering the project shape every time.
 
 ## Project Overview
 
-Pebble Activity Tracker is a Pebble watchapp for recording outdoor activities.
+Pacelet is a Pebble watchapp for recording outdoor activities.
 The watch app is the activity controller and live dashboard; the paired phone is
 the GPS recorder.
 
@@ -47,10 +47,14 @@ Core behavior:
   status helpers.
 - `src/pkjs/config_page.js`: Embedded settings page opened by Pebble's
   configuration flow.
+- `resources/images/`: Generated black/white activity icon PNG resources used
+  by the watch menu.
 - `test/tracker_core.test.js`: Node test harness for GPS lock gating,
   pace/speed smoothing, pause/resume behavior, HR samples, and finish summaries.
 - `test/strava.test.js`: Node test harness for Strava settings, TCX generation,
   multipart upload body generation, and config page generation.
+- `tools/generate_activity_icons.js`: Dependency-free generator for the
+  walking/running/cycling menu icon PNG resources.
 - `tools/manual_emery_gps.py`: Manual `emery` emulator harness with delayed
   simulated phone GPS around a jittered 1 km loop.
 - `tools/screenshot_emulator.py`: Real emulator screenshot harness. Defaults to
@@ -69,6 +73,8 @@ Keep watch-side and phone-side responsibilities separate:
   Countdown -> Active/Paused/Finished`.
 - Watch screens use a right-side action rail with small icons aligned to the
   hardware `UP`, `SELECT`, and `DOWN` buttons instead of footer button text.
+  The rail should contrast with the theme: dark in light mode, light in dark
+  mode.
 - Phone JS should own GPS acquisition, GPS point filtering, distance math,
   smoothed speed/pace calculations, persistence, and sync integrations.
 - Pure logic that can be tested without Pebble runtime should live in
@@ -142,6 +148,12 @@ Run deterministic tests and JS syntax checks:
 npm test
 ```
 
+Regenerate activity icon PNG resources:
+
+```sh
+npm run icons
+```
+
 Regenerate design SVG screenshots:
 
 ```sh
@@ -160,7 +172,7 @@ Capture a real emulator screenshot of the app:
 npm run screenshots:emulator
 ```
 
-Capture the main emulator app flow in one run:
+Capture the main emulator app flow in one command:
 
 ```sh
 npm run screenshots:emulator:all
@@ -177,7 +189,8 @@ and installs the PBW in the selected emulator, defaults to `emery`, saves PNGs
 under `screenshots/emulator/`, and kills/restarts existing emulators unless
 `--reuse-emulator` is passed. Use `npm run screenshots:emulator:all` after UI
 changes to capture choose, GPS searching, GPS ready, countdown, activity, and
-paused states from one emulator session.
+paused states. All-screens mode starts from a fresh install for each screen so
+state does not leak between captures.
 
 Run the manual `emery` emulator GPS harness:
 

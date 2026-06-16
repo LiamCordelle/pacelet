@@ -35,7 +35,7 @@ def build_parser():
     parser.add_argument('--screen', default='choose', choices=SCREENS,
                         help='Screen to drive to before capture. Default: choose.')
     parser.add_argument('--all-screens', action='store_true',
-                        help='Capture the main app flow in one emulator run.')
+                        help='Capture the main app flow in one command.')
     parser.add_argument('--activity', default='running',
                         choices=['running', 'walking', 'cycling'],
                         help='Activity selected before capture. Default: running.')
@@ -47,6 +47,10 @@ def build_parser():
                         help='Seconds before simulated GPS lock after GPS request.')
     parser.add_argument('--settle-s', type=float, default=2.0,
                         help='Seconds to wait after install before button presses.')
+    parser.add_argument('--capture-retries', type=int, default=2,
+                        help='Retries after a failed pebble screenshot capture. Default: 2.')
+    parser.add_argument('--post-capture-s', type=float, default=0.5,
+                        help='Seconds to settle after each screenshot in all-screens mode.')
     parser.add_argument('--skip-build', action='store_true',
                         help='Install the existing PBW instead of running pebble build first.')
     parser.add_argument('--reuse-emulator', action='store_true',
@@ -168,7 +172,7 @@ def drive_to_screen(args, env, lock_delay):
     click(args, 'select', env)
 
     if args.screen == 'countdown':
-        wait(0.2, args.dry_run)
+        wait(1.0, args.dry_run)
         return
 
     wait(4.0, args.dry_run)
@@ -179,51 +183,51 @@ def drive_to_screen(args, env, lock_delay):
 
 
 def capture(args, base_env, output):
+    command = ['pebble', 'screenshot', '--emulator', args.platform, '--no-open',
+               str(output)]
+    attempts = max(1, args.capture_retries + 1)
+    code = 0
+
     if not args.dry_run:
         output.parent.mkdir(parents=True, exist_ok=True)
 
-    run(['pebble', 'screenshot', '--emulator', args.platform, '--no-open',
-         str(output)],
-        env=base_env, dry_run=args.dry_run, args=args)
+    for attempt in range(attempts):
+        code = run(command, env=base_env, check=False, dry_run=args.dry_run,
+                   args=args)
+        if code == 0:
+            break
+        if attempt + 1 < attempts:
+            print('Screenshot capture failed; retrying ({}/{})...'.format(
+                attempt + 2, attempts
+            ))
+            wait(1.0, args.dry_run)
+
+    if code != 0:
+        raise subprocess.CalledProcessError(code, command)
+
     print('Saved emulator screenshot to {}'.format(output))
+    if args.all_screens:
+        wait(args.post_capture_s, args.dry_run)
 
 
 def capture_all_screens(args, sim_env, base_env, lock_delay):
+    original_screen = args.screen
     captured = []
+    index = 1
 
-    wait(args.settle_s, args.dry_run)
-    press_activity_buttons(args, sim_env)
-
-    captured.append(all_output_path(args, 'choose', 1))
-    capture(args, base_env, captured[-1])
-
-    click(args, 'select', sim_env)
-    wait(0.8, args.dry_run)
-
-    captured.append(all_output_path(args, 'gps-search', 2))
-    capture(args, base_env, captured[-1])
-
-    wait(lock_delay + 2.0, args.dry_run)
-
-    captured.append(all_output_path(args, 'gps-ready', 3))
-    capture(args, base_env, captured[-1])
-
-    click(args, 'select', sim_env)
-    wait(0.2, args.dry_run)
-
-    captured.append(all_output_path(args, 'countdown', 4))
-    capture(args, base_env, captured[-1])
-
-    wait(4.0, args.dry_run)
-
-    captured.append(all_output_path(args, 'activity', 5))
-    capture(args, base_env, captured[-1])
-
-    click(args, 'select', sim_env)
-    wait(0.5, args.dry_run)
-
-    captured.append(all_output_path(args, 'paused', 6))
-    capture(args, base_env, captured[-1])
+    try:
+        for screen in ALL_SCREEN_SEQUENCE:
+            args.screen = screen
+            run(['pebble', 'kill', '--force'], env=base_env, check=False,
+                dry_run=args.dry_run)
+            run(['pebble', 'install', '--emulator', args.platform, str(PBW)],
+                env=sim_env, dry_run=args.dry_run, args=args)
+            drive_to_screen(args, sim_env, lock_delay)
+            captured.append(all_output_path(args, screen, index))
+            capture(args, base_env, captured[-1])
+            index += 1
+    finally:
+        args.screen = original_screen
 
     print('Captured {} emulator screenshots.'.format(len(captured)))
 
@@ -253,6 +257,16 @@ def main(argv):
     if args.dry_run:
         print('  dry run:           yes')
 
+    if args.all_screens:
+        if not args.skip_build:
+            run(['pebble', 'build'], env=base_env, dry_run=args.dry_run)
+
+        if not PBW.exists() and not args.dry_run:
+            raise SystemExit('PBW not found: {}'.format(PBW))
+
+        capture_all_screens(args, sim_env, base_env, lock_delay)
+        return 0
+
     if not args.reuse_emulator:
         run(['pebble', 'kill', '--force'], env=base_env, check=False,
             dry_run=args.dry_run)
@@ -266,11 +280,8 @@ def main(argv):
     run(['pebble', 'install', '--emulator', args.platform, str(PBW)],
         env=sim_env, dry_run=args.dry_run, args=args)
 
-    if args.all_screens:
-        capture_all_screens(args, sim_env, base_env, lock_delay)
-    else:
-        drive_to_screen(args, sim_env, lock_delay)
-        capture(args, base_env, output)
+    drive_to_screen(args, sim_env, lock_delay)
+    capture(args, base_env, output)
 
     return 0
 

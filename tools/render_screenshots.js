@@ -21,7 +21,7 @@ if (!Object.prototype.hasOwnProperty.call(PLATFORMS, PLATFORM_NAME)) {
 var WIDTH = PLATFORMS[PLATFORM_NAME].width;
 var HEIGHT = PLATFORMS[PLATFORM_NAME].height;
 var PNG_SCALE = 2;
-var ACTION_RAIL_W = 14;
+var ACTION_RAIL_W = 18;
 var RIGHT = WIDTH - ACTION_RAIL_W - 2;
 
 var THEME = {
@@ -45,6 +45,54 @@ function optionValue(name, fallback) {
     }
   }
   return fallback;
+}
+
+function isTall() {
+  return HEIGHT >= 200;
+}
+
+function railIconY(index) {
+  return Math.round((HEIGHT * (index + 1)) / 4);
+}
+
+function chooseRowY(index) {
+  return (isTall() ? 56 : 48) + index * (isTall() ? 40 : 33);
+}
+
+function gpsIconY() {
+  return isTall() ? 78 : 67;
+}
+
+function gpsTitleY() {
+  return isTall() ? 114 : 98;
+}
+
+function gpsAccuracyY() {
+  return isTall() ? 145 : 126;
+}
+
+function countdownCenterY() {
+  return isTall() ? 96 : 80;
+}
+
+function activityTimerY() {
+  return isTall() ? 28 : 22;
+}
+
+function activityRowY(index) {
+  return (isTall() ? 78 : 66) + index * (isTall() ? 38 : 27);
+}
+
+function pausedIconY() {
+  return isTall() ? 48 : 35;
+}
+
+function pausedTitleY() {
+  return isTall() ? 83 : 63;
+}
+
+function pausedRowY(index) {
+  return (isTall() ? 124 : 100) + index * (isTall() ? 38 : 27);
 }
 
 var screens = [
@@ -512,79 +560,87 @@ function actionIcon(type, cx, cy, color) {
 function actionRail(up, select, down) {
   var railX = WIDTH - ACTION_RAIL_W;
   var iconX = railX + Math.round(ACTION_RAIL_W / 2);
-  var color = THEME.text;
+  var railColor = THEME.text;
+  var iconColor = THEME.bg;
 
   if (!up && !select && !down) {
     return '';
   }
 
   return [
-    '<line x1="' + railX + '" y1="20" x2="' + railX +
-      '" y2="' + (HEIGHT - 8) + '" stroke="' + color + '" stroke-width="1"/>',
-    actionIcon(up, iconX, 42, color),
-    actionIcon(select, iconX, 84, color),
-    actionIcon(down, iconX, 126, color)
+    '<rect x="' + railX + '" y="0" width="' + ACTION_RAIL_W +
+      '" height="' + HEIGHT + '" fill="' + railColor + '"/>',
+    actionIcon(up, iconX, railIconY(0), iconColor),
+    actionIcon(select, iconX, railIconY(1), iconColor),
+    actionIcon(down, iconX, railIconY(2), iconColor)
   ].join('\n');
 }
 
 function activityIcon(activity, cx, cy, size, color) {
-  if (activity === 'CYCLING') {
-    var wheelR = Math.round(size / 5);
-    var leftX = cx - Math.round(size / 3);
-    var rightX = cx + Math.round(size / 3);
-    var wheelY = cy + Math.round(size / 5);
-    var seatX = cx - Math.round(size / 10);
-    var seatY = cy - Math.round(size / 7);
-    var barX = cx + Math.round(size / 5);
-    var barY = cy - Math.round(size / 5);
-
-    return [
-      '<g fill="none" stroke="' + color + '" stroke-width="2">',
-      '<circle cx="' + leftX + '" cy="' + wheelY + '" r="' + wheelR + '"/>',
-      '<circle cx="' + rightX + '" cy="' + wheelY + '" r="' + wheelR + '"/>',
-      '<path d="M' + leftX + ' ' + wheelY + ' L' + cx + ' ' + wheelY +
-        ' L' + seatX + ' ' + seatY + ' L' + rightX + ' ' + wheelY +
-        ' M' + cx + ' ' + wheelY + ' L' + rightX + ' ' + wheelY +
-        ' M' + barX + ' ' + barY + ' L' + rightX + ' ' + wheelY + '"/>',
-      '<path d="M' + (seatX - 6) + ' ' + (seatY - 2) + ' L' +
-        (seatX + 5) + ' ' + (seatY - 2) + ' M' + barX + ' ' + barY +
-        ' L' + (barX + 9) + ' ' + (barY - 3) + '"/>',
-      '</g>',
-      '<circle cx="' + cx + '" cy="' + wheelY + '" r="3" fill="' +
-        color + '"/>'
-    ].join('\n');
+  var scale = size / 28;
+  var originX = cx - size / 2;
+  var originY = cy - size / 2;
+  var open = '<g transform="translate(' + originX + ' ' + originY +
+    ') scale(' + scale + ')" stroke="' + color +
+    '" stroke-linecap="round" stroke-linejoin="round">';
+  var close = '</g>';
+  function l(x1, y1, x2, y2, width) {
+    return '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 +
+      '" y2="' + y2 + '" stroke-width="' + width + '"/>';
+  }
+  function c(x, y, r) {
+    return '<circle cx="' + x + '" cy="' + y + '" r="' + r +
+      '" fill="' + color + '" stroke="none"/>';
+  }
+  function ring(x, y, r, width) {
+    return '<circle cx="' + x + '" cy="' + y + '" r="' + r +
+      '" fill="none" stroke-width="' + width + '"/>';
   }
 
   if (activity === 'WALKING') {
-    var soleW = Math.round(size / 5);
-    var soleH = Math.round(size / 2);
     return [
-      '<g fill="' + color + '">',
-      '<rect x="' + (cx - 7) + '" y="' + (cy - 10) + '" width="' +
-        soleW + '" height="' + soleH + '" rx="' + Math.round(soleW / 2) + '"/>',
-      '<circle cx="' + (cx - 8) + '" cy="' + (cy - 12) + '" r="2"/>',
-      '<rect x="' + (cx + 3) + '" y="' + (cy + 1) + '" width="' +
-        soleW + '" height="' + soleH + '" rx="' + Math.round(soleW / 2) + '"/>',
-      '<circle cx="' + (cx + 2) + '" cy="' + (cy - 1) + '" r="2"/>',
-      '</g>'
+      open, c(14.0, 4.8, 3.1), l(13.8, 8.2, 13.0, 14.8, 3.0),
+      l(13.2, 10.5, 8.6, 15.3, 2.5),
+      l(13.2, 10.5, 18.0, 10.1, 2.5),
+      l(13.0, 14.5, 9.5, 22.4, 3.0),
+      l(9.5, 22.4, 5.6, 22.9, 2.4),
+      l(13.1, 14.7, 18.3, 21.0, 3.0),
+      l(18.3, 21.0, 21.8, 23.4, 2.4), close
+    ].join('\n');
+  }
+
+  if (activity === 'CYCLING') {
+    return [
+      open, ring(7.5, 20.8, 5.0, 2.0), ring(21.0, 20.8, 5.0, 2.0),
+      l(7.5, 20.8, 13.5, 20.8, 2.0),
+      l(13.5, 20.8, 11.8, 13.2, 2.0),
+      l(11.8, 13.2, 21.0, 20.8, 2.0),
+      l(13.5, 20.8, 18.0, 13.0, 2.0),
+      l(18.0, 13.0, 21.0, 20.8, 2.0),
+      l(11.0, 12.4, 14.2, 12.4, 2.0),
+      l(17.8, 13.0, 22.5, 11.7, 1.8),
+      l(22.5, 11.7, 25.0, 13.1, 1.8),
+      c(13.5, 20.8, 2.0), close
     ].join('\n');
   }
 
   return [
-    '<g fill="none" stroke="' + color + '" stroke-width="3" stroke-linecap="round">',
-    '<path d="M' + (cx - 11) + ' ' + (cy - 6) + ' L' + (cx - 2) +
-      ' ' + (cy - 6) + ' M' + (cx - 13) + ' ' + cy + ' L' + (cx - 5) +
-      ' ' + cy + ' M' + (cx - 10) + ' ' + (cy + 6) + ' L' + (cx - 2) +
-      ' ' + (cy + 6) + ' M' + (cx + 5) + ' ' + (cy - 12) + ' L' +
-      (cx - 1) + ' ' + (cy - 1) + ' L' + (cx + 6) + ' ' + (cy - 1) +
-      ' L' + (cx - 3) + ' ' + (cy + 13) + '"/>',
-    '</g>'
+    open, c(14.6, 4.7, 3.0), l(13.6, 8.5, 10.6, 14.4, 3.0),
+    l(12.2, 10.3, 6.6, 10.6, 2.6),
+    l(12.2, 10.4, 16.9, 14.2, 2.6),
+    l(10.8, 14.2, 6.0, 21.0, 3.2),
+    l(6.0, 21.0, 2.6, 20.6, 2.4),
+    l(10.8, 14.2, 19.0, 16.6, 3.2),
+    l(19.0, 16.6, 23.8, 23.2, 2.9),
+    l(2.8, 7.8, 7.5, 7.8, 1.4),
+    l(2.2, 14.0, 6.1, 14.0, 1.4),
+    l(2.5, 25.0, 8.0, 25.0, 1.4), close
   ].join('\n');
 }
 
 function menuItem(activity, selected, y) {
   var labelColor = selected ? THEME.onAccent : THEME.text;
-  var iconColor = selected ? THEME.onAccent : THEME.accent;
+  var iconColor = selected ? THEME.onAccent : THEME.text;
   var background = selected ?
     '<rect x="8" y="' + y + '" width="' + (RIGHT - 12) +
       '" height="31" rx="4" fill="' +
@@ -595,7 +651,7 @@ function menuItem(activity, selected, y) {
 
   return [
     background,
-    activityIcon(activity, 27, y + 16, 26, iconColor),
+    activityIcon(activity, 27, y + 16, 28, iconColor),
     '<text x="46" y="' + (y + 23) + '" class="menu" fill="' + labelColor +
       '">' + esc(activity) + '</text>'
   ].join('\n');
@@ -614,10 +670,11 @@ function renderChoose(screen) {
   return base([
     topBar(screen.activity, 'CHOOSE', THEME.muted),
     '<text x="' + Math.round(RIGHT / 2) +
-      '" y="42" class="label" text-anchor="middle">Choose Activity</text>',
-    menuItem('WALKING', screen.activity === 'WALKING', 48),
-    menuItem('RUNNING', screen.activity === 'RUNNING', 81),
-    menuItem('CYCLING', screen.activity === 'CYCLING', 114),
+      '" y="' + (isTall() ? 47 : 42) +
+      '" class="label" text-anchor="middle">Choose Activity</text>',
+    menuItem('WALKING', screen.activity === 'WALKING', chooseRowY(0)),
+    menuItem('RUNNING', screen.activity === 'RUNNING', chooseRowY(1)),
+    menuItem('CYCLING', screen.activity === 'CYCLING', chooseRowY(2)),
     actionRail(null, 'gps', 'type')
   ].join('\n'));
 }
@@ -628,20 +685,24 @@ function renderGps(screen) {
   return base([
     topBar(screen.activity, screen.state, screen.color),
     '<g fill="none" stroke="' + THEME.muted + '" stroke-width="1">',
-    '<circle cx="' + centerX + '" cy="67" r="21"/>',
-    '<circle cx="' + centerX + '" cy="67" r="29"/>',
+    '<circle cx="' + centerX + '" cy="' + gpsIconY() + '" r="21"/>',
+    '<circle cx="' + centerX + '" cy="' + gpsIconY() + '" r="29"/>',
     '</g>',
     '<g stroke="' + screen.color + '" stroke-width="2">',
-    '<path d="M' + centerX + ' 40 L' + centerX + ' 54 M' + centerX +
-      ' 80 L' + centerX + ' 94 M' + (centerX - 27) + ' 67 L' +
-      (centerX - 13) + ' 67 M' + (centerX + 13) + ' 67 L' +
-      (centerX + 27) + ' 67"/>',
+    '<path d="M' + centerX + ' ' + (gpsIconY() - 27) + ' L' + centerX +
+      ' ' + (gpsIconY() - 13) + ' M' + centerX + ' ' + (gpsIconY() + 13) +
+      ' L' + centerX + ' ' + (gpsIconY() + 27) + ' M' + (centerX - 27) +
+      ' ' + gpsIconY() + ' L' + (centerX - 13) + ' ' + gpsIconY() +
+      ' M' + (centerX + 13) + ' ' + gpsIconY() + ' L' + (centerX + 27) +
+      ' ' + gpsIconY() + '"/>',
     '</g>',
-    '<circle cx="' + centerX + '" cy="67" r="' + dotR +
+    '<circle cx="' + centerX + '" cy="' + gpsIconY() + '" r="' + dotR +
       '" fill="' + screen.color + '"/>',
-    '<text x="' + centerX + '" y="119" class="title" fill="' + screen.color +
+    '<text x="' + centerX + '" y="' + (gpsTitleY() + 21) +
+      '" class="title" fill="' + screen.color +
       '" text-anchor="middle">' + esc(screen.title) + '</text>',
-    '<text x="' + centerX + '" y="139" class="label" fill="' + THEME.text +
+    '<text x="' + centerX + '" y="' + (gpsAccuracyY() + 13) +
+      '" class="label" fill="' + THEME.text +
       '" text-anchor="middle">' + esc(screen.accuracy) + '</text>',
     '<text x="' + centerX + '" y="' + (HEIGHT - 8) +
       '" class="footer" text-anchor="middle">' + esc(screen.hint) + '</text>',
@@ -651,15 +712,20 @@ function renderGps(screen) {
 
 function renderCountdown(screen) {
   var centerX = Math.round(RIGHT / 2);
+  var centerY = countdownCenterY();
   return base([
     topBar(screen.activity, 'GET READY', THEME.accent),
-    '<circle cx="' + centerX + '" cy="80" r="38" fill="none" stroke="' + THEME.accent +
+    '<circle cx="' + centerX + '" cy="' + centerY +
+      '" r="38" fill="none" stroke="' + THEME.accent +
       '" stroke-width="3"/>',
-    '<circle cx="' + centerX + '" cy="80" r="46" fill="none" stroke="' + THEME.muted +
+    '<circle cx="' + centerX + '" cy="' + centerY +
+      '" r="46" fill="none" stroke="' + THEME.muted +
       '" stroke-width="1"/>',
-    '<text x="' + centerX + '" y="94" class="timer" fill="' + THEME.text +
+    '<text x="' + centerX + '" y="' + (centerY + 14) +
+      '" class="timer" fill="' + THEME.text +
       '" text-anchor="middle">' + esc(screen.number) + '</text>',
-    '<text x="' + centerX + '" y="132" class="label" text-anchor="middle">' +
+    '<text x="' + centerX + '" y="' + (centerY + 52) +
+      '" class="label" text-anchor="middle">' +
       esc(screen.activity) + '</text>'
   ].join('\n'));
 }
@@ -668,11 +734,12 @@ function renderActivity(screen) {
   var centerX = Math.round(RIGHT / 2);
   return base([
     topBar(screen.activity, 'RECORDING', THEME.accent),
-    '<text x="' + centerX + '" y="55" class="timer" fill="' + THEME.text +
+    '<text x="' + centerX + '" y="' + (activityTimerY() + 33) +
+      '" class="timer" fill="' + THEME.text +
       '" text-anchor="middle">' + esc(screen.elapsed) + '</text>',
-    row(80, 'DIST', screen.distance),
-    row(107, screen.metricLabel, screen.metricValue),
-    row(134, 'HR', screen.hr),
+    row(activityRowY(0) + 14, 'DIST', screen.distance),
+    row(activityRowY(1) + 14, screen.metricLabel, screen.metricValue),
+    row(activityRowY(2) + 14, 'HR', screen.hr),
     '<text x="' + centerX + '" y="' + (HEIGHT - 6) +
       '" class="footer" text-anchor="middle">' + esc(screen.gps) + '</text>',
     actionRail(null, 'pause', 'save')
@@ -684,13 +751,16 @@ function renderPaused(screen) {
   return base([
     topBar(screen.activity, 'PAUSED', THEME.warning),
     '<g fill="' + THEME.warning + '">',
-    '<rect x="' + (centerX - 12) + '" y="35" width="8" height="25" rx="2"/>',
-    '<rect x="' + (centerX + 4) + '" y="35" width="8" height="25" rx="2"/>',
+    '<rect x="' + (centerX - 12) + '" y="' + pausedIconY() +
+      '" width="8" height="25" rx="2"/>',
+    '<rect x="' + (centerX + 4) + '" y="' + pausedIconY() +
+      '" width="8" height="25" rx="2"/>',
     '</g>',
-    '<text x="' + centerX + '" y="84" class="title" fill="' +
+    '<text x="' + centerX + '" y="' + (pausedTitleY() + 21) +
+      '" class="title" fill="' +
       THEME.warning + '" text-anchor="middle">PAUSED</text>',
-    row(114, 'TIME', screen.elapsed),
-    row(141, 'DIST', screen.distance),
+    row(pausedRowY(0) + 14, 'TIME', screen.elapsed),
+    row(pausedRowY(1) + 14, 'DIST', screen.distance),
     actionRail(null, 'play', 'save')
   ].join('\n'));
 }
@@ -758,52 +828,76 @@ function pixelActionIcon(canvas, type, cx, cy, color) {
 function pixelActionRail(canvas, up, select, down) {
   var railX = WIDTH - ACTION_RAIL_W;
   var iconX = railX + Math.round(ACTION_RAIL_W / 2);
-  var color = THEME.text;
+  var railColor = THEME.text;
+  var iconColor = THEME.bg;
 
   if (!up && !select && !down) {
     return;
   }
-  canvas.line(railX, 20, railX, HEIGHT - 8, color, 1);
-  pixelActionIcon(canvas, up, iconX, 42, color);
-  pixelActionIcon(canvas, select, iconX, 84, color);
-  pixelActionIcon(canvas, down, iconX, 126, color);
+  canvas.fillRect(railX, 0, ACTION_RAIL_W, HEIGHT, railColor);
+  pixelActionIcon(canvas, up, iconX, railIconY(0), iconColor);
+  pixelActionIcon(canvas, select, iconX, railIconY(1), iconColor);
+  pixelActionIcon(canvas, down, iconX, railIconY(2), iconColor);
 }
 
 function pixelActivityIcon(canvas, activity, cx, cy, size, color) {
-  if (activity === 'CYCLING') {
-    var wheelR = Math.round(size / 5);
-    var leftX = cx - Math.round(size / 3);
-    var rightX = cx + Math.round(size / 3);
-    var wheelY = cy + Math.round(size / 5);
-    var seatX = cx - Math.round(size / 10);
-    var seatY = cy - Math.round(size / 7);
-    var barX = cx + Math.round(size / 5);
-    var barY = cy - Math.round(size / 5);
+  var scale = size / 28;
+  var originX = cx - size / 2;
+  var originY = cy - size / 2;
+  function x(value) {
+    return Math.round(originX + value * scale);
+  }
+  function y(value) {
+    return Math.round(originY + value * scale);
+  }
+  function w(value) {
+    return Math.max(1, Math.round(value * scale));
+  }
+  function l(x1, y1, x2, y2, width) {
+    canvas.line(x(x1), y(y1), x(x2), y(y2), color, w(width));
+  }
+  function c(cx2, cy2, radius) {
+    canvas.fillCircle(x(cx2), y(cy2), Math.max(1, Math.round(radius * scale)),
+                      color);
+  }
+  function ring(cx2, cy2, radius, width) {
+    canvas.circle(x(cx2), y(cy2), Math.max(1, Math.round(radius * scale)),
+                  color, w(width));
+  }
 
-    canvas.circle(leftX, wheelY, wheelR, color, 2);
-    canvas.circle(rightX, wheelY, wheelR, color, 2);
-    canvas.line(leftX, wheelY, cx, wheelY, color, 2);
-    canvas.line(cx, wheelY, seatX, seatY, color, 2);
-    canvas.line(seatX, seatY, rightX, wheelY, color, 2);
-    canvas.line(cx, wheelY, rightX, wheelY, color, 2);
-    canvas.line(barX, barY, rightX, wheelY, color, 2);
-    canvas.line(seatX - 6, seatY - 2, seatX + 5, seatY - 2, color, 2);
-    canvas.line(barX, barY, barX + 9, barY - 3, color, 2);
-    canvas.fillCircle(cx, wheelY, 3, color);
+  if (activity === 'CYCLING') {
+    ring(7.5, 20.8, 5.0, 2.0);
+    ring(21.0, 20.8, 5.0, 2.0);
+    l(7.5, 20.8, 13.5, 20.8, 2.0);
+    l(13.5, 20.8, 11.8, 13.2, 2.0);
+    l(11.8, 13.2, 21.0, 20.8, 2.0);
+    l(13.5, 20.8, 18.0, 13.0, 2.0);
+    l(18.0, 13.0, 21.0, 20.8, 2.0);
+    l(11.0, 12.4, 14.2, 12.4, 2.0);
+    l(17.8, 13.0, 22.5, 11.7, 1.8);
+    l(22.5, 11.7, 25.0, 13.1, 1.8);
+    c(13.5, 20.8, 2.0);
   } else if (activity === 'WALKING') {
-    var soleW = Math.round(size / 5);
-    var soleH = Math.round(size / 2);
-    canvas.fillRect(cx - 7, cy - 10, soleW, soleH, color);
-    canvas.fillCircle(cx - 8, cy - 12, 2, color);
-    canvas.fillRect(cx + 3, cy + 1, soleW, soleH, color);
-    canvas.fillCircle(cx + 2, cy - 1, 2, color);
+    c(14.0, 4.8, 3.1);
+    l(13.8, 8.2, 13.0, 14.8, 3.0);
+    l(13.2, 10.5, 8.6, 15.3, 2.5);
+    l(13.2, 10.5, 18.0, 10.1, 2.5);
+    l(13.0, 14.5, 9.5, 22.4, 3.0);
+    l(9.5, 22.4, 5.6, 22.9, 2.4);
+    l(13.1, 14.7, 18.3, 21.0, 3.0);
+    l(18.3, 21.0, 21.8, 23.4, 2.4);
   } else {
-    canvas.line(cx - 11, cy - 6, cx - 2, cy - 6, color, 3);
-    canvas.line(cx - 13, cy, cx - 5, cy, color, 3);
-    canvas.line(cx - 10, cy + 6, cx - 2, cy + 6, color, 3);
-    canvas.line(cx + 5, cy - 12, cx - 1, cy - 1, color, 3);
-    canvas.line(cx - 1, cy - 1, cx + 6, cy - 1, color, 3);
-    canvas.line(cx + 6, cy - 1, cx - 3, cy + 13, color, 3);
+    c(14.6, 4.7, 3.0);
+    l(13.6, 8.5, 10.6, 14.4, 3.0);
+    l(12.2, 10.3, 6.6, 10.6, 2.6);
+    l(12.2, 10.4, 16.9, 14.2, 2.6);
+    l(10.8, 14.2, 6.0, 21.0, 3.2);
+    l(6.0, 21.0, 2.6, 20.6, 2.4);
+    l(10.8, 14.2, 19.0, 16.6, 3.2);
+    l(19.0, 16.6, 23.8, 23.2, 2.9);
+    l(2.8, 7.8, 7.5, 7.8, 1.4);
+    l(2.2, 14.0, 6.1, 14.0, 1.4);
+    l(2.5, 25.0, 8.0, 25.0, 1.4);
   }
 }
 
@@ -823,7 +917,7 @@ function pixelTextFit(canvas, text, x, y, maxWidth, scale, color, align, bold) {
 
 function pixelMenuItem(canvas, activity, selected, y) {
   var labelColor = selected ? THEME.onAccent : THEME.text;
-  var iconColor = selected ? THEME.onAccent : THEME.accent;
+  var iconColor = selected ? THEME.onAccent : THEME.text;
 
   if (selected) {
     canvas.fillRect(8, y, RIGHT - 12, 31, THEME.accent);
@@ -831,7 +925,7 @@ function pixelMenuItem(canvas, activity, selected, y) {
     canvas.line(14, y + 30, RIGHT - 4, y + 30, THEME.muted, 1);
   }
 
-  pixelActivityIcon(canvas, activity, 27, y + 16, 26, iconColor);
+  pixelActivityIcon(canvas, activity, 27, y + 16, 28, iconColor);
   pixelTextFit(canvas, activity, 46, y + 8, RIGHT - 50, 2, labelColor,
                'left', true);
 }
@@ -859,42 +953,51 @@ function renderPixel(screen) {
 
   if (screen.kind === 'choose') {
     pixelTopBar(canvas, screen.activity, 'CHOOSE', THEME.muted);
-    pixelTextFit(canvas, 'CHOOSE ACTIVITY', centerX, 30, RIGHT - 12, 2,
+    pixelTextFit(canvas, 'CHOOSE ACTIVITY', centerX, isTall() ? 35 : 30, RIGHT - 12, 2,
                  THEME.muted, 'center', false);
-    pixelMenuItem(canvas, 'WALKING', screen.activity === 'WALKING', 48);
-    pixelMenuItem(canvas, 'RUNNING', screen.activity === 'RUNNING', 81);
-    pixelMenuItem(canvas, 'CYCLING', screen.activity === 'CYCLING', 114);
+    pixelMenuItem(canvas, 'WALKING', screen.activity === 'WALKING',
+                  chooseRowY(0));
+    pixelMenuItem(canvas, 'RUNNING', screen.activity === 'RUNNING',
+                  chooseRowY(1));
+    pixelMenuItem(canvas, 'CYCLING', screen.activity === 'CYCLING',
+                  chooseRowY(2));
     pixelActionRail(canvas, null, 'gps', 'type');
   } else if (screen.kind === 'gps') {
     pixelTopBar(canvas, screen.activity, screen.state, screen.color);
-    pixelGpsIcon(canvas, centerX, 67, screen.color, screen.locked);
-    pixelTextFit(canvas, screen.title, centerX, 101, RIGHT - 8, 2,
+    pixelGpsIcon(canvas, centerX, gpsIconY(), screen.color, screen.locked);
+    pixelTextFit(canvas, screen.title, centerX, gpsTitleY() + 3, RIGHT - 8, 2,
                  screen.color, 'center', true);
-    pixelTextFit(canvas, screen.accuracy, centerX, 127, RIGHT - 8, 2,
+    pixelTextFit(canvas, screen.accuracy, centerX, gpsAccuracyY() + 1,
+                 RIGHT - 8, 2,
                  THEME.text, 'center', false);
     canvas.text(screen.hint, centerX, HEIGHT - 15, 1, THEME.muted, 'center',
                 false);
     pixelActionRail(canvas, 'refresh', screen.locked ? 'play' : null, 'type');
   } else if (screen.kind === 'countdown') {
+    var countdownY = countdownCenterY();
     pixelTopBar(canvas, screen.activity, 'GET READY', THEME.accent);
-    canvas.circle(centerX, 80, 38, THEME.accent, 3);
-    canvas.circle(centerX, 80, 46, THEME.muted, 1);
-    canvas.text(screen.number, centerX, 60, 7, THEME.text, 'center', true);
-    canvas.text(screen.activity, centerX, 121, 2, THEME.muted, 'center', false);
+    canvas.circle(centerX, countdownY, 38, THEME.accent, 3);
+    canvas.circle(centerX, countdownY, 46, THEME.muted, 1);
+    canvas.text(screen.number, centerX, countdownY - 20, 7, THEME.text,
+                'center', true);
+    canvas.text(screen.activity, centerX, countdownY + 41, 2, THEME.muted,
+                'center', false);
   } else if (screen.kind === 'paused') {
     pixelTopBar(canvas, screen.activity, 'PAUSED', THEME.warning);
-    canvas.fillRect(centerX - 12, 35, 8, 25, THEME.warning);
-    canvas.fillRect(centerX + 4, 35, 8, 25, THEME.warning);
-    canvas.text('PAUSED', centerX, 70, 3, THEME.warning, 'center', true);
-    pixelRow(canvas, 100, 'TIME', screen.elapsed);
-    pixelRow(canvas, 127, 'DIST', screen.distance);
+    canvas.fillRect(centerX - 12, pausedIconY(), 8, 25, THEME.warning);
+    canvas.fillRect(centerX + 4, pausedIconY(), 8, 25, THEME.warning);
+    canvas.text('PAUSED', centerX, pausedTitleY() + 7, 3, THEME.warning,
+                'center', true);
+    pixelRow(canvas, pausedRowY(0), 'TIME', screen.elapsed);
+    pixelRow(canvas, pausedRowY(1), 'DIST', screen.distance);
     pixelActionRail(canvas, null, 'play', 'save');
   } else {
     pixelTopBar(canvas, screen.activity, 'RECORDING', THEME.accent);
-    canvas.text(screen.elapsed, centerX, 27, 5, THEME.text, 'center', true);
-    pixelRow(canvas, 66, 'DIST', screen.distance);
-    pixelRow(canvas, 93, screen.metricLabel, screen.metricValue);
-    pixelRow(canvas, 120, 'HR', screen.hr);
+    canvas.text(screen.elapsed, centerX, activityTimerY() + 5, 5, THEME.text,
+                'center', true);
+    pixelRow(canvas, activityRowY(0), 'DIST', screen.distance);
+    pixelRow(canvas, activityRowY(1), screen.metricLabel, screen.metricValue);
+    pixelRow(canvas, activityRowY(2), 'HR', screen.hr);
     canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
                 false);
     pixelActionRail(canvas, null, 'pause', 'save');

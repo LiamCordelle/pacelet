@@ -626,7 +626,7 @@ function recordHr(value) {
 }
 
 Pebble.addEventListener('ready', function() {
-  console.log('Pebble Tracker ready');
+  console.log('Pacelet ready');
   sendSettingsToWatch();
 });
 

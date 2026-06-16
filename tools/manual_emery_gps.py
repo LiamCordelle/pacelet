@@ -21,7 +21,7 @@ ACTIVITY_DOWN_CLICKS = {
 def build_parser():
     parser = argparse.ArgumentParser(
         description=(
-            'Run Pebble Activity Tracker in the emery emulator with simulated '
+            'Run Pacelet in the emery emulator with simulated '
             'phone GPS. The simulator starts returning GPS fixes after the '
             'configured delay, then moves around a slightly jittered 1 km loop.'
         )

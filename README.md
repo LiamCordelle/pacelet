@@ -1,6 +1,6 @@
-# Pebble Activity Tracker
+# Pacelet
 
-Pebble Activity Tracker is a Pebble watchapp for recording outdoor activities.
+Pacelet is a Pebble watchapp for recording outdoor activities.
 The watch acts as the controller and live dashboard, while the paired phone
 provides GPS.
 
@@ -57,8 +57,12 @@ Choose Activity -> GPS lock status -> 3,2,1 countdown -> Activity started
   upload request building, and upload status helpers.
 - `src/pkjs/config_page.js`: Embedded Pebble configuration page for personal
   Strava credentials.
+- `resources/images/`: Generated monochrome activity icon PNG resources used by
+  the watch menu.
 - `test/tracker_core.test.js`: Test harness for tracking behavior.
 - `test/strava.test.js`: Test harness for TCX/export/upload helpers.
+- `tools/generate_activity_icons.js`: Rebuilds the walking/running/cycling icon
+  PNG resources without external dependencies.
 - `tools/manual_emery_gps.py`: Manual emulator harness that runs the app in
   `emery` with simulated phone GPS.
 - `tools/screenshot_emulator.py`: Real emulator screenshot harness, defaulting
@@ -117,6 +121,12 @@ appropriate for a public/distributed app build.
 
 ## Screenshots
 
+Regenerate the activity icon PNG resources with:
+
+```sh
+npm run icons
+```
+
 Regenerate the current SVG screen mockups with:
 
 ```sh
@@ -135,7 +145,7 @@ Capture a real `emery` emulator screenshot of the current app with:
 npm run screenshots:emulator
 ```
 
-Capture the main app flow from the `emery` emulator in one run with:
+Capture the main app flow from the `emery` emulator in one command with:
 
 ```sh
 npm run screenshots:emulator:all
@@ -159,7 +169,9 @@ pixels are easy to inspect. No external renderer is required.
 The emulator screenshot harness builds and installs the PBW, drives the app to a
 selected screen or the main app flow, and saves real captures under
 `screenshots/emulator/`. The all-screens mode captures choose, GPS searching,
-GPS ready, countdown, activity, and paused states with ordered filenames.
+GPS ready, countdown, activity, and paused states with ordered filenames. It
+starts from a fresh install for each screen so previous capture state does not
+leak into the next screenshot.
 Useful variants:
 
 ```sh

@@ -14,7 +14,7 @@ var DEFAULT_SETTINGS = {
   stravaAccessToken: '',
   stravaExpiresAt: 0,
   stravaScope: '',
-  stravaDescription: 'Uploaded from Pebble Activity Tracker'
+  stravaDescription: 'Uploaded from Pacelet'
 };
 
 function copyDefaults(value) {

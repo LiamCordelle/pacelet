@@ -185,7 +185,7 @@ run('config page URL embeds current settings, activities, and close handler', fu
   var html = decodeURIComponent(url.replace('data:text/html;charset=utf-8,', ''));
 
   assert.ok(url.indexOf('data:text/html;charset=utf-8,') === 0);
-  assert.ok(html.indexOf('Pebble Tracker') !== -1);
+  assert.ok(html.indexOf('Pacelet') !== -1);
   assert.ok(html.indexOf('darkMode') !== -1);
   assert.ok(html.indexOf('stravaClientId') !== -1);
   assert.ok(html.indexOf('Open Strava Authorization') !== -1);

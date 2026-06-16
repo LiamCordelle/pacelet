@@ -1,5 +1,5 @@
 {
-  "name": "pebble-activity-tracker",
+  "name": "pacelet",
   "author": "Codex",
   "version": "0.1.0",
   "keywords": [
@@ -8,8 +8,9 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "test": "node test/tracker_core.test.js && node test/strava.test.js && node --check src/pkjs/index.js && node --check src/pkjs/tracker_core.js && node --check src/pkjs/strava.js && node --check src/pkjs/config_page.js && node --check tools/render_screenshots.js && python3 -B -c \"import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in ('tools/manual_emery_gps.py','tools/screenshot_emulator.py','tools/pypkjs_gps_sim/sitecustomize.py')]\"",
+    "test": "node test/tracker_core.test.js && node test/strava.test.js && node --check src/pkjs/index.js && node --check src/pkjs/tracker_core.js && node --check src/pkjs/strava.js && node --check src/pkjs/config_page.js && node --check tools/generate_activity_icons.js && node --check tools/render_screenshots.js && python3 -B -c \"import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in ('tools/manual_emery_gps.py','tools/screenshot_emulator.py','tools/pypkjs_gps_sim/sitecustomize.py')]\"",
     "manual:emery:gps": "python3 tools/manual_emery_gps.py",
+    "icons": "node tools/generate_activity_icons.js",
     "screenshots": "node tools/render_screenshots.js",
     "screenshots:png": "node tools/render_screenshots.js --png",
     "screenshots:emulator": "python3 tools/screenshot_emulator.py",
@@ -17,7 +18,7 @@
   },
   "dependencies": {},
   "pebble": {
-    "displayName": "Pebble Tracker",
+    "displayName": "Pacelet",
     "uuid": "4481EF3F-FB7F-4EE1-85C4-5B3E1DBA08B2",
     "sdkVersion": "3",
     "enableMultiJS": true,
@@ -58,7 +59,38 @@
       "DARK_MODE"
     ],
     "resources": {
-      "media": []
+      "media": [
+        {
+          "type": "png",
+          "name": "IMAGE_ACTIVITY_WALK_BLACK",
+          "file": "images/activity_walk_black.png"
+        },
+        {
+          "type": "png",
+          "name": "IMAGE_ACTIVITY_WALK_WHITE",
+          "file": "images/activity_walk_white.png"
+        },
+        {
+          "type": "png",
+          "name": "IMAGE_ACTIVITY_RUN_BLACK",
+          "file": "images/activity_run_black.png"
+        },
+        {
+          "type": "png",
+          "name": "IMAGE_ACTIVITY_RUN_WHITE",
+          "file": "images/activity_run_white.png"
+        },
+        {
+          "type": "png",
+          "name": "IMAGE_ACTIVITY_CYCLE_BLACK",
+          "file": "images/activity_cycle_black.png"
+        },
+        {
+          "type": "png",
+          "name": "IMAGE_ACTIVITY_CYCLE_WHITE",
+          "file": "images/activity_cycle_white.png"
+        }
+      ]
     }
   }
 }

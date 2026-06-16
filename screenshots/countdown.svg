@@ -9,11 +9,11 @@
   .title { font: 750 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
 </style>
 <rect width="200" height="228" fill="#f7fbf8"/>
-<rect width="184" height="2" fill="#007c54"/>
+<rect width="180" height="2" fill="#007c54"/>
 <text x="8" y="17" class="status" fill="#3e5459">RUNNING</text>
-<text x="184" y="17" class="status" fill="#007c54" text-anchor="end">GET READY</text>
-<circle cx="92" cy="80" r="38" fill="none" stroke="#007c54" stroke-width="3"/>
-<circle cx="92" cy="80" r="46" fill="none" stroke="#3e5459" stroke-width="1"/>
-<text x="92" y="94" class="timer" fill="#071014" text-anchor="middle">3</text>
-<text x="92" y="132" class="label" text-anchor="middle">RUNNING</text>
+<text x="180" y="17" class="status" fill="#007c54" text-anchor="end">GET READY</text>
+<circle cx="90" cy="96" r="38" fill="none" stroke="#007c54" stroke-width="3"/>
+<circle cx="90" cy="96" r="46" fill="none" stroke="#3e5459" stroke-width="1"/>
+<text x="90" y="110" class="timer" fill="#071014" text-anchor="middle">3</text>
+<text x="90" y="148" class="label" text-anchor="middle">RUNNING</text>
 </svg>
