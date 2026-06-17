@@ -193,7 +193,7 @@ function stravaSportType(type) {
 function titleForActivity(activity) {
   var type = activity.type || 'running';
   var label = type.charAt(0).toUpperCase() + type.slice(1);
-  return 'Pebble ' + label + ' ' + isoTime(activity.startedAt).slice(0, 16);
+  return 'Pacelet ' + label + ' ' + isoTime(activity.startedAt).slice(0, 16);
 }
 
 function pointTime(point) {

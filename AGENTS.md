@@ -125,6 +125,9 @@ The current Strava implementation is a personal/direct flow:
   preference in phone-side localStorage.
 - If an authorization code is present when settings are saved, PebbleKit JS
   exchanges it for access/refresh tokens and clears the code.
+- Authorization codes are short-lived and single-use. They are tied to the
+  Strava API client, not a watch instance. A reinstall that loses the locally
+  stored refresh token needs a fresh authorization code.
 - Strava uploads require `activity:write`. The config page has an authorization
   helper URL requesting `read,activity:write`; the runtime records the granted
   scope from token responses and skips upload with a clear error when it knows
@@ -136,9 +139,10 @@ The current Strava implementation is a personal/direct flow:
 - The same configuration page lists recent saved activity summaries and can send
   `export_tcx` or `retry_strava` actions back to phone-side JS.
 
-This is not suitable for a public app build because the Strava client secret is
-stored on-device and the PBW contains the upload/token code. A public build
-would need an OAuth backend or proxy.
+This is a personal, user-supplied credential flow rather than a managed OAuth
+service. Public builds must clearly state that each user needs their own Strava
+API client and that the client secret and tokens are stored in Pebble app
+settings on the phone.
 
 ## Commands
 

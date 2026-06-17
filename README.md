@@ -99,6 +99,10 @@ then polls Strava briefly for the resulting activity ID.
 
 If you paste a one-time authorization code into settings, the app exchanges it
 for access/refresh tokens when you save the configuration, then clears the code.
+The authorization code is short-lived and can only be exchanged once. It is
+tied to the Strava API client, not to a particular Pebble watch or installation.
+If reinstalling Pacelet loses the locally stored refresh token, generate a fresh
+authorization code instead of reusing the previous one.
 
 ## Saved Activities And Export
 
@@ -117,9 +121,10 @@ activity summaries. Each entry has:
 The configuration page also has an Appearance section with a dark-mode toggle
 for the watch app.
 
-Important caveat: this is a personal-use integration. The client secret and
-tokens are stored in Pebble app settings on the phone, so this approach is not
-appropriate for a public/distributed app build.
+Important caveat: this is a personal-credentials integration rather than a
+managed OAuth service. Pacelet has no shared backend, so each user needs their
+own Strava API client ID and secret. The client secret and tokens are stored in
+Pebble app settings on the phone and should never be shared.
 
 ## Screenshots
 

@@ -148,6 +148,10 @@ run('cycling maps to biking TCX sport and Strava Ride sport type', function() {
   assert.strictEqual(Strava.stravaSportType('cycling'), 'Ride');
 });
 
+run('activity titles use the Pacelet name', function() {
+  assert.ok(Strava.titleForActivity(activity).indexOf('Pacelet Running ') === 0);
+});
+
 run('upload request builds a multipart TCX upload', function() {
   var upload = Strava.uploadRequest(activity, {
     stravaAccessToken: 'access',
@@ -163,7 +167,7 @@ run('upload request builds a multipart TCX upload', function() {
   assert.ok(upload.body.indexOf('<TrainingCenterDatabase') !== -1);
 });
 
-run('config page URL embeds current settings, activities, and close handler', function() {
+run('config page URL embeds settings, actions, OAuth guidance, and notices', function() {
   var url = ConfigPage.buildConfigUrl({
     darkMode: true,
     stravaEnabled: true,
@@ -181,7 +185,7 @@ run('config page URL embeds current settings, activities, and close handler', fu
       points: 2,
       stravaStatus: 'not_uploaded'
     }
-  ]);
+  ], 'Strava retry started.');
   var html = decodeURIComponent(url.replace('data:text/html;charset=utf-8,', ''));
 
   assert.ok(url.indexOf('data:text/html;charset=utf-8,') === 0);
@@ -196,5 +200,31 @@ run('config page URL embeds current settings, activities, and close handler', fu
   assert.ok(html.indexOf('Export TCX') !== -1);
   assert.ok(html.indexOf('Retry Strava') !== -1);
   assert.ok(html.indexOf('pt-123') !== -1);
+  assert.ok(html.indexOf('short-lived') !== -1);
+  assert.ok(html.indexOf('Strava retry started.') !== -1);
   assert.ok(html.indexOf('pebblejs://close#') !== -1);
+});
+
+run('config close responses preserve activity actions', function() {
+  var payload = {
+    action: 'retry_strava',
+    activityId: 'pt-123'
+  };
+  var encoded = encodeURIComponent(JSON.stringify(payload));
+
+  assert.deepStrictEqual(ConfigPage.parseResponse(encoded), payload);
+  assert.deepStrictEqual(ConfigPage.parseResponse('#' + encoded), payload);
+  assert.deepStrictEqual(ConfigPage.parseResponse(JSON.stringify(payload)), payload);
+});
+
+run('TCX export opens a readable page with copy and file actions', function() {
+  var tcx = Strava.generateTcx(activity);
+  var url = ConfigPage.buildExportUrl(activity, tcx);
+  var html = decodeURIComponent(url.replace('data:text/html;charset=utf-8,', ''));
+
+  assert.ok(html.indexOf('Export TCX') !== -1);
+  assert.ok(html.indexOf('Open TCX File') !== -1);
+  assert.ok(html.indexOf('Copy TCX') !== -1);
+  assert.ok(html.indexOf('pt-123.tcx') !== -1);
+  assert.ok(html.indexOf('&lt;TrainingCenterDatabase') !== -1);
 });

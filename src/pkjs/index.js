@@ -122,7 +122,8 @@ function activitySummaries() {
       points: history[i].points ? history[i].points.length : 0,
       stravaStatus: history[i].stravaStatus,
       stravaError: history[i].stravaError,
-      stravaActivityId: history[i].stravaActivityId
+      stravaActivityId: history[i].stravaActivityId,
+      stravaUploadStatus: history[i].stravaUploadStatus
     });
   }
   return summaries;
@@ -149,6 +150,34 @@ function request(options, callback) {
     }
   }
   xhr.send(options.body || null);
+}
+
+function stravaHttpError(prefix, response, json) {
+  var detail = '';
+  var firstError;
+  var parts = [];
+  json = json || {};
+
+  if (json.message) {
+    detail = json.message;
+  } else if (json.error) {
+    detail = json.error;
+  } else if (json.errors && json.errors.length) {
+    firstError = json.errors[0] || {};
+    if (firstError.resource) {
+      parts.push(firstError.resource);
+    }
+    if (firstError.field) {
+      parts.push(firstError.field);
+    }
+    if (firstError.code) {
+      parts.push(firstError.code);
+    }
+    detail = parts.join(' ');
+  }
+
+  return prefix + ': HTTP ' + response.status +
+      (detail ? ' - ' + detail : '');
 }
 
 function sendGpsStatus(force) {
@@ -377,8 +406,8 @@ function refreshStravaToken(callback) {
     }
     json = parseJson(response.text, {});
     if (response.status < 200 || response.status >= 300) {
-      callback(new Error('Strava token refresh failed: HTTP ' +
-          response.status));
+      callback(new Error(stravaHttpError(
+        'Strava token refresh failed', response, json)));
       return;
     }
     settings = Strava.applyTokenResponse(settings, json);
@@ -412,8 +441,8 @@ function exchangeStravaAuthorizationCode(callback) {
     }
     json = parseJson(response.text, {});
     if (response.status < 200 || response.status >= 300) {
-      callback(new Error('Strava authorization failed: HTTP ' +
-          response.status));
+      callback(new Error(stravaHttpError(
+        'Strava authorization failed', response, json)));
       return;
     }
     settings = Strava.applyTokenResponse(settings, json);
@@ -481,7 +510,8 @@ function uploadActivityToStrava(activity) {
       if (response.status < 200 || response.status >= 300) {
         updateStoredActivity(activity.id, {
           stravaStatus: 'failed',
-          stravaError: json.message || ('HTTP ' + response.status)
+          stravaError: stravaHttpError(
+            'Strava upload failed', response, json)
         });
         return;
       }
@@ -577,46 +607,125 @@ function maybeUploadToStrava(activity) {
   uploadActivityToStrava(activity);
 }
 
+function openConfiguration(notice) {
+  Pebble.openURL(ConfigPage.buildConfigUrl(
+    settings,
+    activitySummaries(),
+    notice || ''
+  ));
+}
+
+function openAfterConfigClose(url) {
+  setTimeout(function() {
+    Pebble.openURL(url);
+  }, 250);
+}
+
+function reopenConfiguration(notice) {
+  setTimeout(function() {
+    openConfiguration(notice);
+  }, 250);
+}
+
 function exportActivityTcx(activityId) {
   var activity = getStoredActivity(activityId);
   var tcx;
   if (!activity) {
     console.log('TCX export failed: activity not found');
-    return;
+    return {
+      ok: false,
+      message: 'TCX export failed: activity not found.'
+    };
   }
   tcx = Strava.generateTcx(activity);
-  Pebble.openURL('data:application/vnd.garmin.tcx+xml;charset=utf-8,' +
-      encodeURIComponent(tcx));
+  openAfterConfigClose(ConfigPage.buildExportUrl(activity, tcx));
+  return {
+    ok: true,
+    message: 'TCX export opened.'
+  };
 }
 
 function retryStravaUpload(activityId) {
   var activity = getStoredActivity(activityId);
   if (!activity) {
     console.log('Strava retry failed: activity not found');
-    return;
+    return {
+      ok: false,
+      message: 'Strava retry failed: activity not found.'
+    };
+  }
+  if (!settings.stravaEnabled) {
+    return {
+      ok: false,
+      message: 'Enable Strava and save settings before retrying.'
+    };
+  }
+  if (!Strava.isConfigured(settings)) {
+    return {
+      ok: false,
+      message: 'Strava is not connected. Save a fresh authorization code or refresh token first.'
+    };
+  }
+  if (!Strava.hasActivityWrite(settings)) {
+    return {
+      ok: false,
+      message: 'Strava did not grant activity:write. Authorize again with that scope.'
+    };
   }
   uploadActivityToStrava(activity);
+  return {
+    ok: true,
+    message: 'Strava retry started. The activity status is now uploading.'
+  };
 }
 
 function handleConfigPayload(payload) {
+  var actionResult;
+  var hadAuthorizationCode;
+  var hasSettingsPayload;
+
   if (payload.action === 'export_tcx') {
-    exportActivityTcx(payload.activityId);
+    actionResult = exportActivityTcx(payload.activityId);
+    if (!actionResult.ok) {
+      reopenConfiguration(actionResult.message);
+    }
     return;
   }
   if (payload.action === 'retry_strava') {
-    retryStravaUpload(payload.activityId);
+    actionResult = retryStravaUpload(payload.activityId);
+    reopenConfiguration(actionResult.message);
+    return;
+  }
+  if (payload.action && payload.action !== 'save_settings') {
+    reopenConfiguration('Unknown configuration action: ' + payload.action);
+    return;
+  }
+
+  hasSettingsPayload =
+      typeof payload.darkMode !== 'undefined' ||
+      typeof payload.stravaEnabled !== 'undefined' ||
+      typeof payload.stravaClientId !== 'undefined';
+  if (!hasSettingsPayload) {
+    reopenConfiguration('No settings or activity action was received.');
     return;
   }
 
   settings = Strava.copyDefaults(payload);
+  hadAuthorizationCode = !!settings.stravaAuthorizationCode;
   saveSettings();
   sendSettingsToWatch();
   console.log('Settings saved');
   exchangeStravaAuthorizationCode(function(authErr) {
     if (authErr) {
-      console.log('Strava authorization failed: ' + authErr.message);
-    } else if (settings.stravaRefreshToken) {
+      console.log(authErr.message);
+      if (hadAuthorizationCode) {
+        reopenConfiguration(authErr.message +
+          '. Authorization codes are short-lived and single-use; generate a fresh code and try again.');
+      }
+    } else if (hadAuthorizationCode && settings.stravaRefreshToken) {
       console.log('Strava authorization ready');
+      reopenConfiguration(
+        'Strava connected. The refresh token was saved and the one-time authorization code was cleared.');
     }
   });
 }
@@ -631,22 +740,16 @@ Pebble.addEventListener('ready', function() {
 });
 
 Pebble.addEventListener('showConfiguration', function() {
-  Pebble.openURL(ConfigPage.buildConfigUrl(settings, activitySummaries()));
+  openConfiguration('');
 });
 
 Pebble.addEventListener('webviewclosed', function(e) {
-  var response;
   var payload;
   if (!e || !e.response) {
     return;
   }
   try {
-    try {
-      response = decodeURIComponent(e.response);
-    } catch (decodeErr) {
-      response = e.response;
-    }
-    payload = JSON.parse(response);
+    payload = ConfigPage.parseResponse(e.response);
     handleConfigPayload(payload);
   } catch (err) {
     console.log('Config parse failed: ' + err);

@@ -50,6 +50,9 @@ function activityStatus(activity) {
   if (activity.stravaError) {
     return status + ': ' + activity.stravaError;
   }
+  if (activity.stravaUploadStatus) {
+    return status + ': ' + activity.stravaUploadStatus;
+  }
   return status;
 }
 
@@ -81,10 +84,12 @@ function renderActivities(activities) {
   return output.join('');
 }
 
-function buildConfigHtml(settings, activities) {
+function buildConfigHtml(settings, activities, notice) {
   settings = settings || {};
   var settingsJson = JSON.stringify(settings || {});
   var activitiesJson = JSON.stringify(activities || []);
+  var noticeHtml = notice ?
+    '<p class="notice">' + escapeHtml(notice) + '</p>' : '';
   return [
     '<!doctype html>',
     '<html>',
@@ -107,6 +112,7 @@ function buildConfigHtml(settings, activities) {
     '.activity h3{font-size:15px;margin:0 0 6px;}',
     '.activity p{margin:5px 0;}',
     '.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;}',
+    '.notice{background:#173b35;border:1px solid #00d084;border-radius:7px;color:#f5fbf8;padding:10px;}',
     'p{color:#a9b5ad;font-size:13px;line-height:1.4;}',
     'button{width:100%;border:0;border-radius:7px;background:#00d084;color:#061014;font-size:17px;font-weight:800;padding:12px;margin-top:10px;}',
     '.actions button{font-size:14px;margin-top:4px;padding:9px;}',
@@ -115,7 +121,8 @@ function buildConfigHtml(settings, activities) {
     '<body>',
     '<main>',
     '<h1>Pacelet</h1>',
-    '<p>Personal Strava upload stores these credentials only in the Pebble app settings on this phone. Do not use this for a public app build.</p>',
+    noticeHtml,
+    '<p>Pacelet has no shared Strava backend. Each user supplies their own Strava API app credentials, which are stored in Pebble app settings on this phone. Never share the client secret or tokens.</p>',
     '<form id="settings">',
     '<fieldset>',
     '<legend>Appearance</legend>',
@@ -130,8 +137,8 @@ function buildConfigHtml(settings, activities) {
     '<label for="stravaClientSecret">Client Secret</label>',
     '<input id="stravaClientSecret" value="' + escapeHtml(settings.stravaClientSecret) + '">',
     '<button type="button" id="openStravaAuth">Open Strava Authorization</button>',
-    '<p>Authorize with <code>activity:write</code>, then copy the <code>code</code> from the redirected URL and paste it below.</p>',
-    '<label for="stravaAuthorizationCode">Authorization Code (optional, one-time)</label>',
+    '<p>Authorize with <code>activity:write</code>, then copy the <code>code</code> from the redirected URL and paste it below. Authorization codes are short-lived and can only be exchanged once. Generate a fresh code after reinstalling if no refresh token was preserved.</p>',
+    '<label for="stravaAuthorizationCode">Authorization Code (short-lived, one-time)</label>',
     '<input id="stravaAuthorizationCode" value="' + escapeHtml(settings.stravaAuthorizationCode) + '">',
     '<label for="stravaRefreshToken">Refresh Token</label>',
     '<input id="stravaRefreshToken" value="' + escapeHtml(settings.stravaRefreshToken) + '">',
@@ -148,6 +155,7 @@ function buildConfigHtml(settings, activities) {
     '</form>',
     '<fieldset>',
     '<legend>Recent Activities</legend>',
+    '<p>Export and retry briefly close settings while PebbleKit JS performs the action. Pacelet will open the export or return here with status.</p>',
     renderActivities(activities),
     '</fieldset>',
     '</main>',
@@ -186,6 +194,10 @@ function buildConfigHtml(settings, activities) {
     'if(!target || !target.getAttribute){return;}',
     'var action=target.getAttribute("data-action");',
     'if(!action){return;}',
+    'e.preventDefault();',
+    'e.stopPropagation();',
+    'target.disabled=true;',
+    'target.textContent="Working...";',
     'closeWith({action:action,activityId:target.getAttribute("data-id")});',
     '});',
     '</script>',
@@ -194,12 +206,87 @@ function buildConfigHtml(settings, activities) {
   ].join('');
 }
 
-function buildConfigUrl(settings, activities) {
+function buildConfigUrl(settings, activities, notice) {
   return 'data:text/html;charset=utf-8,' +
-      encodeURIComponent(buildConfigHtml(settings, activities));
+      encodeURIComponent(buildConfigHtml(settings, activities, notice));
+}
+
+function exportFileName(activity) {
+  var id = String(activity && activity.id || 'pacelet-activity')
+    .replace(/[^A-Za-z0-9._-]/g, '-');
+  return id + '.tcx';
+}
+
+function buildExportHtml(activity, tcx) {
+  var fileName = exportFileName(activity);
+  var title = activityTitle(activity || {});
+  var dataUrl = 'data:application/vnd.garmin.tcx+xml;charset=utf-8,' +
+      encodeURIComponent(tcx);
+  return [
+    '<!doctype html>',
+    '<html><head>',
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    '<title>Export TCX</title>',
+    '<style>',
+    'body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;margin:0;background:#071014;color:#f5fbf8;}',
+    'main{max-width:720px;margin:0 auto;padding:20px;}',
+    'h1{font-size:24px;margin:0 0 8px;}',
+    'p{color:#a9b5ad;font-size:13px;line-height:1.4;}',
+    'textarea{box-sizing:border-box;width:100%;height:48vh;background:#101e22;color:#fff;border:1px solid #496267;border-radius:6px;padding:10px;font:12px monospace;}',
+    '.actions{display:grid;gap:8px;margin-top:12px;}',
+    'button,.button{box-sizing:border-box;width:100%;border:0;border-radius:7px;background:#00d084;color:#061014;font-size:16px;font-weight:800;padding:12px;text-align:center;text-decoration:none;}',
+    '.secondary{background:#294247;color:#fff;}',
+    '</style>',
+    '</head><body><main>',
+    '<h1>Export TCX</h1>',
+    '<p>' + escapeHtml(title) + '</p>',
+    '<p>Use Open TCX File to hand the file to your phone, or Copy TCX and paste it into a file or sharing app.</p>',
+    '<textarea id="tcx" readonly>' + escapeHtml(tcx) + '</textarea>',
+    '<div class="actions">',
+    '<a class="button" download="' + escapeHtml(fileName) + '" href="' +
+      escapeHtml(dataUrl) + '">Open TCX File</a>',
+    '<button type="button" id="copy">Copy TCX</button>',
+    '<a class="button secondary" href="pebblejs://close">Done</a>',
+    '</div>',
+    '<script>',
+    'function selectTcx(){var el=document.getElementById("tcx");el.focus();el.select();if(el.setSelectionRange){el.setSelectionRange(0,el.value.length);}}',
+    'document.getElementById("copy").addEventListener("click",function(){',
+    'selectTcx();',
+    'var copied=false;',
+    'try{copied=document.execCommand("copy");}catch(e){}',
+    'this.textContent=copied?"Copied":"Selected - use Copy";',
+    '});',
+    '</script>',
+    '</main></body></html>'
+  ].join('');
+}
+
+function buildExportUrl(activity, tcx) {
+  return 'data:text/html;charset=utf-8,' +
+      encodeURIComponent(buildExportHtml(activity, tcx));
+}
+
+function parseResponse(response) {
+  var value = String(response || '');
+  if (value.charAt(0) === '#') {
+    value = value.slice(1);
+  }
+  try {
+    value = decodeURIComponent(value);
+  } catch (decodeErr) {
+    // Some Pebble clients already decode the close payload.
+  }
+  if (value.charAt(0) === '#') {
+    value = value.slice(1);
+  }
+  return JSON.parse(value);
 }
 
 module.exports = {
+  buildExportHtml: buildExportHtml,
+  buildExportUrl: buildExportUrl,
   buildConfigHtml: buildConfigHtml,
-  buildConfigUrl: buildConfigUrl
+  buildConfigUrl: buildConfigUrl,
+  parseResponse: parseResponse
 };
