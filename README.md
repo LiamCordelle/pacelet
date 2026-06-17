@@ -1,8 +1,10 @@
 # Pacelet
 
-Pacelet is a Pebble watchapp for recording outdoor activities.
-The watch acts as the controller and live dashboard, while the paired phone
-provides GPS.
+Pacelet is a Pebble watchapp for recording outdoor activities. The watch acts
+as the controller and live dashboard, while the paired phone provides GPS.
+Optional Strava upload uses a personal-credentials model: there is no shared
+backend or hosted OAuth service, so users provide their own Strava API details
+in the Pebble configuration page.
 
 The primary platform for this project is `emery` because that is the watch used
 for day-to-day testing. Other configured Pebble targets are kept buildable, but
