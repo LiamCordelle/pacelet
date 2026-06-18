@@ -58,7 +58,7 @@ typedef enum {
   HrZoneThree = 3
 } HrZone;
 
-#define ACTION_RAIL_W 18
+#define ACTION_RAIL_W 20
 
 static Window *s_main_window;
 static Layer *s_canvas_layer;
@@ -477,7 +477,7 @@ static GColor state_color(void) {
 }
 
 static int content_right(GRect bounds) {
-  return bounds.size.w - ACTION_RAIL_W - 2;
+  return bounds.size.w - ACTION_RAIL_W;
 }
 
 static int action_rail_x(GRect bounds) {
@@ -1145,11 +1145,6 @@ static void draw_action_rail_colors(GContext *ctx, GRect bounds,
   int rail_x = action_rail_x(bounds);
   int icon_x = rail_x + ACTION_RAIL_W / 2;
 
-  if (up == ActionIconNone && select == ActionIconNone &&
-      down == ActionIconNone) {
-    return;
-  }
-
   graphics_context_set_fill_color(ctx, rail_color);
   graphics_fill_rect(ctx, GRect(rail_x, 0, ACTION_RAIL_W, bounds.size.h),
                      0, GCornerNone);
@@ -1300,7 +1295,7 @@ static void draw_gps_screen(GContext *ctx, GRect bounds) {
 }
 
 static void draw_countdown_screen(GContext *ctx, GRect bounds) {
-  int width = bounds.size.w;
+  int right = content_right(bounds);
   int visible_count = (int)clamp_i32(s_countdown_value, 1, 3);
   bool tall = layout_is_tall(bounds);
   int band_y = tall ? 38 : 28;
@@ -1311,12 +1306,12 @@ static void draw_countdown_screen(GContext *ctx, GRect bounds) {
   draw_top_bar(ctx, bounds);
 
   graphics_context_set_fill_color(ctx, color_accent());
-  graphics_fill_rect(ctx, GRect(0, band_y, width, band_h),
+  graphics_fill_rect(ctx, GRect(0, band_y, right, band_h),
                      0, GCornerNone);
 
   if (number_icon) {
     GRect icon_bounds = gbitmap_get_bounds(number_icon);
-    icon_bounds.origin.x = (width - icon_bounds.size.w) / 2;
+    icon_bounds.origin.x = (right - icon_bounds.size.w) / 2;
     icon_bounds.origin.y = band_y + (band_h - icon_bounds.size.h) / 2;
     graphics_context_set_compositing_mode(ctx, GCompOpSet);
     graphics_draw_bitmap_in_rect(ctx, number_icon, icon_bounds);
@@ -1325,8 +1320,11 @@ static void draw_countdown_screen(GContext *ctx, GRect bounds) {
 
   graphics_context_set_text_color(ctx, color_muted());
   graphics_draw_text(ctx, ACTIVITY_LABELS[s_activity_type], font_label(),
-                     GRect(8, band_y + band_h + 10, width - 16, 18),
+                     GRect(8, band_y + band_h + 10, right - 16, 18),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+
+  draw_action_rail(ctx, bounds,
+                   ActionIconNone, ActionIconNone, ActionIconNone);
 }
 
 static void draw_split_screen(GContext *ctx, GRect bounds) {

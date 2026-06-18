@@ -24,14 +24,14 @@
 <text x="90" y="135" class="title" fill="#007c54" text-anchor="middle">GPS LOCKED</text>
 <text x="90" y="158" class="label" fill="#071014" text-anchor="middle">12 m accuracy</text>
 <text x="90" y="220" class="footer" text-anchor="middle">Ready to start</text>
-<rect x="182" y="0" width="18" height="228" fill="#071014"/>
+<rect x="180" y="0" width="20" height="228" fill="#071014"/>
 <g fill="none" stroke="#f7fbf8" stroke-width="2">
-<circle cx="191" cy="57" r="5"/>
-<path d="M193 51 L197 51 L197 55"/>
+<circle cx="190" cy="57" r="5"/>
+<path d="M192 51 L196 51 L196 55"/>
 </g>
-<path d="M188 108 L196 114 L188 120 Z" fill="none" stroke="#f7fbf8" stroke-width="2"/>
+<path d="M187 108 L195 114 L187 120 Z" fill="none" stroke="#f7fbf8" stroke-width="2"/>
 <g stroke="#f7fbf8" stroke-width="2">
-<path d="M186 166 L195 166 M186 171 L195 171 M186 176 L195 176"/>
+<path d="M185 166 L194 166 M185 171 L194 171 M185 176 L194 176"/>
 </g>
-<g fill="#f7fbf8"><circle cx="197" cy="166" r="1.2"/><circle cx="197" cy="171" r="1.2"/><circle cx="197" cy="176" r="1.2"/></g>
+<g fill="#f7fbf8"><circle cx="196" cy="166" r="1.2"/><circle cx="196" cy="171" r="1.2"/><circle cx="196" cy="176" r="1.2"/></g>
 </svg>

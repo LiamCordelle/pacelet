@@ -21,8 +21,8 @@ if (!Object.prototype.hasOwnProperty.call(PLATFORMS, PLATFORM_NAME)) {
 var WIDTH = PLATFORMS[PLATFORM_NAME].width;
 var HEIGHT = PLATFORMS[PLATFORM_NAME].height;
 var PNG_SCALE = 2;
-var ACTION_RAIL_W = 18;
-var RIGHT = WIDTH - ACTION_RAIL_W - 2;
+var ACTION_RAIL_W = 20;
+var RIGHT = WIDTH - ACTION_RAIL_W;
 
 var THEME = {
   bg: '#f7fbf8',
@@ -667,10 +667,6 @@ function actionRail(up, select, down, requestedRailColor, requestedIconColor) {
   var railColor = requestedRailColor || THEME.text;
   var iconColor = requestedIconColor || THEME.bg;
 
-  if (!up && !select && !down) {
-    return '';
-  }
-
   return [
     '<rect x="' + railX + '" y="0" width="' + ACTION_RAIL_W +
       '" height="' + HEIGHT + '" fill="' + railColor + '"/>',
@@ -972,18 +968,19 @@ function renderGps(screen) {
 }
 
 function renderCountdown(screen) {
-  var centerX = Math.round(WIDTH / 2);
+  var centerX = Math.round(RIGHT / 2);
   var bandY = countdownBandY();
   var bandH = countdownBandHeight();
   var numberY = bandY + Math.floor((bandH - 96) / 2);
   return base([
     topBar(screen.activity, 'GET READY', THEME.accent),
-    '<rect x="0" y="' + bandY + '" width="' + WIDTH +
+    '<rect x="0" y="' + bandY + '" width="' + RIGHT +
       '" height="' + bandH + '" fill="' + THEME.accent + '"/>',
     countdownNumberSvg(screen.number, centerX - 36, numberY),
     '<text x="' + centerX + '" y="' + (bandY + bandH + 23) +
       '" class="label" text-anchor="middle">' +
-      esc(screen.activity) + '</text>'
+      esc(screen.activity) + '</text>',
+    actionRail(null, null, null)
   ].join('\n'));
 }
 
@@ -1182,9 +1179,6 @@ function pixelActionRail(canvas, up, select, down,
   var railColor = requestedRailColor || THEME.text;
   var iconColor = requestedIconColor || THEME.bg;
 
-  if (!up && !select && !down) {
-    return;
-  }
   canvas.fillRect(railX, 0, ACTION_RAIL_W, HEIGHT, railColor);
   pixelActionIcon(canvas, up, iconX, railIconY(0), iconColor);
   pixelActionIcon(canvas, select, iconX, railIconY(1), iconColor);
@@ -1422,18 +1416,19 @@ function renderPixel(screen) {
                 false);
     pixelActionRail(canvas, 'refresh', screen.locked ? 'play' : null, 'type');
   } else if (screen.kind === 'countdown') {
-    centerX = Math.round(WIDTH / 2);
+    centerX = Math.round(RIGHT / 2);
     var bandY = countdownBandY();
     var bandH = countdownBandHeight();
     var numberY = bandY + Math.floor((bandH - 96) / 2);
     pixelTopBar(canvas, screen.activity, 'GET READY', THEME.accent);
-    canvas.fillRect(0, bandY, WIDTH, bandH, THEME.accent);
+    canvas.fillRect(0, bandY, RIGHT, bandH, THEME.accent);
     countdownNumberRects(screen.number).forEach(function(rect) {
       canvas.fillRect(centerX - 36 + rect[0], numberY + rect[1],
                       rect[2], rect[3], THEME.onAccent);
     });
     canvas.text(screen.activity, centerX, bandY + bandH + 12, 2, THEME.muted,
                 'center', false);
+    pixelActionRail(canvas, null, null, null);
   } else if (screen.kind === 'paused') {
     var pausedRowHeight = metricRowHeight();
     pixelTopBar(canvas, screen.activity, 'PAUSED', THEME.warning);

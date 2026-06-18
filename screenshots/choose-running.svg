@@ -55,12 +55,12 @@
 <circle cx="13.5" cy="20.8" r="2" fill="#071014" stroke="none"/>
 </g>
 <text x="52" y="176" class="menu" fill="#071014">CYCLING</text>
-<rect x="182" y="0" width="18" height="228" fill="#071014"/>
-<path d="M186 60 L191 54 L196 60" fill="none" stroke="#f7fbf8" stroke-width="2"/>
+<rect x="180" y="0" width="20" height="228" fill="#071014"/>
+<path d="M185 60 L190 54 L195 60" fill="none" stroke="#f7fbf8" stroke-width="2"/>
 <g fill="none" stroke="#f7fbf8" stroke-width="2">
-<circle cx="191" cy="114" r="5"/>
-<path d="M191 106 L191 109 M191 119 L191 122 M183 114 L186 114 M196 114 L199 114"/>
+<circle cx="190" cy="114" r="5"/>
+<path d="M190 106 L190 109 M190 119 L190 122 M182 114 L185 114 M195 114 L198 114"/>
 </g>
-<circle cx="191" cy="114" r="2" fill="#f7fbf8"/>
-<path d="M186 168 L191 174 L196 168" fill="none" stroke="#f7fbf8" stroke-width="2"/>
+<circle cx="190" cy="114" r="2" fill="#f7fbf8"/>
+<path d="M185 168 L190 174 L195 168" fill="none" stroke="#f7fbf8" stroke-width="2"/>
 </svg>

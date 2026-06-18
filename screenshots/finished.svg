@@ -26,11 +26,11 @@
 <text x="140" y="189" class="value" text-anchor="end">4.62</text>
 <text x="143" y="185" class="status" fill="#071014">KM</text>
 <text x="90" y="222" class="footer" text-anchor="middle">286 GPS PTS</text>
-<rect x="182" y="0" width="18" height="228" fill="#071014"/>
-<path d="M188 51 L196 57 L188 63 Z" fill="none" stroke="#f7fbf8" stroke-width="2"/>
+<rect x="180" y="0" width="20" height="228" fill="#071014"/>
+<path d="M187 51 L195 57 L187 63 Z" fill="none" stroke="#f7fbf8" stroke-width="2"/>
 
 <g stroke="#f7fbf8" stroke-width="2">
-<path d="M186 166 L195 166 M186 171 L195 171 M186 176 L195 176"/>
+<path d="M185 166 L194 166 M185 171 L194 171 M185 176 L194 176"/>
 </g>
-<g fill="#f7fbf8"><circle cx="197" cy="166" r="1.2"/><circle cx="197" cy="171" r="1.2"/><circle cx="197" cy="176" r="1.2"/></g>
+<g fill="#f7fbf8"><circle cx="196" cy="166" r="1.2"/><circle cx="196" cy="171" r="1.2"/><circle cx="196" cy="176" r="1.2"/></g>
 </svg>

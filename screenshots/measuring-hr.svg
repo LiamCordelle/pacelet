@@ -29,8 +29,8 @@
 <path d="M 20 192 C 8 184, 12 176, 20 181 C 28 176, 32 184, 20 192 Z" fill="#007c54"/>
 <text x="40" y="188" class="status" fill="#3e5459">MEASURING</text>
 <text x="90" y="222" class="footer" text-anchor="middle">GPS 11 M</text>
-<rect x="182" y="0" width="18" height="228" fill="#071014"/>
-<g fill="#f7fbf8"><rect x="186" y="51" width="3" height="12" rx="1"/><rect x="193" y="51" width="3" height="12" rx="1"/></g>
+<rect x="180" y="0" width="20" height="228" fill="#071014"/>
+<g fill="#f7fbf8"><rect x="185" y="51" width="3" height="12" rx="1"/><rect x="192" y="51" width="3" height="12" rx="1"/></g>
 
 
 </svg>
