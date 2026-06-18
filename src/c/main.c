@@ -4,6 +4,7 @@
 #define GPS_LOCK_ACCURACY_M 25
 #define HR_SAMPLE_PERIOD_S 1
 #define HR_SEND_INTERVAL_S 1
+#define HR_READING_STALE_S 60
 #define SPLIT_DISTANCE_M 1000
 #define SPLIT_SUMMARY_MS 6000
 #define SETTINGS_KEY 1
@@ -79,6 +80,8 @@ static int32_t s_gps_accuracy_m = -1;
 static int32_t s_gps_age_s = -1;
 static int32_t s_last_hr_bpm;
 static int32_t s_last_hr_sent_elapsed_s = -1;
+static time_t s_last_hr_update_at;
+static bool s_hr_clear_sent;
 static int32_t s_hr_zone_1_bpm = DEFAULT_HR_ZONE_1_BPM;
 static int32_t s_hr_zone_2_bpm = DEFAULT_HR_ZONE_2_BPM;
 static int32_t s_hr_zone_3_bpm = DEFAULT_HR_ZONE_3_BPM;
@@ -108,7 +111,7 @@ typedef struct {
   bool dark_mode;
 } AppSettingsV1;
 
-static void update_hr(void);
+static void update_hr(bool fresh_event);
 
 static const char *ACTIVITY_LABELS[] = {
   "WALKING",
@@ -496,6 +499,24 @@ static void send_hr_sample(void) {
   }
 }
 
+static void maybe_send_hr_clear(void) {
+  DictionaryIterator *iter;
+
+  if ((s_activity_state != ActivityStateActive &&
+       s_activity_state != ActivityStatePaused) ||
+      s_last_hr_bpm > 0 || s_hr_clear_sent) {
+    return;
+  }
+
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK) {
+    return;
+  }
+  dict_write_int32(iter, MESSAGE_KEY_HR_BPM, 0);
+  if (app_message_outbox_send() == APP_MSG_OK) {
+    s_hr_clear_sent = true;
+  }
+}
+
 static void cancel_countdown(void) {
   if (s_countdown_timer) {
     app_timer_cancel(s_countdown_timer);
@@ -551,6 +572,9 @@ static void reset_activity_metrics(void) {
   s_total_paused_s = 0;
   s_finished_elapsed_s = 0;
   s_last_hr_sent_elapsed_s = -1;
+  s_last_hr_bpm = 0;
+  s_last_hr_update_at = 0;
+  s_hr_clear_sent = false;
   s_distance_m = 0;
   s_current_pace_s_per_km = 0;
   s_current_speed_centi_mps = 0;
@@ -606,7 +630,7 @@ static void start_activity_recording(void) {
   s_started_at = time(NULL);
   s_activity_state = ActivityStateActive;
   set_activity_hr_sampling(true);
-  update_hr();
+  update_hr(false);
   send_simple_command(MESSAGE_KEY_START_ACTIVITY);
   mark_dirty();
 }
@@ -663,7 +687,7 @@ static void resume_activity(void) {
   s_paused_at = 0;
   s_activity_state = ActivityStateActive;
   set_activity_hr_sampling(true);
-  update_hr();
+  update_hr(false);
   send_simple_command(MESSAGE_KEY_RESUME_ACTIVITY);
   mark_dirty();
 }
@@ -694,7 +718,12 @@ static void cycle_activity_type(void) {
   mark_dirty();
 }
 
-static void update_hr(void) {
+static void clear_hr_reading(void) {
+  s_last_hr_bpm = 0;
+  s_last_hr_update_at = 0;
+}
+
+static void update_hr(bool fresh_event) {
 #if defined(PBL_HEALTH)
   time_t now = time(NULL);
   HealthServiceAccessibilityMask hr_access =
@@ -705,12 +734,27 @@ static void update_hr(void) {
   if (hr_access & HealthServiceAccessibilityMaskAvailable) {
     HealthValue bpm = health_service_peek_current_value(HealthMetricHeartRateBPM);
     if (bpm > 0 && bpm < 1000) {
-      s_last_hr_bpm = (int32_t)bpm;
+      if (fresh_event || s_last_hr_update_at > 0) {
+        s_last_hr_bpm = (int32_t)bpm;
+      }
+      if (fresh_event) {
+        s_last_hr_update_at = now;
+        s_hr_clear_sent = false;
+      }
       return;
     }
   }
 #endif
-  s_last_hr_bpm = 0;
+  clear_hr_reading();
+}
+
+static void expire_stale_hr(void) {
+  if (s_last_hr_bpm <= 0 || s_last_hr_update_at <= 0) {
+    return;
+  }
+  if (time(NULL) - s_last_hr_update_at >= HR_READING_STALE_S) {
+    clear_hr_reading();
+  }
 }
 
 static void maybe_send_periodic_hr(void) {
@@ -722,14 +766,17 @@ static void maybe_send_periodic_hr(void) {
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   s_anim_tick++;
-  update_hr();
+  update_hr(false);
+  expire_stale_hr();
+  maybe_send_hr_clear();
   maybe_send_periodic_hr();
   mark_dirty();
 }
 
 static void health_event_handler(HealthEventType event, void *context) {
-  update_hr();
   if (event == HealthEventHeartRateUpdate) {
+    update_hr(true);
+    maybe_send_hr_clear();
     send_hr_sample();
   }
   mark_dirty();
@@ -1479,7 +1526,7 @@ static void main_window_load(Window *window) {
   layer_set_update_proc(s_canvas_layer, canvas_update_proc);
   layer_add_child(window_layer, s_canvas_layer);
 
-  update_hr();
+  update_hr(false);
 }
 
 static void main_window_unload(Window *window) {

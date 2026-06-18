@@ -187,6 +187,37 @@ run('heart-rate samples received while paused are not stored', function() {
   assert.strictEqual(tracker.getActiveActivity().hrSamples[0].bpm, 140);
 });
 
+run('clearing heart rate prevents stale BPM attaching to later GPS points', function() {
+  var clock = 0;
+  var tracker = TrackerCore.createTrackerCore({
+    nowMs: function() { return clock; }
+  });
+
+  tracker.startActivity(START, 1);
+  clock = 1000;
+  tracker.recordHr(150);
+  clock = 5000;
+  tracker.recordPosition(pointAtMetersEast(START, 15, clock, 8));
+  clock = 6000;
+  assert.strictEqual(tracker.recordHr(0), true);
+  clock = 10000;
+  tracker.recordPosition(pointAtMetersEast(START, 30, clock, 8));
+
+  var activity = tracker.getActiveActivity();
+  assert.strictEqual(activity.hrSamples.length, 1);
+  assert.strictEqual(activity.points[activity.points.length - 1].hr, null);
+});
+
+run('heart-rate zone time does not bridge long sample gaps', function() {
+  var summary = TrackerCore.summarizeHeartRate([
+    { t: 1000, bpm: 150 },
+    { t: 20000, bpm: 150 }
+  ], 21000, [100, 140, 170]);
+
+  assert.strictEqual(summary.avgHrBpm, 150);
+  assert.deepStrictEqual(summary.hrZoneTimeS, [0, 0, 6, 0]);
+});
+
 run('finish returns a saved activity summary and clears active state', function() {
   var clock = 0;
   var tracker = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });

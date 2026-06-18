@@ -276,6 +276,7 @@ function createTrackerCore(options) {
       return null;
     }
 
+    currentHrBpm = 0;
     activeActivity = {
       id: 'pt-' + now(),
       type: activityTypeName(typeValue),
@@ -360,11 +361,14 @@ function createTrackerCore(options) {
 
   function recordHr(value) {
     var bpm = parseInt(value, 10);
-    if (isNaN(bpm) || bpm <= 0 || bpm > 250) {
+    if (isNaN(bpm) || bpm < 0 || bpm > 250) {
       return false;
     }
 
     currentHrBpm = bpm;
+    if (bpm === 0) {
+      return true;
+    }
     if (activeActivity && !activeActivity.paused) {
       activeActivity.hrSamples.push({
         t: now(),

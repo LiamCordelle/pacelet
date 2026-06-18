@@ -797,7 +797,7 @@ Pebble.addEventListener('appmessage', function(e) {
   if (payload.FINISH_ACTIVITY) {
     finishActivity();
   }
-  if (payload.HR_BPM) {
+  if (typeof payload.HR_BPM !== 'undefined') {
     recordHr(payload.HR_BPM);
   }
 });
