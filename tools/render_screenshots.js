@@ -199,6 +199,20 @@ var screens = [
     gps: 'GPS 10 M'
   },
   {
+    name: 'end-confirm',
+    kind: 'confirm',
+    activity: 'RUNNING',
+    elapsed: '23:14'
+  },
+  {
+    name: 'finished',
+    kind: 'finished',
+    activity: 'RUNNING',
+    elapsed: '23:14',
+    distance: '4.62 km',
+    points: '286 GPS PTS'
+  },
+  {
     name: 'cycling',
     kind: 'activity',
     activity: 'CYCLING',
@@ -238,6 +252,7 @@ function shortState(state) {
     'GET READY': '3-2-1',
     RECORDING: 'REC',
     PAUSED: 'PAUSE',
+    'END ACTIVITY': 'END?',
     SAVED: 'SAVED',
     SPLIT: 'SPLIT'
   };
@@ -609,6 +624,19 @@ function actionIcon(type, cx, cy, color) {
       '" width="10" height="10" rx="1" fill="' + color + '"/>';
   }
 
+  if (type === 'check') {
+    return '<path d="M' + (cx - 6) + ' ' + cy + ' L' + (cx - 2) +
+      ' ' + (cy + 5) + ' L' + (cx + 7) + ' ' + (cy - 5) +
+      '" fill="none" stroke="' + color + '" stroke-width="2"/>';
+  }
+
+  if (type === 'close') {
+    return '<path d="M' + (cx - 5) + ' ' + (cy - 5) + ' L' + (cx + 5) +
+      ' ' + (cy + 5) + ' M' + (cx + 5) + ' ' + (cy - 5) + ' L' +
+      (cx - 5) + ' ' + (cy + 5) +
+      '" fill="none" stroke="' + color + '" stroke-width="2"/>';
+  }
+
   if (type === 'type') {
     return [
       '<g stroke="' + color + '" stroke-width="2">',
@@ -633,11 +661,11 @@ function actionIcon(type, cx, cy, color) {
   return '';
 }
 
-function actionRail(up, select, down) {
+function actionRail(up, select, down, requestedRailColor, requestedIconColor) {
   var railX = WIDTH - ACTION_RAIL_W;
   var iconX = railX + Math.round(ACTION_RAIL_W / 2);
-  var railColor = THEME.text;
-  var iconColor = THEME.bg;
+  var railColor = requestedRailColor || THEME.text;
+  var iconColor = requestedIconColor || THEME.bg;
 
   if (!up && !select && !down) {
     return '';
@@ -973,7 +1001,8 @@ function renderActivity(screen, paused) {
           screen.hrBpm, screen.hrZone, screen.hrMeasuring),
     '<text x="' + centerX + '" y="' + (HEIGHT - 6) +
       '" class="footer" text-anchor="middle">' + esc(screen.gps) + '</text>',
-    actionRail(null, paused ? 'play' : 'pause', 'stop')
+    actionRail(paused ? 'play' : 'pause',
+               paused ? 'stop' : null, null)
   ].join('\n'));
 }
 
@@ -996,12 +1025,79 @@ function renderSplit(screen) {
       '" text-anchor="middle">' + esc(screen.splitTime) + '</text>',
     metricRow(movementY, rowHeight, screen.metricLabel, screen.metricValue),
     hrRow(hrY, rowHeight, screen.hrBpm, screen.hrZone, screen.hrMeasuring),
-    actionRail(null, 'pause', 'stop')
+    actionRail('pause', null, null)
   ].join('\n'));
 }
 
 function renderPaused(screen) {
   return renderActivity(screen, true);
+}
+
+function renderConfirm(screen) {
+  var tall = isTall();
+  var third = Math.floor(RIGHT / 3);
+  var centerX = Math.round(RIGHT / 2);
+  var stopSize = tall ? 34 : 28;
+  var stopY = tall ? 47 : 37;
+  var titleY = tall ? 91 : 70;
+  var activityY = tall ? 126 : 101;
+  var elapsedY = tall ? 146 : 119;
+  return base([
+    '<rect x="0" y="0" width="' + RIGHT + '" height="' + HEIGHT +
+      '" fill="' + THEME.pauseBg + '"/>',
+    '<text x="8" y="17" class="status" fill="#000000">' +
+      esc(shortActivity(screen.activity)) + '</text>',
+    '<text x="' + (third + Math.floor(third / 2)) +
+      '" y="17" class="status" fill="#000000" text-anchor="middle">10:09</text>',
+    '<text x="' + RIGHT +
+      '" y="17" class="status" fill="#000000" text-anchor="end">END?</text>',
+    '<rect x="' + (centerX - Math.floor(stopSize / 2)) +
+      '" y="' + stopY + '" width="' + stopSize + '" height="' + stopSize +
+      '" rx="2" fill="#000000"/>',
+    '<text x="' + centerX + '" y="' + (titleY + 22) +
+      '" class="title" fill="#000000" text-anchor="middle">END ACTIVITY?</text>',
+    '<text x="' + centerX + '" y="' + (activityY + 14) +
+      '" class="status" fill="#000000" text-anchor="middle">' +
+      esc(screen.activity) + '</text>',
+    '<text x="' + centerX + '" y="' + (elapsedY + (tall ? 34 : 23)) +
+      '" class="' + (tall ? 'timer' : 'value') +
+      '" fill="#000000" text-anchor="middle">' + esc(screen.elapsed) + '</text>',
+    actionRail('check', null, 'close', '#000000', '#ffffff')
+  ].join('\n'));
+}
+
+function renderFinished(screen) {
+  var tall = isTall();
+  var bandY = durationBandY();
+  var bandHeight = tall ? 84 : 61;
+  var rowHeight = tall ? 45 : 32;
+  var timeY = bandY + bandHeight + 1;
+  var distanceY = timeY + rowHeight;
+  var checkX1 = tall ? 22 : 14;
+  var checkX2 = tall ? 34 : 24;
+  var checkX3 = tall ? 53 : 41;
+  var checkY = bandY + Math.round(bandHeight / 2);
+  return base([
+    topBar(screen.activity, 'SAVED', THEME.accent),
+    '<rect x="0" y="' + bandY + '" width="' + RIGHT +
+      '" height="' + bandHeight + '" fill="' + THEME.accent + '"/>',
+    '<path d="M' + checkX1 + ' ' + checkY + ' L' + checkX2 + ' ' +
+      (checkY + 12) + ' L' + checkX3 + ' ' + (checkY - 12) +
+      '" fill="none" stroke="' + THEME.onAccent + '" stroke-width="3"/>',
+    '<text x="' + (tall ? 62 : 48) + '" y="' + (bandY + 32) +
+      '" class="' + (tall ? 'title' : 'menu') +
+      '" fill="' + THEME.onAccent + '">SAVED</text>',
+    '<text x="' + (tall ? 62 : 48) + '" y="' +
+      (bandY + bandHeight - 12) +
+      '" class="status" fill="' + THEME.onAccent + '">' +
+      esc(screen.activity) + '</text>',
+    metricRow(timeY, rowHeight, 'TIME', screen.elapsed),
+    metricRow(distanceY, rowHeight, 'DIST', screen.distance),
+    tall ? '<text x="' + Math.round(RIGHT / 2) + '" y="' + (HEIGHT - 6) +
+      '" class="footer" text-anchor="middle">' + esc(screen.points) +
+      '</text>' : '',
+    actionRail('play', null, 'type')
+  ].join('\n'));
 }
 
 function render(screen) {
@@ -1019,6 +1115,12 @@ function render(screen) {
   }
   if (screen.kind === 'split') {
     return renderSplit(screen);
+  }
+  if (screen.kind === 'confirm') {
+    return renderConfirm(screen);
+  }
+  if (screen.kind === 'finished') {
+    return renderFinished(screen);
   }
   return renderActivity(screen, false);
 }
@@ -1054,6 +1156,12 @@ function pixelActionIcon(canvas, type, cx, cy, color) {
     canvas.fillRect(cx + 2, cy - 6, 3, 12, color);
   } else if (type === 'stop') {
     canvas.fillRect(cx - 5, cy - 5, 10, 10, color);
+  } else if (type === 'check') {
+    canvas.line(cx - 6, cy, cx - 2, cy + 5, color, 2);
+    canvas.line(cx - 2, cy + 5, cx + 7, cy - 5, color, 2);
+  } else if (type === 'close') {
+    canvas.line(cx - 5, cy - 5, cx + 5, cy + 5, color, 2);
+    canvas.line(cx + 5, cy - 5, cx - 5, cy + 5, color, 2);
   } else if (type === 'type') {
     canvas.line(cx - 5, cy - 5, cx + 4, cy - 5, color, 2);
     canvas.line(cx - 5, cy, cx + 4, cy, color, 2);
@@ -1067,11 +1175,12 @@ function pixelActionIcon(canvas, type, cx, cy, color) {
   }
 }
 
-function pixelActionRail(canvas, up, select, down) {
+function pixelActionRail(canvas, up, select, down,
+                         requestedRailColor, requestedIconColor) {
   var railX = WIDTH - ACTION_RAIL_W;
   var iconX = railX + Math.round(ACTION_RAIL_W / 2);
-  var railColor = THEME.text;
-  var iconColor = THEME.bg;
+  var railColor = requestedRailColor || THEME.text;
+  var iconColor = requestedIconColor || THEME.bg;
 
   if (!up && !select && !down) {
     return;
@@ -1338,7 +1447,7 @@ function renderPixel(screen) {
       canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
                   false);
     }
-    pixelActionRail(canvas, null, 'play', 'stop');
+    pixelActionRail(canvas, 'play', 'stop', null);
   } else if (screen.kind === 'split') {
     var splitBandY = durationBandY();
     var splitBandH = splitBandHeight();
@@ -1355,7 +1464,64 @@ function renderPixel(screen) {
     pixelMetricRow(canvas, splitMetricY, splitMetricH,
                    screen.metricLabel, screen.metricValue);
     pixelHrDisplay(canvas, splitHrY, splitMetricH, screen);
-    pixelActionRail(canvas, null, 'pause', 'stop');
+    pixelActionRail(canvas, 'pause', null, null);
+  } else if (screen.kind === 'confirm') {
+    var confirmTall = isTall();
+    var confirmThird = Math.floor(RIGHT / 3);
+    var stopSize = confirmTall ? 34 : 28;
+    var stopY = confirmTall ? 47 : 37;
+    var titleY = confirmTall ? 91 : 70;
+    var activityY = confirmTall ? 126 : 101;
+    var elapsedY = confirmTall ? 146 : 119;
+    canvas.fillRect(0, 0, RIGHT, HEIGHT, THEME.pauseBg);
+    canvas.text(shortActivity(screen.activity), 8, 7, 1,
+                '#000000', 'left', true);
+    canvas.text('10:09', confirmThird + Math.floor(confirmThird / 2), 7, 1,
+                '#000000', 'center', true);
+    canvas.text('END?', RIGHT, 7, 1, '#000000', 'right', true);
+    canvas.fillRect(centerX - Math.floor(stopSize / 2), stopY,
+                    stopSize, stopSize, '#000000');
+    pixelTextFit(canvas, 'END ACTIVITY?', centerX, titleY + 4,
+                 RIGHT - 10, 2, '#000000', 'center', true);
+    canvas.text(screen.activity, centerX, activityY + 3, 1,
+                '#000000', 'center', true);
+    pixelTextFit(canvas, screen.elapsed, centerX, elapsedY,
+                 RIGHT - 8, confirmTall ? 5 : 3,
+                 '#000000', 'center', true);
+    pixelActionRail(canvas, 'check', null, 'close',
+                    '#000000', '#ffffff');
+  } else if (screen.kind === 'finished') {
+    var finishedTall = isTall();
+    var finishedBandY = durationBandY();
+    var finishedBandH = finishedTall ? 84 : 61;
+    var finishedRowH = finishedTall ? 45 : 32;
+    var finishedTimeY = finishedBandY + finishedBandH + 1;
+    var finishedDistanceY = finishedTimeY + finishedRowH;
+    var checkX1 = finishedTall ? 22 : 14;
+    var checkX2 = finishedTall ? 34 : 24;
+    var checkX3 = finishedTall ? 53 : 41;
+    var checkY = finishedBandY + Math.round(finishedBandH / 2);
+    pixelTopBar(canvas, screen.activity, 'SAVED', THEME.accent);
+    canvas.fillRect(0, finishedBandY, RIGHT, finishedBandH, THEME.accent);
+    canvas.line(checkX1, checkY, checkX2, checkY + 12,
+                THEME.onAccent, 3);
+    canvas.line(checkX2, checkY + 12, checkX3, checkY - 12,
+                THEME.onAccent, 3);
+    canvas.text('SAVED', finishedTall ? 62 : 48,
+                finishedBandY + (finishedTall ? 10 : 14),
+                finishedTall ? 3 : 2, THEME.onAccent, 'left', true);
+    canvas.text(screen.activity, finishedTall ? 62 : 48,
+                finishedBandY + finishedBandH - 19, 1,
+                THEME.onAccent, 'left', true);
+    pixelMetricRow(canvas, finishedTimeY, finishedRowH,
+                   'TIME', screen.elapsed);
+    pixelMetricRow(canvas, finishedDistanceY, finishedRowH,
+                   'DIST', screen.distance);
+    if (finishedTall) {
+      canvas.text(screen.points, centerX, HEIGHT - 14, 1,
+                  THEME.muted, 'center', false);
+    }
+    pixelActionRail(canvas, 'play', null, 'type');
   } else {
     var activeRowHeight = metricRowHeight();
     pixelTopBar(canvas, screen.activity, 'RECORDING', THEME.accent);
@@ -1369,7 +1535,7 @@ function renderPixel(screen) {
       canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
                   false);
     }
-    pixelActionRail(canvas, null, 'pause', 'stop');
+    pixelActionRail(canvas, 'pause', null, null);
   }
 
   return canvas;

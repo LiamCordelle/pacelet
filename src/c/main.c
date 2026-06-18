@@ -45,6 +45,8 @@ typedef enum {
   ActionIconPlay,
   ActionIconPause,
   ActionIconStop,
+  ActionIconCheck,
+  ActionIconClose,
   ActionIconType,
   ActionIconNew
 } ActionIcon;
@@ -95,6 +97,7 @@ static int32_t s_last_split_elapsed_s;
 static int32_t s_split_elapsed_s;
 static int32_t s_split_number;
 static bool s_split_visible;
+static bool s_finish_confirm_visible;
 static char s_gps_error[32] = "";
 static char s_activity_id[32] = "";
 static bool s_hr_sample_period_requested;
@@ -428,6 +431,10 @@ static bool activity_uses_speed(void) {
 }
 
 static const char *state_short_label(void) {
+  if (s_finish_confirm_visible) {
+    return "END?";
+  }
+
   switch (s_activity_state) {
     case ActivityStateChoose:
       return "PICK";
@@ -449,6 +456,10 @@ static const char *state_short_label(void) {
 }
 
 static GColor state_color(void) {
+  if (s_finish_confirm_visible) {
+    return color_warning();
+  }
+
   if (s_activity_state == ActivityStateActive ||
       s_activity_state == ActivityStateReady ||
       s_activity_state == ActivityStateCountdown ||
@@ -609,6 +620,7 @@ static void maybe_show_split_summary(int32_t distance_m) {
 
 static void reset_activity_metrics(bool preserve_hr) {
   hide_split_summary();
+  s_finish_confirm_visible = false;
   s_started_at = 0;
   s_paused_at = 0;
   s_total_paused_s = 0;
@@ -722,14 +734,17 @@ static void pause_activity(void) {
   }
 
   hide_split_summary();
+  s_finish_confirm_visible = false;
   s_paused_at = time(NULL);
   s_activity_state = ActivityStatePaused;
   send_simple_command(MESSAGE_KEY_PAUSE_ACTIVITY);
+  vibes_short_pulse();
   mark_dirty();
 }
 
 static void resume_activity(void) {
-  if (s_activity_state != ActivityStatePaused) {
+  if (s_activity_state != ActivityStatePaused ||
+      s_finish_confirm_visible) {
     return;
   }
 
@@ -739,21 +754,44 @@ static void resume_activity(void) {
   set_activity_hr_sampling(true);
   update_hr(false);
   send_simple_command(MESSAGE_KEY_RESUME_ACTIVITY);
+  vibes_short_pulse();
+  mark_dirty();
+}
+
+static void show_finish_confirmation(void) {
+  if (s_activity_state != ActivityStatePaused ||
+      s_finish_confirm_visible) {
+    return;
+  }
+
+  s_finish_confirm_visible = true;
+  vibes_short_pulse();
+  mark_dirty();
+}
+
+static void hide_finish_confirmation(void) {
+  if (!s_finish_confirm_visible) {
+    return;
+  }
+
+  s_finish_confirm_visible = false;
   mark_dirty();
 }
 
 static void finish_activity(void) {
-  if (s_activity_state != ActivityStateActive &&
-      s_activity_state != ActivityStatePaused) {
+  if (s_activity_state != ActivityStatePaused ||
+      !s_finish_confirm_visible) {
     return;
   }
 
   hide_split_summary();
+  s_finish_confirm_visible = false;
   s_finished_elapsed_s = elapsed_s();
   send_hr_sample();
   set_activity_hr_sampling(false);
   s_activity_state = ActivityStateFinished;
   send_simple_command(MESSAGE_KEY_FINISH_ACTIVITY);
+  vibes_short_pulse();
   mark_dirty();
 }
 
@@ -1074,6 +1112,14 @@ static void draw_action_icon(GContext *ctx, GPoint center, ActionIcon icon,
       graphics_fill_rect(ctx, GRect(x - 5, y - 5, 10, 10),
                          1, GCornersAll);
       break;
+    case ActionIconCheck:
+      graphics_draw_line(ctx, GPoint(x - 6, y), GPoint(x - 2, y + 5));
+      graphics_draw_line(ctx, GPoint(x - 2, y + 5), GPoint(x + 7, y - 5));
+      break;
+    case ActionIconClose:
+      graphics_draw_line(ctx, GPoint(x - 5, y - 5), GPoint(x + 5, y + 5));
+      graphics_draw_line(ctx, GPoint(x + 5, y - 5), GPoint(x - 5, y + 5));
+      break;
     case ActionIconType:
       graphics_draw_line(ctx, GPoint(x - 5, y - 5), GPoint(x + 4, y - 5));
       graphics_draw_line(ctx, GPoint(x - 5, y), GPoint(x + 4, y));
@@ -1092,12 +1138,12 @@ static void draw_action_icon(GContext *ctx, GPoint center, ActionIcon icon,
   }
 }
 
-static void draw_action_rail(GContext *ctx, GRect bounds, ActionIcon up,
-                             ActionIcon select, ActionIcon down) {
+static void draw_action_rail_colors(GContext *ctx, GRect bounds,
+                                    ActionIcon up, ActionIcon select,
+                                    ActionIcon down, GColor rail_color,
+                                    GColor icon_color) {
   int rail_x = action_rail_x(bounds);
   int icon_x = rail_x + ACTION_RAIL_W / 2;
-  GColor rail_color = color_text();
-  GColor icon_color = color_bg();
 
   if (up == ActionIconNone && select == ActionIconNone &&
       down == ActionIconNone) {
@@ -1113,6 +1159,12 @@ static void draw_action_rail(GContext *ctx, GRect bounds, ActionIcon up,
                    icon_color);
   draw_action_icon(ctx, GPoint(icon_x, rail_icon_y(bounds, 2)), down,
                    icon_color);
+}
+
+static void draw_action_rail(GContext *ctx, GRect bounds, ActionIcon up,
+                             ActionIcon select, ActionIcon down) {
+  draw_action_rail_colors(ctx, bounds, up, select, down,
+                          color_text(), color_bg());
 }
 
 static void draw_activity_icon_for_type(GContext *ctx, ActivityType type,
@@ -1324,8 +1376,8 @@ static void draw_split_screen(GContext *ctx, GRect bounds) {
                   movement_value, movement_unit);
   draw_hr_row(ctx, bounds, hr_y, row_h, s_last_hr_bpm);
 
-  draw_action_rail(ctx, bounds, ActionIconNone,
-                   ActionIconPause, ActionIconStop);
+  draw_action_rail(ctx, bounds, ActionIconPause,
+                   ActionIconNone, ActionIconNone);
 }
 
 static void draw_activity_screen(GContext *ctx, GRect bounds) {
@@ -1399,11 +1451,139 @@ static void draw_activity_screen(GContext *ctx, GRect bounds) {
                        GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
   }
 
-  draw_action_rail(ctx, bounds, ActionIconNone,
-                   s_activity_state == ActivityStateFinished ? ActionIconNew :
-                       paused ? ActionIconPlay : ActionIconPause,
-                   s_activity_state == ActivityStateFinished ?
-                       ActionIconNone : ActionIconStop);
+  if (paused) {
+    draw_action_rail(ctx, bounds, ActionIconPlay,
+                     ActionIconStop, ActionIconNone);
+  } else {
+    draw_action_rail(ctx, bounds, ActionIconPause,
+                     ActionIconNone, ActionIconNone);
+  }
+}
+
+static void draw_finish_confirm_screen(GContext *ctx, GRect bounds) {
+  int right = content_right(bounds);
+  int third = right / 3;
+  bool tall = layout_is_tall(bounds);
+  int stop_size = tall ? 34 : 28;
+  int stop_y = tall ? 47 : 37;
+  int title_y = tall ? 91 : 70;
+  int activity_y = tall ? 126 : 101;
+  int elapsed_y = tall ? 146 : 119;
+  char clock_text[8];
+  char elapsed_text[16];
+
+  graphics_context_set_fill_color(ctx, color_pause_bg());
+  graphics_fill_rect(ctx, GRect(0, 0, right, bounds.size.h),
+                     0, GCornerNone);
+
+  format_clock(clock_text, sizeof(clock_text));
+  graphics_context_set_text_color(ctx, GColorBlack);
+  graphics_draw_text(ctx, ACTIVITY_SHORT_LABELS[s_activity_type],
+                     font_status(), GRect(8, 5, third - 8, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, clock_text, font_status(),
+                     GRect(third, 5, third, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+  graphics_draw_text(ctx, "END?", font_status(),
+                     GRect(third * 2, 5, right - third * 2 - 4, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentRight, NULL);
+
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  graphics_fill_rect(ctx,
+                     GRect(right / 2 - stop_size / 2, stop_y,
+                           stop_size, stop_size),
+                     2, GCornersAll);
+
+  graphics_context_set_text_color(ctx, GColorBlack);
+  graphics_draw_text(ctx, "END ACTIVITY?", font_value(),
+                     GRect(5, title_y, right - 10, 30),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+  graphics_draw_text(ctx, ACTIVITY_LABELS[s_activity_type],
+                     font_metric_label(),
+                     GRect(5, activity_y, right - 10, 20),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+
+  format_elapsed(elapsed_s(), elapsed_text, sizeof(elapsed_text));
+  graphics_draw_text(ctx, elapsed_text,
+                     tall ? font_timer() : font_value(),
+                     GRect(0, elapsed_y, right, tall ? 45 : 30),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+
+  draw_action_rail_colors(ctx, bounds,
+                          ActionIconCheck, ActionIconNone, ActionIconClose,
+                          GColorBlack, GColorWhite);
+}
+
+static void draw_finished_screen(GContext *ctx, GRect bounds) {
+  int right = content_right(bounds);
+  bool tall = layout_is_tall(bounds);
+  int band_y = tall ? 27 : 22;
+  int band_h = tall ? 84 : 61;
+  int row_h = tall ? 45 : 32;
+  int time_y = band_y + band_h + 1;
+  int distance_y = time_y + row_h;
+  int32_t distance_m = s_summary_distance_m > 0 ?
+      s_summary_distance_m : s_distance_m;
+  char elapsed_text[16];
+  char distance_value[16];
+  char distance_unit[8];
+  char points_text[24];
+
+  draw_top_bar(ctx, bounds);
+
+  graphics_context_set_fill_color(ctx, color_accent());
+  graphics_fill_rect(ctx, GRect(0, band_y, right, band_h),
+                     0, GCornerNone);
+
+  graphics_context_set_stroke_width(ctx, 3);
+  graphics_context_set_stroke_color(ctx, color_on_accent());
+  graphics_draw_line(ctx,
+                     GPoint(tall ? 22 : 14, band_y + band_h / 2),
+                     GPoint(tall ? 34 : 24, band_y + band_h / 2 + 12));
+  graphics_draw_line(ctx,
+                     GPoint(tall ? 34 : 24, band_y + band_h / 2 + 12),
+                     GPoint(tall ? 53 : 41, band_y + band_h / 2 - 12));
+
+  graphics_context_set_text_color(ctx, color_on_accent());
+  graphics_draw_text(ctx, "SAVED", tall ? font_value() : font_menu(),
+                     GRect(tall ? 62 : 48, band_y + 11,
+                           right - (tall ? 68 : 54), 30),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, ACTIVITY_LABELS[s_activity_type],
+                     font_metric_label(),
+                     GRect(tall ? 62 : 48, band_y + band_h - 29,
+                           right - (tall ? 68 : 54), 20),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+
+  format_elapsed(elapsed_s(), elapsed_text, sizeof(elapsed_text));
+  format_distance_parts(distance_m,
+                        distance_value, sizeof(distance_value),
+                        distance_unit, sizeof(distance_unit));
+  draw_metric_row(ctx, bounds, time_y, row_h,
+                  "TIME", elapsed_text, "");
+  draw_metric_row(ctx, bounds, distance_y, row_h,
+                  "DIST", distance_value, distance_unit);
+
+  if (tall && s_summary_points > 0) {
+    snprintf(points_text, sizeof(points_text), "%ld GPS PTS",
+             (long)s_summary_points);
+    graphics_context_set_text_color(ctx, color_muted());
+    graphics_draw_text(ctx, points_text, font_label(),
+                       GRect(8, bounds.size.h - 23, right - 8, 18),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
+  }
+
+  draw_action_rail(ctx, bounds,
+                   ActionIconPlay, ActionIconNone, ActionIconType);
 }
 
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
@@ -1431,11 +1611,15 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       draw_activity_screen(ctx, bounds);
       break;
     case ActivityStateFinished:
-      draw_activity_screen(ctx, bounds);
+      draw_finished_screen(ctx, bounds);
       break;
     case ActivityStatePaused:
     default:
-      draw_activity_screen(ctx, bounds);
+      if (s_finish_confirm_visible) {
+        draw_finish_confirm_screen(ctx, bounds);
+      } else {
+        draw_activity_screen(ctx, bounds);
+      }
       break;
   }
 }
@@ -1444,8 +1628,13 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   bool settings_changed = false;
   Tuple *gps_status = dict_find(iter, MESSAGE_KEY_GPS_STATUS);
   if (gps_status) {
+    GpsState previous_gps_state = s_gps_state;
     int32_t status = gps_status->value->int32;
     s_gps_state = (GpsState)clamp_i32(status, GpsStateIdle, GpsStateError);
+    if (s_gps_state == GpsStateLocked &&
+        previous_gps_state != GpsStateLocked) {
+      vibes_short_pulse();
+    }
     if (s_activity_state == ActivityStateGps ||
         s_activity_state == ActivityStateReady) {
       s_activity_state = s_gps_state == GpsStateLocked ?
@@ -1554,6 +1743,10 @@ static void outbox_failed_callback(DictionaryIterator *iter,
 }
 
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
+  if (s_finish_confirm_visible) {
+    return;
+  }
+
   switch (s_activity_state) {
     case ActivityStateChoose:
       request_gps();
@@ -1571,13 +1764,11 @@ static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
     case ActivityStateCountdown:
       break;
     case ActivityStateActive:
-      pause_activity();
       break;
     case ActivityStatePaused:
-      resume_activity();
+      show_finish_confirmation();
       break;
     case ActivityStateFinished:
-      return_to_choose();
       break;
     default:
       request_gps();
@@ -1586,8 +1777,14 @@ static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
-  if (s_activity_state == ActivityStateChoose) {
+  if (s_finish_confirm_visible) {
+    finish_activity();
+  } else if (s_activity_state == ActivityStateChoose) {
     cycle_activity_type(-1);
+  } else if (s_activity_state == ActivityStateActive) {
+    pause_activity();
+  } else if (s_activity_state == ActivityStatePaused) {
+    resume_activity();
   } else if (s_activity_state == ActivityStateGps ||
       s_activity_state == ActivityStateReady ||
       s_activity_state == ActivityStateFinished) {
@@ -1596,19 +1793,19 @@ static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void down_click_handler(ClickRecognizerRef recognizer, void *context) {
-  cycle_activity_type(1);
-}
-
-static void down_long_click_handler(ClickRecognizerRef recognizer,
-                                    void *context) {
-  finish_activity();
+  if (s_finish_confirm_visible) {
+    hide_finish_confirmation();
+  } else if (s_activity_state == ActivityStateFinished) {
+    return_to_choose();
+  } else {
+    cycle_activity_type(1);
+  }
 }
 
 static void click_config_provider(void *context) {
   window_single_click_subscribe(BUTTON_ID_SELECT, select_click_handler);
   window_single_click_subscribe(BUTTON_ID_UP, up_click_handler);
   window_single_click_subscribe(BUTTON_ID_DOWN, down_click_handler);
-  window_long_click_subscribe(BUTTON_ID_DOWN, 700, down_long_click_handler, NULL);
 }
 
 static void load_activity_icons(void) {
