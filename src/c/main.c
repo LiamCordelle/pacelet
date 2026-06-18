@@ -607,16 +607,18 @@ static void maybe_show_split_summary(int32_t distance_m) {
       SPLIT_SUMMARY_MS, split_timer_callback, NULL);
 }
 
-static void reset_activity_metrics(void) {
+static void reset_activity_metrics(bool preserve_hr) {
   hide_split_summary();
   s_started_at = 0;
   s_paused_at = 0;
   s_total_paused_s = 0;
   s_finished_elapsed_s = 0;
   s_last_hr_sent_elapsed_s = -1;
-  s_last_hr_bpm = 0;
-  s_last_hr_update_at = 0;
-  s_hr_clear_sent = false;
+  if (!preserve_hr) {
+    s_last_hr_bpm = 0;
+    s_last_hr_update_at = 0;
+    s_hr_clear_sent = false;
+  }
   s_distance_m = 0;
   s_current_pace_s_per_km = 0;
   s_current_speed_centi_mps = 0;
@@ -637,9 +639,11 @@ static void request_gps(void) {
 
   if (s_activity_state == ActivityStateChoose ||
       s_activity_state == ActivityStateFinished) {
-    reset_activity_metrics();
+    reset_activity_metrics(false);
   }
 
+  set_activity_hr_sampling(true);
+  update_hr(false);
   s_activity_state = ActivityStateGps;
   s_gps_state = GpsStateSearching;
   s_gps_accuracy_m = -1;
@@ -651,7 +655,8 @@ static void request_gps(void) {
 
 static void return_to_choose(void) {
   cancel_countdown();
-  reset_activity_metrics();
+  set_activity_hr_sampling(false);
+  reset_activity_metrics(false);
   s_activity_state = ActivityStateChoose;
   s_gps_state = GpsStateIdle;
   s_gps_accuracy_m = -1;
@@ -668,7 +673,7 @@ static void start_activity_recording(void) {
     return;
   }
 
-  reset_activity_metrics();
+  reset_activity_metrics(true);
   s_started_at = time(NULL);
   s_activity_state = ActivityStateActive;
   set_activity_hr_sampling(true);
@@ -773,11 +778,12 @@ static void update_hr(bool fresh_event) {
   time_t now = time(NULL);
   HealthServiceAccessibilityMask hr_access =
       health_service_metric_aggregate_averaged_accessible(
-          HealthMetricHeartRateBPM, now, now, HealthAggregationAvg,
+          HealthMetricHeartRateRawBPM, now, now, HealthAggregationAvg,
           HealthServiceTimeScopeOnce);
 
   if (hr_access & HealthServiceAccessibilityMaskAvailable) {
-    HealthValue bpm = health_service_peek_current_value(HealthMetricHeartRateBPM);
+    HealthValue bpm =
+        health_service_peek_current_value(HealthMetricHeartRateRawBPM);
     if (bpm > 0 && bpm < 1000) {
       if (fresh_event || s_last_hr_update_at > 0) {
         s_last_hr_bpm = (int32_t)bpm;
