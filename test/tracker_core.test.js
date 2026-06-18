@@ -169,6 +169,24 @@ run('heart-rate summary includes average and configured zone times', function() 
   assert.deepStrictEqual(finished.hrZoneThresholds, [100, 140, 170]);
 });
 
+run('heart-rate samples received while paused are not stored', function() {
+  var clock = 0;
+  var tracker = TrackerCore.createTrackerCore({
+    nowMs: function() { return clock; }
+  });
+
+  tracker.startActivity(START, 1);
+  clock = 1000;
+  tracker.recordHr(140);
+  clock = 2000;
+  tracker.pauseActivity();
+  clock = 3000;
+  tracker.recordHr(170);
+
+  assert.strictEqual(tracker.getActiveActivity().hrSamples.length, 1);
+  assert.strictEqual(tracker.getActiveActivity().hrSamples[0].bpm, 140);
+});
+
 run('finish returns a saved activity summary and clears active state', function() {
   var clock = 0;
   var tracker = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });

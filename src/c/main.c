@@ -650,7 +650,6 @@ static void pause_activity(void) {
   hide_split_summary();
   s_paused_at = time(NULL);
   s_activity_state = ActivityStatePaused;
-  set_activity_hr_sampling(false);
   send_simple_command(MESSAGE_KEY_PAUSE_ACTIVITY);
   mark_dirty();
 }
