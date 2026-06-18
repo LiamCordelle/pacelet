@@ -206,7 +206,7 @@ static GColor color_warning(void) {
 }
 
 static GColor color_pause_bg(void) {
-  return PBL_IF_COLOR_ELSE(GColorChromeYellow, GColorWhite);
+  return PBL_IF_COLOR_ELSE(GColorYellow, GColorWhite);
 }
 
 static GColor color_bad(void) {

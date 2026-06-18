@@ -14,9 +14,10 @@ SIM_PATH = ROOT / 'tools' / 'pypkjs_gps_sim'
 
 PLATFORMS = ['emery', 'basalt', 'chalk', 'diorite']
 SCREENS = ['choose', 'gps-search', 'gps-ready', 'countdown', 'activity',
-           'split', 'paused']
+           'split', 'paused', 'end-confirm', 'finished']
 ALL_SCREEN_SEQUENCE = ['choose', 'gps-search', 'gps-ready', 'countdown',
-                       'activity', 'split', 'paused']
+                       'activity', 'split', 'paused', 'end-confirm',
+                       'finished']
 ACTIVITY_DOWN_CLICKS = {
     'running': 0,
     'cycling': 1,
@@ -136,8 +137,21 @@ def run(command, *, env=None, check=True, dry_run=False, args=None):
 
 
 def click(args, button, env):
-    run(['pebble', 'emu-button', '--emulator', args.platform, 'click', button],
-        env=env, dry_run=args.dry_run, args=args)
+    command = [
+        'pebble', 'emu-button', '--emulator', args.platform, 'click', button
+    ]
+    attempts = 3
+    for attempt in range(attempts):
+        code = run(command, env=env, check=False,
+                   dry_run=args.dry_run, args=args)
+        if code == 0:
+            return
+        if attempt + 1 < attempts:
+            print('Button click failed; retrying ({}/{})...'.format(
+                attempt + 2, attempts
+            ))
+            wait(0.75, args.dry_run)
+    raise subprocess.CalledProcessError(code, command)
 
 
 def press_activity_buttons(args, env):
@@ -184,9 +198,17 @@ def drive_to_screen(args, env, lock_delay):
         wait(5.0, args.dry_run)
         return
 
-    if args.screen == 'paused':
+    if args.screen in ('paused', 'end-confirm', 'finished'):
+        click(args, 'up', env)
+        wait(0.5, args.dry_run)
+
+    if args.screen in ('end-confirm', 'finished'):
         click(args, 'select', env)
         wait(0.5, args.dry_run)
+
+    if args.screen == 'finished':
+        click(args, 'up', env)
+        wait(1.0, args.dry_run)
 
 
 def capture(args, base_env, output):
@@ -230,6 +252,7 @@ def capture_all_screens(args, sim_env, base_env, lock_delay):
                 screen_env['PEBBLE_TRACKER_SIM_SPEED_MPS'] = '250.0'
             run(['pebble', 'kill', '--force'], env=base_env, check=False,
                 dry_run=args.dry_run)
+            wait(0.75, args.dry_run)
             run(['pebble', 'install', '--emulator', args.platform, str(PBW)],
                 env=screen_env, dry_run=args.dry_run, args=args)
             drive_to_screen(args, screen_env, lock_delay)
@@ -280,6 +303,7 @@ def main(argv):
     if not args.reuse_emulator:
         run(['pebble', 'kill', '--force'], env=base_env, check=False,
             dry_run=args.dry_run)
+        wait(0.75, args.dry_run)
 
     if not args.skip_build:
         run(['pebble', 'build'], env=base_env, dry_run=args.dry_run)
