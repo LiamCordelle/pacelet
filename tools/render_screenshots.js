@@ -153,6 +153,19 @@ var screens = [
     gps: 'GPS lock 10m'
   },
   {
+    name: 'measuring-hr',
+    kind: 'activity',
+    activity: 'RUNNING',
+    elapsed: '00:18',
+    distance: '42 m',
+    metricLabel: 'PACE',
+    metricValue: '--:--',
+    hrBpm: 0,
+    hrZone: 0,
+    hrMeasuring: true,
+    gps: 'GPS lock 11m'
+  },
+  {
     name: 'split-running',
     kind: 'split',
     activity: 'RUNNING',
@@ -725,7 +738,27 @@ function hrZoneColor(zone) {
   return THEME['hrZone' + zone];
 }
 
-function hrRow(y, bpm, zone) {
+function measuringHeart(cx, cy) {
+  return [
+    '<circle cx="' + cx + '" cy="' + cy + '" r="11" fill="none" stroke="' +
+      THEME.muted + '" stroke-width="1"/>',
+    '<path d="M ' + cx + ' ' + (cy + 8) +
+      ' C ' + (cx - 12) + ' ' + cy + ', ' + (cx - 8) + ' ' + (cy - 8) +
+      ', ' + cx + ' ' + (cy - 3) +
+      ' C ' + (cx + 8) + ' ' + (cy - 8) + ', ' + (cx + 12) + ' ' + cy +
+      ', ' + cx + ' ' + (cy + 8) + ' Z" fill="' + THEME.accent + '"/>'
+  ].join('\n');
+}
+
+function hrRow(y, bpm, zone, measuring) {
+  if (measuring) {
+    return [
+      measuringHeart(24, y + 10),
+      '<text x="43" y="' + (y + 14) + '" class="status" fill="' +
+        THEME.muted + '">MEASURING</text>'
+    ].join('\n');
+  }
+
   var content = [
     '<rect x="6" y="' + (y - 3) + '" width="' + (RIGHT - 10) +
       '" height="29" rx="3" fill="' + hrZoneColor(zone) + '"/>',
@@ -817,7 +850,7 @@ function renderActivity(screen) {
       '" text-anchor="middle">' + esc(screen.elapsed) + '</text>',
     row(activityRowY(0) + 14, 'DIST', screen.distance),
     row(activityRowY(1) + 14, screen.metricLabel, screen.metricValue),
-    hrRow(activityRowY(2), screen.hrBpm, screen.hrZone),
+    hrRow(activityRowY(2), screen.hrBpm, screen.hrZone, screen.hrMeasuring),
     '<text x="' + centerX + '" y="' + (HEIGHT - 6) +
       '" class="footer" text-anchor="middle">' + esc(screen.gps) + '</text>',
     actionRail(null, 'pause', 'save')
@@ -839,7 +872,7 @@ function renderSplit(screen) {
       '" class="timer" fill="' + THEME.text +
       '" text-anchor="middle">' + esc(screen.splitTime) + '</text>',
     row(rowY + 14, screen.metricLabel, screen.metricValue),
-    hrRow(rowY + rowGap, screen.hrBpm, screen.hrZone),
+    hrRow(rowY + rowGap, screen.hrBpm, screen.hrZone, screen.hrMeasuring),
     '<text x="' + centerX + '" y="' + (HEIGHT - 6) +
       '" class="footer" text-anchor="middle">Activity still recording</text>',
     actionRail(null, 'pause', 'save')
@@ -1062,6 +1095,27 @@ function pixelHrRow(canvas, y, bpm, zone) {
   }
 }
 
+function pixelMeasuringHeart(canvas, cx, cy) {
+  canvas.circle(cx, cy, 11, THEME.muted, 1);
+  canvas.fillCircle(cx - 3, cy - 3, 4, THEME.accent);
+  canvas.fillCircle(cx + 3, cy - 3, 4, THEME.accent);
+  for (var rowIndex = 0; rowIndex < 8; rowIndex += 1) {
+    var halfWidth = Math.max(0, 7 - rowIndex);
+    canvas.fillRect(cx - halfWidth, cy - 1 + rowIndex,
+                    halfWidth * 2 + 1, 1, THEME.accent);
+  }
+}
+
+function pixelHrDisplay(canvas, y, screen) {
+  if (screen.hrMeasuring) {
+    pixelMeasuringHeart(canvas, 24, y + 10);
+    pixelTextFit(canvas, 'MEASURING', 43, y + 4, RIGHT - 49, 1,
+                 THEME.muted, 'left', true);
+    return;
+  }
+  pixelHrRow(canvas, y, screen.hrBpm, screen.hrZone);
+}
+
 function pixelGpsIcon(canvas, centerX, centerY, color, locked) {
   canvas.circle(centerX, centerY, 21, THEME.muted, 1);
   canvas.circle(centerX, centerY, 29, THEME.muted, 1);
@@ -1128,7 +1182,7 @@ function renderPixel(screen) {
     canvas.text(screen.splitTime, centerX, splitTimerY + 5, 5, THEME.text,
                 'center', true);
     pixelRow(canvas, splitRowY, screen.metricLabel, screen.metricValue);
-    pixelHrRow(canvas, splitRowY + splitRowGap, screen.hrBpm, screen.hrZone);
+    pixelHrDisplay(canvas, splitRowY + splitRowGap, screen);
     canvas.text('ACTIVITY STILL RECORDING', centerX, HEIGHT - 14, 1,
                 THEME.muted, 'center', false);
     pixelActionRail(canvas, null, 'pause', 'save');
@@ -1138,7 +1192,7 @@ function renderPixel(screen) {
                 'center', true);
     pixelRow(canvas, activityRowY(0), 'DIST', screen.distance);
     pixelRow(canvas, activityRowY(1), screen.metricLabel, screen.metricValue);
-    pixelHrRow(canvas, activityRowY(2), screen.hrBpm, screen.hrZone);
+    pixelHrDisplay(canvas, activityRowY(2), screen);
     canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
                 false);
     pixelActionRail(canvas, null, 'pause', 'save');

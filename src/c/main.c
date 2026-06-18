@@ -750,11 +750,49 @@ static void draw_row(GContext *ctx, GRect bounds, int y, const char *label,
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
 }
 
+static void draw_measuring_heart(GContext *ctx, GPoint center) {
+  int pulse = s_anim_tick % 2;
+  int radius = pulse ? 4 : 3;
+  int half_width = radius * 2;
+
+  graphics_context_set_stroke_color(ctx, color_muted());
+  graphics_draw_circle(ctx, center, pulse ? 11 : 9);
+
+  graphics_context_set_fill_color(ctx, color_accent());
+  graphics_fill_circle(
+      ctx, GPoint(center.x - radius + 1, center.y - radius + 1), radius);
+  graphics_fill_circle(
+      ctx, GPoint(center.x + radius - 1, center.y - radius + 1), radius);
+  graphics_context_set_stroke_color(ctx, color_accent());
+  for (int row = 0; row <= half_width; row++) {
+    graphics_draw_line(
+        ctx,
+        GPoint(center.x - half_width + row, center.y - 1 + row),
+        GPoint(center.x + half_width - row, center.y - 1 + row));
+  }
+}
+
+static void draw_measuring_hr_row(GContext *ctx, GRect bounds, int y) {
+  int right = content_right(bounds);
+
+  draw_measuring_heart(ctx, GPoint(24, y + 10));
+  graphics_context_set_text_color(ctx, color_muted());
+  graphics_draw_text(ctx, "MEASURING", font_status(),
+                     GRect(43, y + 2, right - 49, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+}
+
 static void draw_hr_row(GContext *ctx, GRect bounds, int y, int32_t bpm) {
   int right = content_right(bounds);
   HrZone zone = bpm > 0 ? hr_zone_for_bpm(bpm) : HrZoneBelow;
   GColor zone_ink = PBL_IF_COLOR_ELSE(GColorBlack, color_text());
   char value[16];
+
+  if (bpm <= 0 && s_activity_state == ActivityStateActive) {
+    draw_measuring_hr_row(ctx, bounds, y);
+    return;
+  }
 
   if (zone == HrZoneBelow) {
     if (bpm > 0) {

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="456" viewBox="0 0 200 228">
+<style>
+  .status { font: 700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+  .timer { font: 800 31px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+  .label { font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #3e5459; letter-spacing: 0; }
+  .value { font: 750 19px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #071014; letter-spacing: 0; }
+  .menu { font: 750 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+  .footer { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #3e5459; letter-spacing: 0; }
+  .title { font: 750 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+</style>
+<rect width="200" height="228" fill="#f7fbf8"/>
+<rect width="180" height="2" fill="#007c54"/>
+<text x="8" y="17" class="status" fill="#3e5459">RUN</text>
+<text x="90" y="17" class="status" fill="#071014" text-anchor="middle">10:09</text>
+<text x="180" y="17" class="status" fill="#007c54" text-anchor="end">REC</text>
+<text x="90" y="61" class="timer" fill="#071014" text-anchor="middle">00:18</text>
+<text x="8" y="92" class="label">DIST</text>
+<text x="180" y="94" class="value" text-anchor="end">42 m</text>
+<text x="8" y="130" class="label">PACE</text>
+<text x="180" y="132" class="value" text-anchor="end">--:--</text>
+<circle cx="24" cy="164" r="11" fill="none" stroke="#3e5459" stroke-width="1"/>
+<path d="M 24 172 C 12 164, 16 156, 24 161 C 32 156, 36 164, 24 172 Z" fill="#007c54"/>
+<text x="43" y="168" class="status" fill="#3e5459">MEASURING</text>
+<text x="90" y="222" class="footer" text-anchor="middle">GPS lock 11m</text>
+<rect x="182" y="0" width="18" height="228" fill="#071014"/>
+
+<g fill="#f7fbf8"><rect x="186" y="108" width="3" height="12" rx="1"/><rect x="193" y="108" width="3" height="12" rx="1"/></g>
+<g fill="none" stroke="#f7fbf8" stroke-width="2">
+<rect x="186" y="165" width="11" height="11"/>
+<path d="M188 173 L195 173 M188 179 L195 179"/>
+</g>
+<rect x="189" y="166" width="5" height="3" fill="#f7fbf8"/>
+</svg>
