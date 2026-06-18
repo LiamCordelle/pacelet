@@ -202,6 +202,10 @@ static GColor color_warning(void) {
                            GColorBlack);
 }
 
+static GColor color_pause_bg(void) {
+  return PBL_IF_COLOR_ELSE(GColorChromeYellow, GColorWhite);
+}
+
 static GColor color_bad(void) {
   return PBL_IF_COLOR_ELSE(s_dark_mode ? GColorFromHEX(0xff4b4b)
                                        : GColorFromHEX(0xb00020),
@@ -222,6 +226,14 @@ static GFont font_metric_label(void) {
 
 static GFont font_value(void) {
   return fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
+}
+
+static GFont font_metric_value(void) {
+  return fonts_get_system_font(FONT_KEY_LECO_26_BOLD_NUMBERS_AM_PM);
+}
+
+static GFont font_metric_unit(void) {
+  return fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
 }
 
 static GFont font_menu(void) {
@@ -373,34 +385,42 @@ static void format_clock(char *buffer, size_t buffer_size) {
   }
 }
 
-static void format_distance(int32_t meters, char *buffer, size_t buffer_size) {
+static void format_distance_parts(int32_t meters,
+                                  char *value, size_t value_size,
+                                  char *unit, size_t unit_size) {
   if (meters >= 1000) {
-    snprintf(buffer, buffer_size, "%ld.%02ld km",
+    snprintf(value, value_size, "%ld.%02ld",
              (long)(meters / 1000), (long)((meters % 1000) / 10));
+    snprintf(unit, unit_size, "KM");
   } else {
-    snprintf(buffer, buffer_size, "%ld m", (long)meters);
+    snprintf(value, value_size, "%ld", (long)meters);
+    snprintf(unit, unit_size, "M");
   }
 }
 
-static void format_pace(int32_t pace_s_per_km, char *buffer, size_t buffer_size) {
+static void format_pace_parts(int32_t pace_s_per_km,
+                              char *value, size_t value_size,
+                              char *unit, size_t unit_size) {
   if (pace_s_per_km <= 0 || pace_s_per_km > 5999) {
-    snprintf(buffer, buffer_size, "--:--");
-    return;
+    snprintf(value, value_size, "--:--");
+  } else {
+    snprintf(value, value_size, "%ld:%02ld",
+             (long)(pace_s_per_km / 60), (long)(pace_s_per_km % 60));
   }
-
-  snprintf(buffer, buffer_size, "%ld:%02ld/km",
-           (long)(pace_s_per_km / 60), (long)(pace_s_per_km % 60));
+  snprintf(unit, unit_size, "/KM");
 }
 
-static void format_speed(int32_t centi_mps, char *buffer, size_t buffer_size) {
+static void format_speed_parts(int32_t centi_mps,
+                               char *value, size_t value_size,
+                               char *unit, size_t unit_size) {
   if (centi_mps <= 0) {
-    snprintf(buffer, buffer_size, "--.- km/h");
-    return;
+    snprintf(value, value_size, "--.-");
+  } else {
+    int32_t kmh_x10 = (centi_mps * 36) / 100;
+    snprintf(value, value_size, "%ld.%ld",
+             (long)(kmh_x10 / 10), (long)(kmh_x10 % 10));
   }
-
-  int32_t kmh_x10 = (centi_mps * 36) / 100;
-  snprintf(buffer, buffer_size, "%ld.%ld km/h",
-           (long)(kmh_x10 / 10), (long)(kmh_x10 % 10));
+  snprintf(unit, unit_size, "KM/H");
 }
 
 static bool activity_uses_speed(void) {
@@ -807,18 +827,79 @@ static void health_event_handler(HealthEventType event, void *context) {
   mark_dirty();
 }
 
-static void draw_row(GContext *ctx, GRect bounds, int y, const char *label,
-                     const char *value) {
+static void draw_dotted_separator(GContext *ctx, int right, int y,
+                                  GColor color) {
+  graphics_context_set_stroke_color(ctx, color);
+  for (int x = 8; x < right - 4; x += 4) {
+    graphics_draw_pixel(ctx, GPoint(x, y));
+  }
+}
+
+static void draw_duration_band(GContext *ctx, GRect bounds, int y, int height,
+                               const char *elapsed_text, bool paused) {
   int right = content_right(bounds);
+  GColor bg = paused ? color_pause_bg() : color_accent();
+  GColor ink = paused ? GColorBlack : color_on_accent();
+  int text_y = y + (height - 45) / 2;
+
+  graphics_context_set_fill_color(ctx, bg);
+  graphics_fill_rect(ctx, GRect(0, y, right, height), 0, GCornerNone);
+
+  if (paused && layout_is_tall(bounds)) {
+    graphics_context_set_text_color(ctx, ink);
+    graphics_draw_text(ctx, "PAUSED", font_status(),
+                       GRect(7, y + 2, right - 14, 18),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentLeft, NULL);
+  }
+
+  graphics_context_set_text_color(ctx, ink);
+  graphics_draw_text(ctx, elapsed_text, font_timer(),
+                     GRect(0, text_y, right, 45),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+}
+
+static void draw_metric_row(GContext *ctx, GRect bounds, int y, int height,
+                            const char *label, const char *value,
+                            const char *unit) {
+  int right = content_right(bounds);
+  int unit_width = 40;
+
+  draw_dotted_separator(ctx, right, y, color_muted());
 
   graphics_context_set_text_color(ctx, color_muted());
-  graphics_draw_text(ctx, label, font_label(), GRect(8, y, 42, 22),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, label, font_metric_label(),
+                     GRect(8, y + (height - 18) / 2, 44, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
 
   graphics_context_set_text_color(ctx, color_text());
-  graphics_draw_text(ctx, value, font_value(),
-                     GRect(48, y - 4, right - 52, 28),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
+  graphics_draw_text(ctx, value, font_metric_value(),
+                     GRect(42, y + (height - 30) / 2,
+                           right - 42 - unit_width, 30),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentRight, NULL);
+
+  graphics_draw_text(ctx, unit, font_metric_unit(),
+                     GRect(right - unit_width + 3,
+                           y + (height - 18) / 2 + 2,
+                           unit_width - 3, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+}
+
+static void draw_heart_icon(GContext *ctx, GPoint center, GColor color) {
+  graphics_context_set_fill_color(ctx, color);
+  graphics_fill_circle(ctx, GPoint(center.x - 3, center.y - 3), 4);
+  graphics_fill_circle(ctx, GPoint(center.x + 3, center.y - 3), 4);
+  graphics_context_set_stroke_color(ctx, color);
+  for (int row = 0; row < 8; row++) {
+    int half_width = 7 - row;
+    graphics_draw_line(ctx,
+                       GPoint(center.x - half_width, center.y - 1 + row),
+                       GPoint(center.x + half_width, center.y - 1 + row));
+  }
 }
 
 static void draw_measuring_heart(GContext *ctx, GPoint center) {
@@ -843,64 +924,72 @@ static void draw_measuring_heart(GContext *ctx, GPoint center) {
   }
 }
 
-static void draw_measuring_hr_row(GContext *ctx, GRect bounds, int y) {
+static void draw_measuring_hr_row(GContext *ctx, GRect bounds, int y,
+                                  int height) {
   int right = content_right(bounds);
+  int center_y = y + height / 2;
 
-  draw_measuring_heart(ctx, GPoint(24, y + 10));
+  draw_dotted_separator(ctx, right, y, color_muted());
+  draw_measuring_heart(ctx, GPoint(20, center_y));
   graphics_context_set_text_color(ctx, color_muted());
   graphics_draw_text(ctx, "MEASURING", font_status(),
-                     GRect(43, y + 2, right - 49, 18),
+                     GRect(40, center_y - 9, right - 46, 18),
                      GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentLeft, NULL);
 }
 
-static void draw_hr_row(GContext *ctx, GRect bounds, int y, int32_t bpm) {
+static void draw_hr_row(GContext *ctx, GRect bounds, int y, int height,
+                        int32_t bpm) {
   int right = content_right(bounds);
   HrZone zone = bpm > 0 ? hr_zone_for_bpm(bpm) : HrZoneBelow;
-  GColor zone_ink = PBL_IF_COLOR_ELSE(GColorBlack, color_text());
+  GColor ink = zone == HrZoneBelow ? color_text() : GColorBlack;
   char value[16];
 
   if (bpm <= 0 && s_activity_state == ActivityStateActive) {
-    draw_measuring_hr_row(ctx, bounds, y);
-    return;
-  }
-
-  if (zone == HrZoneBelow) {
-    if (bpm > 0) {
-      snprintf(value, sizeof(value), "%ld bpm", (long)bpm);
-    } else {
-      snprintf(value, sizeof(value), "-- bpm");
-    }
-    draw_row(ctx, bounds, y, "HR", value);
+    draw_measuring_hr_row(ctx, bounds, y, height);
     return;
   }
 
   graphics_context_set_fill_color(ctx, hr_zone_color(zone));
-  graphics_fill_rect(ctx, GRect(6, y - 3, right - 10, 29),
-                     3, GCornersAll);
+  graphics_fill_rect(ctx, GRect(0, y, right, height), 0, GCornerNone);
+  draw_dotted_separator(ctx, right, y,
+                        zone == HrZoneBelow ? color_muted() : ink);
 
-  graphics_context_set_text_color(ctx, zone_ink);
-  graphics_draw_text(ctx, hr_zone_label(zone), font_status(),
-                     GRect(10, y, 72, 18),
+  graphics_context_set_text_color(ctx, ink);
+  graphics_draw_text(ctx,
+                     zone == HrZoneBelow ? "HEART RATE" :
+                         hr_zone_label(zone),
+                     font_metric_label(),
+                     GRect(8, y + 3, 92, 18),
                      GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentLeft, NULL);
 
-  snprintf(value, sizeof(value), "%ld", (long)bpm);
-  graphics_draw_text(ctx, value, font_value(),
-                     GRect(75, y - 4, right - 83, 28),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentRight, NULL);
-
-  graphics_context_set_fill_color(ctx, zone_ink);
-  graphics_context_set_stroke_color(ctx, zone_ink);
-  for (int i = 1; i <= 3; i++) {
-    GRect bar = GRect(10 + (i - 1) * 14, y + 20, 11, 3);
-    if (i <= (int)zone) {
-      graphics_fill_rect(ctx, bar, 1, GCornersAll);
-    } else {
-      graphics_draw_rect(ctx, bar);
+  if (zone != HrZoneBelow) {
+    graphics_context_set_fill_color(ctx, ink);
+    graphics_context_set_stroke_color(ctx, ink);
+    for (int i = 1; i <= 3; i++) {
+      GRect bar = GRect(8 + (i - 1) * 15, y + height - 8, 12, 4);
+      if (i <= (int)zone) {
+        graphics_fill_rect(ctx, bar, 0, GCornerNone);
+      } else {
+        graphics_draw_rect(ctx, bar);
+      }
     }
   }
+
+  if (bpm > 0) {
+    snprintf(value, sizeof(value), "%ld", (long)bpm);
+  } else {
+    snprintf(value, sizeof(value), "--");
+  }
+  if (right >= 150) {
+    draw_heart_icon(ctx, GPoint(right - 66, y + height / 2 + 1), ink);
+  }
+  graphics_draw_text(ctx, value, font_metric_value(),
+                     GRect(right - 57, y + (height - 30) / 2,
+                           53, 30),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentRight, NULL);
 }
 
 static void draw_top_bar(GContext *ctx, GRect bounds) {
@@ -1185,47 +1274,49 @@ static void draw_countdown_screen(GContext *ctx, GRect bounds) {
 static void draw_split_screen(GContext *ctx, GRect bounds) {
   int right = content_right(bounds);
   bool tall = layout_is_tall(bounds);
-  int title_y = tall ? 38 : 29;
-  int timer_y = tall ? 70 : 56;
-  int row_1_y = tall ? 124 : 105;
-  int row_gap = tall ? 38 : 27;
+  int band_y = tall ? 27 : 22;
+  int band_h = tall ? 96 : 70;
+  int row_h = tall ? 44 : 30;
+  int movement_y = band_y + band_h + 1;
+  int hr_y = movement_y + row_h;
   char title_text[20];
   char split_time_text[16];
-  char movement_text[20];
+  char movement_value[16];
+  char movement_unit[8];
 
   draw_top_bar(ctx, bounds);
 
   snprintf(title_text, sizeof(title_text), "KM %ld",
            (long)s_split_number);
-  graphics_context_set_text_color(ctx, color_accent());
+  graphics_context_set_fill_color(ctx, color_accent());
+  graphics_fill_rect(ctx, GRect(0, band_y, right, band_h),
+                     0, GCornerNone);
+  graphics_context_set_text_color(ctx, color_on_accent());
   graphics_draw_text(ctx, title_text, font_value(),
-                     GRect(8, title_y, right - 8, 28),
+                     GRect(8, band_y + 3, right - 16, 28),
                      GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
+                     GTextAlignmentLeft, NULL);
 
   format_elapsed(s_split_elapsed_s, split_time_text, sizeof(split_time_text));
-  graphics_context_set_text_color(ctx, color_text());
+  graphics_context_set_text_color(ctx, color_on_accent());
   graphics_draw_text(ctx, split_time_text, font_timer(),
-                     GRect(0, timer_y, right, 42),
+                     GRect(0, band_y + band_h - 49, right, 45),
                      GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentCenter, NULL);
 
   if (activity_uses_speed()) {
-    format_speed(100000 / s_split_elapsed_s,
-                 movement_text, sizeof(movement_text));
+    format_speed_parts(100000 / s_split_elapsed_s,
+                       movement_value, sizeof(movement_value),
+                       movement_unit, sizeof(movement_unit));
   } else {
-    format_pace(s_split_elapsed_s, movement_text, sizeof(movement_text));
+    format_pace_parts(s_split_elapsed_s,
+                      movement_value, sizeof(movement_value),
+                      movement_unit, sizeof(movement_unit));
   }
-  draw_row(ctx, bounds, row_1_y,
-           activity_uses_speed() ? "AVG" : "PACE", movement_text);
-  draw_hr_row(ctx, bounds, row_1_y + row_gap, s_last_hr_bpm);
-
-  graphics_context_set_text_color(ctx, color_muted());
-  graphics_draw_text(ctx, "Activity still recording",
-                     font_label(),
-                     GRect(8, bounds.size.h - 23, right - 8, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
+  draw_metric_row(ctx, bounds, movement_y, row_h,
+                  activity_uses_speed() ? "AVG" : "PACE",
+                  movement_value, movement_unit);
+  draw_hr_row(ctx, bounds, hr_y, row_h, s_last_hr_bpm);
 
   draw_action_rail(ctx, bounds, ActionIconNone,
                    ActionIconPause, ActionIconStop);
@@ -1234,50 +1325,65 @@ static void draw_split_screen(GContext *ctx, GRect bounds) {
 static void draw_activity_screen(GContext *ctx, GRect bounds) {
   int right = content_right(bounds);
   bool tall = layout_is_tall(bounds);
-  int timer_y = tall ? 28 : 22;
-  int row_1_y = tall ? 78 : 66;
-  int row_gap = tall ? 38 : 27;
+  int duration_y = tall ? 27 : 22;
+  int duration_h = tall ? 58 : 44;
+  int row_h = tall ? 39 : 30;
+  int distance_y = duration_y + duration_h + 1;
+  int movement_y = distance_y + row_h;
+  int hr_y = movement_y + row_h;
   char elapsed_text[16];
-  char distance_text[16];
-  char movement_text[16];
+  char distance_value[16];
+  char distance_unit[8];
+  char movement_value[16];
+  char movement_unit[8];
   char gps_text[32];
   char summary_text[32];
+  bool paused = s_activity_state == ActivityStatePaused;
 
   draw_top_bar(ctx, bounds);
 
   format_elapsed(elapsed_s(), elapsed_text, sizeof(elapsed_text));
-  graphics_context_set_text_color(ctx, color_text());
-  graphics_draw_text(ctx, elapsed_text, font_timer(),
-                     GRect(0, timer_y, right, 42),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+  draw_duration_band(ctx, bounds, duration_y, duration_h,
+                     elapsed_text, paused);
 
-  format_distance(s_distance_m, distance_text, sizeof(distance_text));
+  format_distance_parts(s_distance_m,
+                        distance_value, sizeof(distance_value),
+                        distance_unit, sizeof(distance_unit));
   if (activity_uses_speed()) {
-    format_speed(s_current_speed_centi_mps, movement_text, sizeof(movement_text));
+    format_speed_parts(s_current_speed_centi_mps,
+                       movement_value, sizeof(movement_value),
+                       movement_unit, sizeof(movement_unit));
   } else {
-    format_pace(s_current_pace_s_per_km, movement_text, sizeof(movement_text));
+    format_pace_parts(s_current_pace_s_per_km,
+                      movement_value, sizeof(movement_value),
+                      movement_unit, sizeof(movement_unit));
   }
 
-  draw_row(ctx, bounds, row_1_y, "DIST", distance_text);
-  draw_row(ctx, bounds, row_1_y + row_gap, activity_uses_speed() ? "SPEED" : "PACE",
-           movement_text);
-  draw_hr_row(ctx, bounds, row_1_y + row_gap * 2, s_last_hr_bpm);
+  draw_metric_row(ctx, bounds, distance_y, row_h,
+                  "DIST", distance_value, distance_unit);
+  draw_metric_row(ctx, bounds, movement_y, row_h,
+                  activity_uses_speed() ? "SPEED" : "PACE",
+                  movement_value, movement_unit);
+  draw_hr_row(ctx, bounds, hr_y, row_h, s_last_hr_bpm);
 
   graphics_context_set_text_color(ctx, color_muted());
   if (s_gps_state == GpsStateLocked && s_gps_accuracy_m >= 0) {
-    snprintf(gps_text, sizeof(gps_text), "GPS lock %ldm", (long)s_gps_accuracy_m);
+    snprintf(gps_text, sizeof(gps_text), "GPS %ld M", (long)s_gps_accuracy_m);
   } else if (s_gps_state == GpsStateSearching && s_gps_accuracy_m >= 0) {
-    snprintf(gps_text, sizeof(gps_text), "GPS %ldm, need %dm",
+    snprintf(gps_text, sizeof(gps_text), "GPS %ld M / NEED %d M",
              (long)s_gps_accuracy_m, GPS_LOCK_ACCURACY_M);
   } else if (s_gps_state == GpsStateError && s_gps_error[0] != '\0') {
     snprintf(gps_text, sizeof(gps_text), "%s", s_gps_error);
   } else {
-    snprintf(gps_text, sizeof(gps_text), "GPS not requested");
+    snprintf(gps_text, sizeof(gps_text), "GPS --");
   }
 
-  graphics_draw_text(ctx, gps_text, font_label(),
-                     GRect(8, bounds.size.h - 23, right - 8, 18),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+  if (tall) {
+    graphics_draw_text(ctx, gps_text, font_label(),
+                       GRect(8, bounds.size.h - 23, right - 8, 18),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
+  }
 
   if (s_activity_state == ActivityStateFinished && s_summary_points > 0) {
     snprintf(summary_text, sizeof(summary_text), "%ld pts saved",
@@ -1288,38 +1394,10 @@ static void draw_activity_screen(GContext *ctx, GRect bounds) {
   }
 
   draw_action_rail(ctx, bounds, ActionIconNone,
-                   s_activity_state == ActivityStateFinished ?
-                       ActionIconNew : ActionIconPause,
+                   s_activity_state == ActivityStateFinished ? ActionIconNew :
+                       paused ? ActionIconPlay : ActionIconPause,
                    s_activity_state == ActivityStateFinished ?
                        ActionIconNone : ActionIconStop);
-}
-
-static void draw_paused_screen(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  bool tall = layout_is_tall(bounds);
-  int icon_y = tall ? 48 : 35;
-  int title_y = tall ? 83 : 63;
-  int row_1_y = tall ? 124 : 100;
-  int row_gap = tall ? 38 : 27;
-  char elapsed_text[16];
-  char distance_text[16];
-
-  draw_top_bar(ctx, bounds);
-
-  graphics_context_set_fill_color(ctx, color_warning());
-  graphics_fill_rect(ctx, GRect(right / 2 - 12, icon_y, 8, 25), 2, GCornersAll);
-  graphics_fill_rect(ctx, GRect(right / 2 + 4, icon_y, 8, 25), 2, GCornersAll);
-
-  graphics_context_set_text_color(ctx, color_warning());
-  graphics_draw_text(ctx, "PAUSED", font_value(), GRect(8, title_y, right - 8, 28),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-
-  format_elapsed(elapsed_s(), elapsed_text, sizeof(elapsed_text));
-  format_distance(s_distance_m, distance_text, sizeof(distance_text));
-  draw_row(ctx, bounds, row_1_y, "TIME", elapsed_text);
-  draw_row(ctx, bounds, row_1_y + row_gap, "DIST", distance_text);
-
-  draw_action_rail(ctx, bounds, ActionIconNone, ActionIconPlay, ActionIconStop);
 }
 
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
@@ -1351,7 +1429,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       break;
     case ActivityStatePaused:
     default:
-      draw_paused_screen(ctx, bounds);
+      draw_activity_screen(ctx, bounds);
       break;
   }
 }

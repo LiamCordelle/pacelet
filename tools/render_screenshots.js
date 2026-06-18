@@ -31,6 +31,7 @@ var THEME = {
   accent: '#007c54',
   onAccent: '#ffffff',
   warning: '#9a6500',
+  pauseBg: '#ffdc00',
   bad: '#b00020',
   hrZone1: '#ffaaa9',
   hrZone2: '#ffdc00',
@@ -82,24 +83,29 @@ function countdownBandHeight() {
   return isTall() ? 120 : 106;
 }
 
-function activityTimerY() {
-  return isTall() ? 28 : 22;
+function durationBandY() {
+  return isTall() ? 27 : 22;
 }
 
-function activityRowY(index) {
-  return (isTall() ? 78 : 66) + index * (isTall() ? 38 : 27);
+function durationBandHeight() {
+  return isTall() ? 58 : 44;
 }
 
-function pausedIconY() {
-  return isTall() ? 48 : 35;
+function metricRowHeight() {
+  return isTall() ? 39 : 30;
 }
 
-function pausedTitleY() {
-  return isTall() ? 83 : 63;
+function metricRowY(index) {
+  return durationBandY() + durationBandHeight() + 1 +
+    index * metricRowHeight();
 }
 
-function pausedRowY(index) {
-  return (isTall() ? 124 : 100) + index * (isTall() ? 38 : 27);
+function splitBandHeight() {
+  return isTall() ? 96 : 70;
+}
+
+function splitRowHeight() {
+  return isTall() ? 44 : 30;
 }
 
 var screens = [
@@ -142,7 +148,7 @@ var screens = [
     metricValue: '11:06/km',
     hrBpm: 112,
     hrZone: 1,
-    gps: 'GPS lock 12m'
+    gps: 'GPS 12 M'
   },
   {
     name: 'running',
@@ -154,7 +160,7 @@ var screens = [
     metricValue: '5:02/km',
     hrBpm: 153,
     hrZone: 2,
-    gps: 'GPS lock 10m'
+    gps: 'GPS 10 M'
   },
   {
     name: 'measuring-hr',
@@ -167,7 +173,7 @@ var screens = [
     hrBpm: 0,
     hrZone: 0,
     hrMeasuring: true,
-    gps: 'GPS lock 11m'
+    gps: 'GPS 11 M'
   },
   {
     name: 'split-running',
@@ -185,7 +191,12 @@ var screens = [
     kind: 'paused',
     activity: 'RUNNING',
     elapsed: '23:14',
-    distance: '4.62 km'
+    distance: '4.62 km',
+    metricLabel: 'PACE',
+    metricValue: '5:02/km',
+    hrBpm: 153,
+    hrZone: 2,
+    gps: 'GPS 10 M'
   },
   {
     name: 'cycling',
@@ -197,7 +208,7 @@ var screens = [
     metricValue: '27.3 km/h',
     hrBpm: 146,
     hrZone: 2,
-    gps: 'GPS lock 14m'
+    gps: 'GPS 14 M'
   }
 ];
 
@@ -727,12 +738,66 @@ function menuItem(activity, selected, y) {
   ].join('\n');
 }
 
-function row(y, label, value) {
+function metricParts(text) {
+  var value = String(text).toUpperCase();
+  var spaceIndex = value.lastIndexOf(' ');
+  if (spaceIndex >= 0) {
+    return {
+      value: value.slice(0, spaceIndex),
+      unit: value.slice(spaceIndex + 1)
+    };
+  }
+
+  var slashIndex = value.indexOf('/');
+  if (slashIndex >= 0) {
+    return {
+      value: value.slice(0, slashIndex),
+      unit: value.slice(slashIndex)
+    };
+  }
+
+  return { value: value, unit: '' };
+}
+
+function dottedSeparator(y, color) {
+  return '<line x1="8" y1="' + y + '" x2="' + (RIGHT - 4) +
+    '" y2="' + y + '" stroke="' + color +
+    '" stroke-width="1" stroke-dasharray="1 3" opacity="0.65"/>';
+}
+
+function durationBand(elapsed, paused) {
+  var y = durationBandY();
+  var height = durationBandHeight();
+  var bg = paused ? THEME.pauseBg : THEME.accent;
+  var ink = paused ? '#000000' : THEME.onAccent;
+  var pausedLabel = paused && isTall() ?
+    '<text x="7" y="' + (y + 14) +
+      '" class="status" fill="' + ink + '">PAUSED</text>' : '';
+
   return [
-    '<text x="8" y="' + y + '" class="label">' + esc(label) + '</text>',
-    '<text x="' + RIGHT + '" y="' + (y + 2) +
-      '" class="value" text-anchor="end">' +
-      esc(value) + '</text>'
+    '<rect x="0" y="' + y + '" width="' + RIGHT +
+      '" height="' + height + '" fill="' + bg + '"/>',
+    pausedLabel,
+    '<text x="' + Math.round(RIGHT / 2) + '" y="' +
+      (y + Math.round(height / 2) + 14) +
+      '" class="timer" fill="' + ink +
+      '" text-anchor="middle">' + esc(elapsed) + '</text>'
+  ].join('\n');
+}
+
+function metricRow(y, height, label, text) {
+  var parts = metricParts(text);
+  return [
+    dottedSeparator(y, THEME.muted),
+    '<text x="8" y="' + (y + Math.round(height / 2) + 5) +
+      '" class="status" fill="' + THEME.muted + '">' + esc(label) + '</text>',
+    '<text x="' + (RIGHT - 40) + '" y="' +
+      (y + Math.round(height / 2) + 9) +
+      '" class="value" text-anchor="end">' + esc(parts.value) + '</text>',
+    '<text x="' + (RIGHT - 37) + '" y="' +
+      (y + Math.round(height / 2) + 5) +
+      '" class="status" fill="' + THEME.text + '">' +
+      esc(parts.unit) + '</text>'
   ].join('\n');
 }
 
@@ -795,27 +860,42 @@ function measuringHeart(cx, cy) {
   ].join('\n');
 }
 
-function hrRow(y, bpm, zone, measuring) {
+function heartIcon(cx, cy, color) {
+  return '<path d="M ' + cx + ' ' + (cy + 8) +
+    ' C ' + (cx - 12) + ' ' + cy + ', ' + (cx - 8) + ' ' + (cy - 8) +
+    ', ' + cx + ' ' + (cy - 3) +
+    ' C ' + (cx + 8) + ' ' + (cy - 8) + ', ' + (cx + 12) + ' ' + cy +
+    ', ' + cx + ' ' + (cy + 8) + ' Z" fill="' + color + '"/>';
+}
+
+function hrRow(y, height, bpm, zone, measuring) {
+  var centerY = y + Math.round(height / 2);
   if (measuring) {
     return [
-      measuringHeart(24, y + 10),
-      '<text x="43" y="' + (y + 14) + '" class="status" fill="' +
+      dottedSeparator(y, THEME.muted),
+      measuringHeart(20, centerY),
+      '<text x="40" y="' + (centerY + 4) + '" class="status" fill="' +
         THEME.muted + '">MEASURING</text>'
     ].join('\n');
   }
 
+  var bg = zone > 0 ? hrZoneColor(zone) : THEME.bg;
+  var ink = zone > 0 ? '#000000' : THEME.text;
+  var label = zone > 0 ? hrZoneLabel(zone) : 'HEART RATE';
   var content = [
-    '<rect x="6" y="' + (y - 3) + '" width="' + (RIGHT - 10) +
-      '" height="29" rx="3" fill="' + hrZoneColor(zone) + '"/>',
-    '<text x="10" y="' + (y + 12) +
-      '" class="status" fill="#000000">' + esc(hrZoneLabel(zone)) + '</text>',
-    '<text x="' + (RIGHT - 8) + '" y="' + (y + 19) +
-      '" class="value" fill="#000000" text-anchor="end">' +
-      esc(bpm) + '</text>'
+    '<rect x="0" y="' + y + '" width="' + RIGHT +
+      '" height="' + height + '" fill="' + bg + '"/>',
+    dottedSeparator(y, zone > 0 ? ink : THEME.muted),
+    '<text x="8" y="' + (y + 14) +
+      '" class="status" fill="' + ink + '">' + esc(label) + '</text>',
+    RIGHT >= 150 ? heartIcon(RIGHT - 66, centerY + 1, ink) : '',
+    '<text x="' + (RIGHT - 4) + '" y="' + (centerY + 9) +
+      '" class="value" fill="' + ink + '" text-anchor="end">' +
+      esc(bpm || '--') + '</text>'
   ];
-  for (var i = 1; i <= 3; i += 1) {
-    content.push('<rect x="' + (10 + (i - 1) * 14) +
-      '" y="' + (y + 20) + '" width="11" height="3" rx="1" ' +
+  for (var i = 1; zone > 0 && i <= 3; i += 1) {
+    content.push('<rect x="' + (8 + (i - 1) * 15) +
+      '" y="' + (y + height - 8) + '" width="12" height="4" ' +
       (i <= zone ? 'fill="#000000"' :
         'fill="none" stroke="#000000" stroke-width="1"') + '/>');
   }
@@ -879,61 +959,49 @@ function renderCountdown(screen) {
   ].join('\n'));
 }
 
-function renderActivity(screen) {
+function renderActivity(screen, paused) {
   var centerX = Math.round(RIGHT / 2);
+  var rowHeight = metricRowHeight();
   return base([
-    topBar(screen.activity, 'RECORDING', THEME.accent),
-    '<text x="' + centerX + '" y="' + (activityTimerY() + 33) +
-      '" class="timer" fill="' + THEME.text +
-      '" text-anchor="middle">' + esc(screen.elapsed) + '</text>',
-    row(activityRowY(0) + 14, 'DIST', screen.distance),
-    row(activityRowY(1) + 14, screen.metricLabel, screen.metricValue),
-    hrRow(activityRowY(2), screen.hrBpm, screen.hrZone, screen.hrMeasuring),
+    topBar(screen.activity, paused ? 'PAUSED' : 'RECORDING',
+           paused ? THEME.warning : THEME.accent),
+    durationBand(screen.elapsed, paused),
+    metricRow(metricRowY(0), rowHeight, 'DIST', screen.distance),
+    metricRow(metricRowY(1), rowHeight,
+              screen.metricLabel, screen.metricValue),
+    hrRow(metricRowY(2), rowHeight,
+          screen.hrBpm, screen.hrZone, screen.hrMeasuring),
     '<text x="' + centerX + '" y="' + (HEIGHT - 6) +
       '" class="footer" text-anchor="middle">' + esc(screen.gps) + '</text>',
-    actionRail(null, 'pause', 'stop')
+    actionRail(null, paused ? 'play' : 'pause', 'stop')
   ].join('\n'));
 }
 
 function renderSplit(screen) {
   var centerX = Math.round(RIGHT / 2);
-  var titleY = isTall() ? 38 : 29;
-  var timerY = isTall() ? 70 : 56;
-  var rowY = isTall() ? 124 : 105;
-  var rowGap = isTall() ? 38 : 27;
+  var bandY = durationBandY();
+  var bandHeight = splitBandHeight();
+  var rowHeight = splitRowHeight();
+  var movementY = bandY + bandHeight + 1;
+  var hrY = movementY + rowHeight;
   return base([
     topBar(screen.activity, 'SPLIT', THEME.accent),
-    '<text x="' + centerX + '" y="' + (titleY + 21) +
-      '" class="title" fill="' + THEME.accent +
-      '" text-anchor="middle">KM ' + esc(screen.splitNumber) + '</text>',
-    '<text x="' + centerX + '" y="' + (timerY + 33) +
-      '" class="timer" fill="' + THEME.text +
+    '<rect x="0" y="' + bandY + '" width="' + RIGHT +
+      '" height="' + bandHeight + '" fill="' + THEME.accent + '"/>',
+    '<text x="8" y="' + (bandY + 23) +
+      '" class="title" fill="' + THEME.onAccent +
+      '">KM ' + esc(screen.splitNumber) + '</text>',
+    '<text x="' + centerX + '" y="' + (bandY + bandHeight - 13) +
+      '" class="timer" fill="' + THEME.onAccent +
       '" text-anchor="middle">' + esc(screen.splitTime) + '</text>',
-    row(rowY + 14, screen.metricLabel, screen.metricValue),
-    hrRow(rowY + rowGap, screen.hrBpm, screen.hrZone, screen.hrMeasuring),
-    '<text x="' + centerX + '" y="' + (HEIGHT - 6) +
-      '" class="footer" text-anchor="middle">Activity still recording</text>',
+    metricRow(movementY, rowHeight, screen.metricLabel, screen.metricValue),
+    hrRow(hrY, rowHeight, screen.hrBpm, screen.hrZone, screen.hrMeasuring),
     actionRail(null, 'pause', 'stop')
   ].join('\n'));
 }
 
 function renderPaused(screen) {
-  var centerX = Math.round(RIGHT / 2);
-  return base([
-    topBar(screen.activity, 'PAUSED', THEME.warning),
-    '<g fill="' + THEME.warning + '">',
-    '<rect x="' + (centerX - 12) + '" y="' + pausedIconY() +
-      '" width="8" height="25" rx="2"/>',
-    '<rect x="' + (centerX + 4) + '" y="' + pausedIconY() +
-      '" width="8" height="25" rx="2"/>',
-    '</g>',
-    '<text x="' + centerX + '" y="' + (pausedTitleY() + 21) +
-      '" class="title" fill="' +
-      THEME.warning + '" text-anchor="middle">PAUSED</text>',
-    row(pausedRowY(0) + 14, 'TIME', screen.elapsed),
-    row(pausedRowY(1) + 14, 'DIST', screen.distance),
-    actionRail(null, 'play', 'stop')
-  ].join('\n'));
+  return renderActivity(screen, true);
 }
 
 function render(screen) {
@@ -952,7 +1020,7 @@ function render(screen) {
   if (screen.kind === 'split') {
     return renderSplit(screen);
   }
-  return renderActivity(screen);
+  return renderActivity(screen, false);
 }
 
 function pixelActionIcon(canvas, type, cx, cy, color) {
@@ -1114,28 +1182,74 @@ function pixelMenuItem(canvas, activity, selected, y) {
                'left', true);
 }
 
-function pixelRow(canvas, y, label, value) {
-  pixelTextFit(canvas, label, 8, y + 1, 42, 2, THEME.muted, 'left', false);
-  pixelTextFit(canvas, value, RIGHT, y - 1, RIGHT - 50, 2, THEME.text,
-               'right', true);
+function pixelDottedSeparator(canvas, y, color) {
+  for (var x = 8; x < RIGHT - 4; x += 4) {
+    canvas.fillRect(x, y, 1, 1, color);
+  }
 }
 
-function pixelHrRow(canvas, y, bpm, zone) {
-  var ink = '#000000';
-  canvas.fillRect(6, y - 3, RIGHT - 10, 29, hrZoneColor(zone));
-  pixelTextFit(canvas, hrZoneLabel(zone), 10, y + 2, 68, 1, ink,
+function pixelDurationBand(canvas, elapsed, paused) {
+  var y = durationBandY();
+  var height = durationBandHeight();
+  var bg = paused ? THEME.pauseBg : THEME.accent;
+  var ink = paused ? '#000000' : THEME.onAccent;
+  canvas.fillRect(0, y, RIGHT, height, bg);
+  if (paused && isTall()) {
+    canvas.text('PAUSED', 7, y + 3, 1, ink, 'left', true);
+  }
+  pixelTextFit(canvas, elapsed, Math.round(RIGHT / 2),
+               y + Math.round((height - 35) / 2), RIGHT - 8, 5, ink,
+               'center', true);
+}
+
+function pixelMetricRow(canvas, y, height, label, text) {
+  var parts = metricParts(text);
+  pixelDottedSeparator(canvas, y, THEME.muted);
+  pixelTextFit(canvas, label, 8, y + Math.round((height - 7) / 2),
+               42, 1, THEME.muted, 'left', true);
+  pixelTextFit(canvas, parts.value, RIGHT - 40,
+               y + Math.round((height - 21) / 2),
+               RIGHT - 82, 3, THEME.text, 'right', true);
+  pixelTextFit(canvas, parts.unit, RIGHT - 37,
+               y + Math.round((height - 7) / 2),
+               37, 1, THEME.text, 'left', true);
+}
+
+function pixelHeartIcon(canvas, cx, cy, color) {
+  canvas.fillCircle(cx - 3, cy - 3, 4, color);
+  canvas.fillCircle(cx + 3, cy - 3, 4, color);
+  for (var row = 0; row < 8; row += 1) {
+    var halfWidth = 7 - row;
+    canvas.fillRect(cx - halfWidth, cy - 1 + row,
+                    halfWidth * 2 + 1, 1, color);
+  }
+}
+
+function pixelHrRow(canvas, y, height, bpm, zone) {
+  var ink = zone > 0 ? '#000000' : THEME.text;
+  var bg = zone > 0 ? hrZoneColor(zone) : THEME.bg;
+  canvas.fillRect(0, y, RIGHT, height, bg);
+  pixelDottedSeparator(canvas, y, zone > 0 ? ink : THEME.muted);
+  pixelTextFit(canvas, zone > 0 ? hrZoneLabel(zone) : 'HEART RATE',
+               8, y + 4, 78, 1, ink,
                'left', true);
-  pixelTextFit(canvas, String(bpm), RIGHT - 8, y - 1, RIGHT - 83, 3, ink,
+  if (RIGHT >= 150) {
+    pixelHeartIcon(canvas, RIGHT - 66, y + Math.round(height / 2) + 1, ink);
+  }
+  pixelTextFit(canvas, bpm || '--', RIGHT - 4,
+               y + Math.round((height - 21) / 2),
+               53, 3, ink,
                'right', true);
-  for (var i = 1; i <= 3; i += 1) {
-    var x = 10 + (i - 1) * 14;
+  for (var i = 1; zone > 0 && i <= 3; i += 1) {
+    var x = 8 + (i - 1) * 15;
     if (i <= zone) {
-      canvas.fillRect(x, y + 20, 11, 3, ink);
+      canvas.fillRect(x, y + height - 8, 12, 4, ink);
     } else {
-      canvas.line(x, y + 20, x + 10, y + 20, ink, 1);
-      canvas.line(x, y + 22, x + 10, y + 22, ink, 1);
-      canvas.line(x, y + 20, x, y + 22, ink, 1);
-      canvas.line(x + 10, y + 20, x + 10, y + 22, ink, 1);
+      canvas.line(x, y + height - 8, x + 11, y + height - 8, ink, 1);
+      canvas.line(x, y + height - 5, x + 11, y + height - 5, ink, 1);
+      canvas.line(x, y + height - 8, x, y + height - 5, ink, 1);
+      canvas.line(x + 11, y + height - 8,
+                  x + 11, y + height - 5, ink, 1);
     }
   }
 }
@@ -1151,14 +1265,16 @@ function pixelMeasuringHeart(canvas, cx, cy) {
   }
 }
 
-function pixelHrDisplay(canvas, y, screen) {
+function pixelHrDisplay(canvas, y, height, screen) {
   if (screen.hrMeasuring) {
-    pixelMeasuringHeart(canvas, 24, y + 10);
-    pixelTextFit(canvas, 'MEASURING', 43, y + 4, RIGHT - 49, 1,
+    var centerY = y + Math.round(height / 2);
+    pixelDottedSeparator(canvas, y, THEME.muted);
+    pixelMeasuringHeart(canvas, 20, centerY);
+    pixelTextFit(canvas, 'MEASURING', 40, centerY - 4, RIGHT - 46, 1,
                  THEME.muted, 'left', true);
     return;
   }
-  pixelHrRow(canvas, y, screen.hrBpm, screen.hrZone);
+  pixelHrRow(canvas, y, height, screen.hrBpm, screen.hrZone);
 }
 
 function pixelGpsIcon(canvas, centerX, centerY, color, locked) {
@@ -1210,38 +1326,49 @@ function renderPixel(screen) {
     canvas.text(screen.activity, centerX, bandY + bandH + 12, 2, THEME.muted,
                 'center', false);
   } else if (screen.kind === 'paused') {
+    var pausedRowHeight = metricRowHeight();
     pixelTopBar(canvas, screen.activity, 'PAUSED', THEME.warning);
-    canvas.fillRect(centerX - 12, pausedIconY(), 8, 25, THEME.warning);
-    canvas.fillRect(centerX + 4, pausedIconY(), 8, 25, THEME.warning);
-    canvas.text('PAUSED', centerX, pausedTitleY() + 7, 3, THEME.warning,
-                'center', true);
-    pixelRow(canvas, pausedRowY(0), 'TIME', screen.elapsed);
-    pixelRow(canvas, pausedRowY(1), 'DIST', screen.distance);
+    pixelDurationBand(canvas, screen.elapsed, true);
+    pixelMetricRow(canvas, metricRowY(0), pausedRowHeight,
+                   'DIST', screen.distance);
+    pixelMetricRow(canvas, metricRowY(1), pausedRowHeight,
+                   screen.metricLabel, screen.metricValue);
+    pixelHrDisplay(canvas, metricRowY(2), pausedRowHeight, screen);
+    if (isTall()) {
+      canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
+                  false);
+    }
     pixelActionRail(canvas, null, 'play', 'stop');
   } else if (screen.kind === 'split') {
-    var splitTitleY = isTall() ? 38 : 29;
-    var splitTimerY = isTall() ? 70 : 56;
-    var splitRowY = isTall() ? 124 : 105;
-    var splitRowGap = isTall() ? 38 : 27;
+    var splitBandY = durationBandY();
+    var splitBandH = splitBandHeight();
+    var splitMetricH = splitRowHeight();
+    var splitMetricY = splitBandY + splitBandH + 1;
+    var splitHrY = splitMetricY + splitMetricH;
     pixelTopBar(canvas, screen.activity, 'SPLIT', THEME.accent);
-    canvas.text('KM ' + screen.splitNumber, centerX, splitTitleY + 2, 3,
-                THEME.accent, 'center', true);
-    canvas.text(screen.splitTime, centerX, splitTimerY + 5, 5, THEME.text,
+    canvas.fillRect(0, splitBandY, RIGHT, splitBandH, THEME.accent);
+    canvas.text('KM ' + screen.splitNumber, 8, splitBandY + 5, 3,
+                THEME.onAccent, 'left', true);
+    canvas.text(screen.splitTime, centerX,
+                splitBandY + splitBandH - 40, 5, THEME.onAccent,
                 'center', true);
-    pixelRow(canvas, splitRowY, screen.metricLabel, screen.metricValue);
-    pixelHrDisplay(canvas, splitRowY + splitRowGap, screen);
-    canvas.text('ACTIVITY STILL RECORDING', centerX, HEIGHT - 14, 1,
-                THEME.muted, 'center', false);
+    pixelMetricRow(canvas, splitMetricY, splitMetricH,
+                   screen.metricLabel, screen.metricValue);
+    pixelHrDisplay(canvas, splitHrY, splitMetricH, screen);
     pixelActionRail(canvas, null, 'pause', 'stop');
   } else {
+    var activeRowHeight = metricRowHeight();
     pixelTopBar(canvas, screen.activity, 'RECORDING', THEME.accent);
-    canvas.text(screen.elapsed, centerX, activityTimerY() + 5, 5, THEME.text,
-                'center', true);
-    pixelRow(canvas, activityRowY(0), 'DIST', screen.distance);
-    pixelRow(canvas, activityRowY(1), screen.metricLabel, screen.metricValue);
-    pixelHrDisplay(canvas, activityRowY(2), screen);
-    canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
-                false);
+    pixelDurationBand(canvas, screen.elapsed, false);
+    pixelMetricRow(canvas, metricRowY(0), activeRowHeight,
+                   'DIST', screen.distance);
+    pixelMetricRow(canvas, metricRowY(1), activeRowHeight,
+                   screen.metricLabel, screen.metricValue);
+    pixelHrDisplay(canvas, metricRowY(2), activeRowHeight, screen);
+    if (isTall()) {
+      canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
+                  false);
+    }
     pixelActionRail(canvas, null, 'pause', 'stop');
   }
 
