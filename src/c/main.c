@@ -38,11 +38,13 @@ typedef enum {
 
 typedef enum {
   ActionIconNone = 0,
+  ActionIconUp,
+  ActionIconDown,
   ActionIconGps,
   ActionIconRefresh,
   ActionIconPlay,
   ActionIconPause,
-  ActionIconSave,
+  ActionIconStop,
   ActionIconType,
   ActionIconNew
 } ActionIcon;
@@ -214,6 +216,10 @@ static GFont font_label(void) {
   return fonts_get_system_font(FONT_KEY_GOTHIC_14);
 }
 
+static GFont font_metric_label(void) {
+  return fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
+}
+
 static GFont font_value(void) {
   return fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
 }
@@ -223,7 +229,7 @@ static GFont font_menu(void) {
 }
 
 static GFont font_timer(void) {
-  return fonts_get_system_font(FONT_KEY_BITHAM_30_BLACK);
+  return fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS);
 }
 
 static void mark_dirty(void) {
@@ -456,8 +462,8 @@ static int rail_icon_y(GRect bounds, int index) {
 }
 
 static int choose_row_y(GRect bounds, int index) {
-  return (layout_is_tall(bounds) ? 56 : 48) +
-         index * (layout_is_tall(bounds) ? 40 : 33);
+  return (layout_is_tall(bounds) ? 38 : 30) +
+         index * (layout_is_tall(bounds) ? 54 : 42);
 }
 
 static void send_simple_command(uint32_t command_key) {
@@ -726,14 +732,14 @@ static void finish_activity(void) {
   mark_dirty();
 }
 
-static void cycle_activity_type(void) {
+static void cycle_activity_type(int direction) {
   if (s_activity_state != ActivityStateChoose &&
       s_activity_state != ActivityStateGps &&
       s_activity_state != ActivityStateReady) {
     return;
   }
 
-  s_activity_type = (ActivityType)(((int)s_activity_type + 1) % 3);
+  s_activity_type = (ActivityType)(((int)s_activity_type + direction + 3) % 3);
   mark_dirty();
 }
 
@@ -939,6 +945,14 @@ static void draw_action_icon(GContext *ctx, GPoint center, ActionIcon icon,
   graphics_context_set_fill_color(ctx, color);
 
   switch (icon) {
+    case ActionIconUp:
+      graphics_draw_line(ctx, GPoint(x - 5, y + 3), GPoint(x, y - 3));
+      graphics_draw_line(ctx, GPoint(x, y - 3), GPoint(x + 5, y + 3));
+      break;
+    case ActionIconDown:
+      graphics_draw_line(ctx, GPoint(x - 5, y - 3), GPoint(x, y + 3));
+      graphics_draw_line(ctx, GPoint(x, y + 3), GPoint(x + 5, y - 3));
+      break;
     case ActionIconGps:
       graphics_draw_circle(ctx, center, 5);
       graphics_draw_line(ctx, GPoint(x, y - 8), GPoint(x, y - 5));
@@ -961,11 +975,9 @@ static void draw_action_icon(GContext *ctx, GPoint center, ActionIcon icon,
       graphics_fill_rect(ctx, GRect(x - 5, y - 6, 3, 12), 1, GCornersAll);
       graphics_fill_rect(ctx, GRect(x + 2, y - 6, 3, 12), 1, GCornersAll);
       break;
-    case ActionIconSave:
-      graphics_draw_rect(ctx, GRect(x - 5, y - 6, 11, 11));
-      graphics_fill_rect(ctx, GRect(x - 2, y - 5, 5, 3), 0, GCornerNone);
-      graphics_draw_line(ctx, GPoint(x - 3, y + 2), GPoint(x + 4, y + 2));
-      graphics_draw_line(ctx, GPoint(x - 3, y + 8), GPoint(x + 4, y + 8));
+    case ActionIconStop:
+      graphics_fill_rect(ctx, GRect(x - 5, y - 5, 10, 10),
+                         1, GCornersAll);
       break;
     case ActionIconType:
       graphics_draw_line(ctx, GPoint(x - 5, y - 5), GPoint(x + 4, y - 5));
@@ -1030,25 +1042,30 @@ static void draw_activity_icon_for_type(GContext *ctx, ActivityType type,
 static void draw_choose_menu_item(GContext *ctx, GRect bounds,
                                   ActivityType type, int y) {
   bool selected = s_activity_type == type;
+  bool tall = layout_is_tall(bounds);
   int right = content_right(bounds);
-  GRect row_bounds = GRect(8, y, right - 12, 31);
+  int row_h = tall ? 48 : 38;
+  int icon_size = tall ? 34 : 28;
+  GRect row_bounds = GRect(0, y, right, row_h);
   GColor item_text = selected ? color_on_accent() : color_text();
   GColor item_icon = selected ? color_on_accent() : color_text();
 
   if (selected) {
     graphics_context_set_fill_color(ctx, color_accent());
-    graphics_fill_rect(ctx, row_bounds, 4, GCornersAll);
+    graphics_fill_rect(ctx, row_bounds, 0, GCornerNone);
   } else {
     graphics_context_set_stroke_color(ctx, color_muted());
-    graphics_draw_line(ctx, GPoint(14, y + 30),
-                       GPoint(right - 4, y + 30));
+    for (int x = 8; x < right - 4; x += 4) {
+      graphics_draw_pixel(ctx, GPoint(x, y + row_h - 1));
+    }
   }
 
-  draw_activity_icon_for_type(ctx, type, GPoint(27, y + 16), 28, item_icon);
+  draw_activity_icon_for_type(
+      ctx, type, GPoint(29, y + row_h / 2), icon_size, item_icon);
 
   graphics_context_set_text_color(ctx, item_text);
   graphics_draw_text(ctx, ACTIVITY_LABELS[type], font_menu(),
-                     GRect(46, y + 4, right - 50, 24),
+                     GRect(52, y + (row_h - 24) / 2, right - 56, 24),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 }
 
@@ -1077,20 +1094,12 @@ static void draw_gps_icon(GContext *ctx, GPoint center) {
 }
 
 static void draw_choose_screen(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  int title_y = layout_is_tall(bounds) ? 32 : 27;
-
   draw_top_bar(ctx, bounds);
-
-  graphics_context_set_text_color(ctx, color_muted());
-  graphics_draw_text(ctx, "Choose Activity", font_label(),
-                     GRect(8, title_y, right - 8, 18),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 
   draw_choose_menu_item(ctx, bounds, ActivityTypeWalking, choose_row_y(bounds, 0));
   draw_choose_menu_item(ctx, bounds, ActivityTypeRunning, choose_row_y(bounds, 1));
   draw_choose_menu_item(ctx, bounds, ActivityTypeCycling, choose_row_y(bounds, 2));
-  draw_action_rail(ctx, bounds, ActionIconNone, ActionIconGps, ActionIconType);
+  draw_action_rail(ctx, bounds, ActionIconUp, ActionIconGps, ActionIconDown);
 }
 
 static void draw_gps_screen(GContext *ctx, GRect bounds) {
@@ -1117,10 +1126,10 @@ static void draw_gps_screen(GContext *ctx, GRect bounds) {
   if (s_gps_state == GpsStateError && s_gps_error[0] != '\0') {
     snprintf(accuracy_text, sizeof(accuracy_text), "%s", s_gps_error);
   } else if (s_gps_accuracy_m >= 0) {
-    snprintf(accuracy_text, sizeof(accuracy_text), "Accuracy %ldm",
+    snprintf(accuracy_text, sizeof(accuracy_text), "%ld m accuracy",
              (long)s_gps_accuracy_m);
   } else {
-    snprintf(accuracy_text, sizeof(accuracy_text), "Waiting for phone");
+    snprintf(accuracy_text, sizeof(accuracy_text), "Waiting for phone GPS");
   }
   graphics_draw_text(ctx, accuracy_text, font_label(),
                      GRect(8, accuracy_y, right - 8, 18),
@@ -1129,7 +1138,7 @@ static void draw_gps_screen(GContext *ctx, GRect bounds) {
   if (s_gps_state == GpsStateLocked) {
     snprintf(detail_text, sizeof(detail_text), "Ready to start");
   } else if (s_gps_accuracy_m >= 0) {
-    snprintf(detail_text, sizeof(detail_text), "Need %dm or better",
+    snprintf(detail_text, sizeof(detail_text), "%d m required",
              GPS_LOCK_ACCURACY_M);
   } else {
     snprintf(detail_text, sizeof(detail_text), "Keep phone nearby");
@@ -1219,7 +1228,7 @@ static void draw_split_screen(GContext *ctx, GRect bounds) {
                      GTextAlignmentCenter, NULL);
 
   draw_action_rail(ctx, bounds, ActionIconNone,
-                   ActionIconPause, ActionIconSave);
+                   ActionIconPause, ActionIconStop);
 }
 
 static void draw_activity_screen(GContext *ctx, GRect bounds) {
@@ -1282,7 +1291,7 @@ static void draw_activity_screen(GContext *ctx, GRect bounds) {
                    s_activity_state == ActivityStateFinished ?
                        ActionIconNew : ActionIconPause,
                    s_activity_state == ActivityStateFinished ?
-                       ActionIconNone : ActionIconSave);
+                       ActionIconNone : ActionIconStop);
 }
 
 static void draw_paused_screen(GContext *ctx, GRect bounds) {
@@ -1310,7 +1319,7 @@ static void draw_paused_screen(GContext *ctx, GRect bounds) {
   draw_row(ctx, bounds, row_1_y, "TIME", elapsed_text);
   draw_row(ctx, bounds, row_1_y + row_gap, "DIST", distance_text);
 
-  draw_action_rail(ctx, bounds, ActionIconNone, ActionIconPlay, ActionIconSave);
+  draw_action_rail(ctx, bounds, ActionIconNone, ActionIconPlay, ActionIconStop);
 }
 
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
@@ -1493,7 +1502,9 @@ static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
-  if (s_activity_state == ActivityStateGps ||
+  if (s_activity_state == ActivityStateChoose) {
+    cycle_activity_type(-1);
+  } else if (s_activity_state == ActivityStateGps ||
       s_activity_state == ActivityStateReady ||
       s_activity_state == ActivityStateFinished) {
     request_gps();
@@ -1501,7 +1512,7 @@ static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void down_click_handler(ClickRecognizerRef recognizer, void *context) {
-  cycle_activity_type();
+  cycle_activity_type(1);
 }
 
 static void down_long_click_handler(ClickRecognizerRef recognizer,

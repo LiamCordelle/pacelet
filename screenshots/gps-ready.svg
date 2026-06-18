@@ -22,7 +22,7 @@
 </g>
 <circle cx="90" cy="78" r="7" fill="#007c54"/>
 <text x="90" y="135" class="title" fill="#007c54" text-anchor="middle">GPS LOCKED</text>
-<text x="90" y="158" class="label" fill="#071014" text-anchor="middle">Accuracy 12m</text>
+<text x="90" y="158" class="label" fill="#071014" text-anchor="middle">12 m accuracy</text>
 <text x="90" y="220" class="footer" text-anchor="middle">Ready to start</text>
 <rect x="182" y="0" width="18" height="228" fill="#071014"/>
 <g fill="none" stroke="#f7fbf8" stroke-width="2">

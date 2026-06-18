@@ -59,7 +59,7 @@ function railIconY(index) {
 }
 
 function chooseRowY(index) {
-  return (isTall() ? 56 : 48) + index * (isTall() ? 40 : 33);
+  return (isTall() ? 38 : 30) + index * (isTall() ? 54 : 42);
 }
 
 function gpsIconY() {
@@ -110,8 +110,8 @@ var screens = [
     activity: 'RUNNING',
     state: 'GPS SEARCH',
     title: 'FINDING GPS',
-    accuracy: 'Accuracy 38m',
-    hint: 'Need 25m or better',
+    accuracy: '38 m accuracy',
+    hint: '25 m required',
     color: THEME.warning,
     locked: false
   },
@@ -121,7 +121,7 @@ var screens = [
     activity: 'RUNNING',
     state: 'GPS READY',
     title: 'GPS LOCKED',
-    accuracy: 'Accuracy 12m',
+    accuracy: '12 m accuracy',
     hint: 'Ready to start',
     color: THEME.accent,
     locked: true
@@ -545,6 +545,18 @@ function actionIcon(type, cx, cy, color) {
     return '';
   }
 
+  if (type === 'up') {
+    return '<path d="M' + (cx - 5) + ' ' + (cy + 3) + ' L' + cx + ' ' +
+      (cy - 3) + ' L' + (cx + 5) + ' ' + (cy + 3) +
+      '" fill="none" stroke="' + color + '" stroke-width="2"/>';
+  }
+
+  if (type === 'down') {
+    return '<path d="M' + (cx - 5) + ' ' + (cy - 3) + ' L' + cx + ' ' +
+      (cy + 3) + ' L' + (cx + 5) + ' ' + (cy - 3) +
+      '" fill="none" stroke="' + color + '" stroke-width="2"/>';
+  }
+
   if (type === 'gps') {
     return [
       '<g fill="none" stroke="' + color + '" stroke-width="2">',
@@ -581,18 +593,9 @@ function actionIcon(type, cx, cy, color) {
       '" width="3" height="12" rx="1"/></g>';
   }
 
-  if (type === 'save') {
-    return [
-      '<g fill="none" stroke="' + color + '" stroke-width="2">',
-      '<rect x="' + (cx - 5) + '" y="' + (cy - 6) +
-        '" width="11" height="11"/>',
-      '<path d="M' + (cx - 3) + ' ' + (cy + 2) + ' L' + (cx + 4) +
-        ' ' + (cy + 2) + ' M' + (cx - 3) + ' ' + (cy + 8) + ' L' +
-        (cx + 4) + ' ' + (cy + 8) + '"/>',
-      '</g>',
-      '<rect x="' + (cx - 2) + '" y="' + (cy - 5) +
-        '" width="5" height="3" fill="' + color + '"/>'
-    ].join('\n');
+  if (type === 'stop') {
+    return '<rect x="' + (cx - 5) + '" y="' + (cy - 5) +
+      '" width="10" height="10" rx="1" fill="' + color + '"/>';
   }
 
   if (type === 'type') {
@@ -701,20 +704,25 @@ function activityIcon(activity, cx, cy, size, color) {
 }
 
 function menuItem(activity, selected, y) {
+  var tall = isTall();
+  var rowH = tall ? 48 : 38;
+  var iconSize = tall ? 34 : 28;
   var labelColor = selected ? THEME.onAccent : THEME.text;
   var iconColor = selected ? THEME.onAccent : THEME.text;
   var background = selected ?
-    '<rect x="8" y="' + y + '" width="' + (RIGHT - 12) +
-      '" height="31" rx="4" fill="' +
+    '<rect x="0" y="' + y + '" width="' + RIGHT +
+      '" height="' + rowH + '" fill="' +
       THEME.accent + '"/>' :
-    '<line x1="14" y1="' + (y + 30) + '" x2="' + (RIGHT - 4) +
-      '" y2="' + (y + 30) +
-      '" stroke="' + THEME.muted + '" stroke-width="1" opacity="0.45"/>';
+    '<line x1="8" y1="' + (y + rowH - 1) + '" x2="' + (RIGHT - 4) +
+      '" y2="' + (y + rowH - 1) +
+      '" stroke="' + THEME.muted +
+      '" stroke-width="1" stroke-dasharray="1 3" opacity="0.65"/>';
 
   return [
     background,
-    activityIcon(activity, 27, y + 16, 28, iconColor),
-    '<text x="46" y="' + (y + 23) + '" class="menu" fill="' + labelColor +
+    activityIcon(activity, 29, y + rowH / 2, iconSize, iconColor),
+    '<text x="52" y="' + (y + rowH / 2 + 6) +
+      '" class="menu" fill="' + labelColor +
       '">' + esc(activity) + '</text>'
   ].join('\n');
 }
@@ -817,13 +825,10 @@ function hrRow(y, bpm, zone, measuring) {
 function renderChoose(screen) {
   return base([
     topBar(screen.activity, 'CHOOSE', THEME.muted),
-    '<text x="' + Math.round(RIGHT / 2) +
-      '" y="' + (isTall() ? 47 : 42) +
-      '" class="label" text-anchor="middle">Choose Activity</text>',
     menuItem('WALKING', screen.activity === 'WALKING', chooseRowY(0)),
     menuItem('RUNNING', screen.activity === 'RUNNING', chooseRowY(1)),
     menuItem('CYCLING', screen.activity === 'CYCLING', chooseRowY(2)),
-    actionRail(null, 'gps', 'type')
+    actionRail('up', 'gps', 'down')
   ].join('\n'));
 }
 
@@ -886,7 +891,7 @@ function renderActivity(screen) {
     hrRow(activityRowY(2), screen.hrBpm, screen.hrZone, screen.hrMeasuring),
     '<text x="' + centerX + '" y="' + (HEIGHT - 6) +
       '" class="footer" text-anchor="middle">' + esc(screen.gps) + '</text>',
-    actionRail(null, 'pause', 'save')
+    actionRail(null, 'pause', 'stop')
   ].join('\n'));
 }
 
@@ -908,7 +913,7 @@ function renderSplit(screen) {
     hrRow(rowY + rowGap, screen.hrBpm, screen.hrZone, screen.hrMeasuring),
     '<text x="' + centerX + '" y="' + (HEIGHT - 6) +
       '" class="footer" text-anchor="middle">Activity still recording</text>',
-    actionRail(null, 'pause', 'save')
+    actionRail(null, 'pause', 'stop')
   ].join('\n'));
 }
 
@@ -927,7 +932,7 @@ function renderPaused(screen) {
       THEME.warning + '" text-anchor="middle">PAUSED</text>',
     row(pausedRowY(0) + 14, 'TIME', screen.elapsed),
     row(pausedRowY(1) + 14, 'DIST', screen.distance),
-    actionRail(null, 'play', 'save')
+    actionRail(null, 'play', 'stop')
   ].join('\n'));
 }
 
@@ -955,7 +960,13 @@ function pixelActionIcon(canvas, type, cx, cy, color) {
     return;
   }
 
-  if (type === 'gps') {
+  if (type === 'up') {
+    canvas.line(cx - 5, cy + 3, cx, cy - 3, color, 2);
+    canvas.line(cx, cy - 3, cx + 5, cy + 3, color, 2);
+  } else if (type === 'down') {
+    canvas.line(cx - 5, cy - 3, cx, cy + 3, color, 2);
+    canvas.line(cx, cy + 3, cx + 5, cy - 3, color, 2);
+  } else if (type === 'gps') {
     canvas.circle(cx, cy, 5, color, 2);
     canvas.line(cx, cy - 8, cx, cy - 5, color, 2);
     canvas.line(cx, cy + 5, cx, cy + 8, color, 2);
@@ -973,14 +984,8 @@ function pixelActionIcon(canvas, type, cx, cy, color) {
   } else if (type === 'pause') {
     canvas.fillRect(cx - 5, cy - 6, 3, 12, color);
     canvas.fillRect(cx + 2, cy - 6, 3, 12, color);
-  } else if (type === 'save') {
-    canvas.line(cx - 5, cy - 6, cx + 5, cy - 6, color, 2);
-    canvas.line(cx - 5, cy - 6, cx - 5, cy + 5, color, 2);
-    canvas.line(cx + 5, cy - 6, cx + 5, cy + 5, color, 2);
-    canvas.line(cx - 5, cy + 5, cx + 5, cy + 5, color, 2);
-    canvas.fillRect(cx - 2, cy - 5, 5, 3, color);
-    canvas.line(cx - 3, cy + 2, cx + 4, cy + 2, color, 2);
-    canvas.line(cx - 3, cy + 8, cx + 4, cy + 8, color, 2);
+  } else if (type === 'stop') {
+    canvas.fillRect(cx - 5, cy - 5, 10, 10, color);
   } else if (type === 'type') {
     canvas.line(cx - 5, cy - 5, cx + 4, cy - 5, color, 2);
     canvas.line(cx - 5, cy, cx + 4, cy, color, 2);
@@ -1088,17 +1093,24 @@ function pixelTextFit(canvas, text, x, y, maxWidth, scale, color, align, bold) {
 }
 
 function pixelMenuItem(canvas, activity, selected, y) {
+  var tall = isTall();
+  var rowH = tall ? 48 : 38;
+  var iconSize = tall ? 34 : 28;
   var labelColor = selected ? THEME.onAccent : THEME.text;
   var iconColor = selected ? THEME.onAccent : THEME.text;
 
   if (selected) {
-    canvas.fillRect(8, y, RIGHT - 12, 31, THEME.accent);
+    canvas.fillRect(0, y, RIGHT, rowH, THEME.accent);
   } else {
-    canvas.line(14, y + 30, RIGHT - 4, y + 30, THEME.muted, 1);
+    for (var x = 8; x < RIGHT - 4; x += 4) {
+      canvas.fillRect(x, y + rowH - 1, 1, 1, THEME.muted);
+    }
   }
 
-  pixelActivityIcon(canvas, activity, 27, y + 16, 28, iconColor);
-  pixelTextFit(canvas, activity, 46, y + 8, RIGHT - 50, 2, labelColor,
+  pixelActivityIcon(canvas, activity, 29, y + Math.round(rowH / 2),
+                    iconSize, iconColor);
+  pixelTextFit(canvas, activity, 52, y + Math.round((rowH - 16) / 2),
+               RIGHT - 56, 2, labelColor,
                'left', true);
 }
 
@@ -1166,15 +1178,13 @@ function renderPixel(screen) {
 
   if (screen.kind === 'choose') {
     pixelTopBar(canvas, screen.activity, 'CHOOSE', THEME.muted);
-    pixelTextFit(canvas, 'CHOOSE ACTIVITY', centerX, isTall() ? 35 : 30, RIGHT - 12, 2,
-                 THEME.muted, 'center', false);
     pixelMenuItem(canvas, 'WALKING', screen.activity === 'WALKING',
                   chooseRowY(0));
     pixelMenuItem(canvas, 'RUNNING', screen.activity === 'RUNNING',
                   chooseRowY(1));
     pixelMenuItem(canvas, 'CYCLING', screen.activity === 'CYCLING',
                   chooseRowY(2));
-    pixelActionRail(canvas, null, 'gps', 'type');
+    pixelActionRail(canvas, 'up', 'gps', 'down');
   } else if (screen.kind === 'gps') {
     pixelTopBar(canvas, screen.activity, screen.state, screen.color);
     pixelGpsIcon(canvas, centerX, gpsIconY(), screen.color, screen.locked);
@@ -1207,7 +1217,7 @@ function renderPixel(screen) {
                 'center', true);
     pixelRow(canvas, pausedRowY(0), 'TIME', screen.elapsed);
     pixelRow(canvas, pausedRowY(1), 'DIST', screen.distance);
-    pixelActionRail(canvas, null, 'play', 'save');
+    pixelActionRail(canvas, null, 'play', 'stop');
   } else if (screen.kind === 'split') {
     var splitTitleY = isTall() ? 38 : 29;
     var splitTimerY = isTall() ? 70 : 56;
@@ -1222,7 +1232,7 @@ function renderPixel(screen) {
     pixelHrDisplay(canvas, splitRowY + splitRowGap, screen);
     canvas.text('ACTIVITY STILL RECORDING', centerX, HEIGHT - 14, 1,
                 THEME.muted, 'center', false);
-    pixelActionRail(canvas, null, 'pause', 'save');
+    pixelActionRail(canvas, null, 'pause', 'stop');
   } else {
     pixelTopBar(canvas, screen.activity, 'RECORDING', THEME.accent);
     canvas.text(screen.elapsed, centerX, activityTimerY() + 5, 5, THEME.text,
@@ -1232,7 +1242,7 @@ function renderPixel(screen) {
     pixelHrDisplay(canvas, activityRowY(2), screen);
     canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
                 false);
-    pixelActionRail(canvas, null, 'pause', 'save');
+    pixelActionRail(canvas, null, 'pause', 'stop');
   }
 
   return canvas;
