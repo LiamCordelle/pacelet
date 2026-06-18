@@ -74,8 +74,12 @@ function gpsAccuracyY() {
   return isTall() ? 145 : 126;
 }
 
-function countdownCenterY() {
-  return isTall() ? 96 : 80;
+function countdownBandY() {
+  return isTall() ? 38 : 28;
+}
+
+function countdownBandHeight() {
+  return isTall() ? 120 : 106;
 }
 
 function activityTimerY() {
@@ -724,6 +728,39 @@ function row(y, label, value) {
   ].join('\n');
 }
 
+function countdownNumberRects(value) {
+  if (String(value) === '1') {
+    return [
+      [30, 10, 14, 72],
+      [20, 16, 12, 12],
+      [18, 78, 38, 12]
+    ];
+  }
+
+  var segmentRects = {
+    top: [14, 6, 44, 12],
+    middle: [14, 42, 44, 12],
+    bottom: [14, 78, 44, 12],
+    upperRight: [52, 12, 12, 36],
+    lowerLeft: [8, 48, 12, 36],
+    lowerRight: [52, 48, 12, 36]
+  };
+  var segments = String(value) === '2' ?
+    ['top', 'upperRight', 'middle', 'lowerLeft', 'bottom'] :
+    ['top', 'upperRight', 'middle', 'lowerRight', 'bottom'];
+  return segments.map(function(segment) {
+    return segmentRects[segment];
+  });
+}
+
+function countdownNumberSvg(value, x, y) {
+  return countdownNumberRects(value).map(function(rect) {
+    return '<rect x="' + (x + rect[0]) + '" y="' + (y + rect[1]) +
+      '" width="' + rect[2] + '" height="' + rect[3] +
+      '" fill="' + THEME.onAccent + '"/>';
+  }).join('\n');
+}
+
 function hrZoneLabel(zone) {
   if (zone === 1) {
     return 'FAT BURN';
@@ -822,20 +859,16 @@ function renderGps(screen) {
 }
 
 function renderCountdown(screen) {
-  var centerX = Math.round(RIGHT / 2);
-  var centerY = countdownCenterY();
+  var centerX = Math.round(WIDTH / 2);
+  var bandY = countdownBandY();
+  var bandH = countdownBandHeight();
+  var numberY = bandY + Math.floor((bandH - 96) / 2);
   return base([
     topBar(screen.activity, 'GET READY', THEME.accent),
-    '<circle cx="' + centerX + '" cy="' + centerY +
-      '" r="38" fill="none" stroke="' + THEME.accent +
-      '" stroke-width="3"/>',
-    '<circle cx="' + centerX + '" cy="' + centerY +
-      '" r="46" fill="none" stroke="' + THEME.muted +
-      '" stroke-width="1"/>',
-    '<text x="' + centerX + '" y="' + (centerY + 14) +
-      '" class="timer" fill="' + THEME.text +
-      '" text-anchor="middle">' + esc(screen.number) + '</text>',
-    '<text x="' + centerX + '" y="' + (centerY + 52) +
+    '<rect x="0" y="' + bandY + '" width="' + WIDTH +
+      '" height="' + bandH + '" fill="' + THEME.accent + '"/>',
+    countdownNumberSvg(screen.number, centerX - 36, numberY),
+    '<text x="' + centerX + '" y="' + (bandY + bandH + 23) +
       '" class="label" text-anchor="middle">' +
       esc(screen.activity) + '</text>'
   ].join('\n'));
@@ -1154,13 +1187,17 @@ function renderPixel(screen) {
                 false);
     pixelActionRail(canvas, 'refresh', screen.locked ? 'play' : null, 'type');
   } else if (screen.kind === 'countdown') {
-    var countdownY = countdownCenterY();
+    centerX = Math.round(WIDTH / 2);
+    var bandY = countdownBandY();
+    var bandH = countdownBandHeight();
+    var numberY = bandY + Math.floor((bandH - 96) / 2);
     pixelTopBar(canvas, screen.activity, 'GET READY', THEME.accent);
-    canvas.circle(centerX, countdownY, 38, THEME.accent, 3);
-    canvas.circle(centerX, countdownY, 46, THEME.muted, 1);
-    canvas.text(screen.number, centerX, countdownY - 20, 7, THEME.text,
-                'center', true);
-    canvas.text(screen.activity, centerX, countdownY + 41, 2, THEME.muted,
+    canvas.fillRect(0, bandY, WIDTH, bandH, THEME.accent);
+    countdownNumberRects(screen.number).forEach(function(rect) {
+      canvas.fillRect(centerX - 36 + rect[0], numberY + rect[1],
+                      rect[2], rect[3], THEME.onAccent);
+    });
+    canvas.text(screen.activity, centerX, bandY + bandH + 12, 2, THEME.muted,
                 'center', false);
   } else if (screen.kind === 'paused') {
     pixelTopBar(canvas, screen.activity, 'PAUSED', THEME.warning);

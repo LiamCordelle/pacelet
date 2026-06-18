@@ -97,6 +97,7 @@ static char s_gps_error[32] = "";
 static char s_activity_id[32] = "";
 static bool s_hr_sample_period_requested;
 static GBitmap *s_activity_icons[3][2];
+static GBitmap *s_countdown_icons[3][2];
 
 typedef struct {
   uint8_t version;
@@ -137,6 +138,21 @@ static const uint32_t ACTIVITY_ICON_RESOURCE_IDS[3][2] = {
   {
     RESOURCE_ID_IMAGE_ACTIVITY_CYCLE_BLACK,
     RESOURCE_ID_IMAGE_ACTIVITY_CYCLE_WHITE
+  }
+};
+
+static const uint32_t COUNTDOWN_ICON_RESOURCE_IDS[3][2] = {
+  {
+    RESOURCE_ID_IMAGE_COUNTDOWN_1_BLACK,
+    RESOURCE_ID_IMAGE_COUNTDOWN_1_WHITE
+  },
+  {
+    RESOURCE_ID_IMAGE_COUNTDOWN_2_BLACK,
+    RESOURCE_ID_IMAGE_COUNTDOWN_2_WHITE
+  },
+  {
+    RESOURCE_ID_IMAGE_COUNTDOWN_3_BLACK,
+    RESOURCE_ID_IMAGE_COUNTDOWN_3_WHITE
   }
 };
 
@@ -650,6 +666,9 @@ static void countdown_timer_callback(void *data) {
   }
 
   start_activity_recording();
+  if (s_activity_state == ActivityStateActive) {
+    vibes_long_pulse();
+  }
 }
 
 static void begin_countdown(void) {
@@ -1125,31 +1144,32 @@ static void draw_gps_screen(GContext *ctx, GRect bounds) {
 }
 
 static void draw_countdown_screen(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  char number_text[2];
-  int radius = 34 + (s_countdown_value % 2) * 4;
+  int width = bounds.size.w;
   int visible_count = (int)clamp_i32(s_countdown_value, 1, 3);
-  int center_y = layout_is_tall(bounds) ? 96 : 80;
+  bool tall = layout_is_tall(bounds);
+  int band_y = tall ? 38 : 28;
+  int band_h = tall ? 120 : 106;
+  int variant = gcolor_equal(color_on_accent(), GColorWhite) ? 1 : 0;
+  GBitmap *number_icon = s_countdown_icons[visible_count - 1][variant];
 
   draw_top_bar(ctx, bounds);
 
-  graphics_context_set_stroke_width(ctx, 3);
-  graphics_context_set_stroke_color(ctx, color_accent());
-  graphics_draw_circle(ctx, GPoint(right / 2, center_y), radius);
-  graphics_context_set_stroke_width(ctx, 1);
-  graphics_context_set_stroke_color(ctx, color_muted());
-  graphics_draw_circle(ctx, GPoint(right / 2, center_y), radius + 8);
+  graphics_context_set_fill_color(ctx, color_accent());
+  graphics_fill_rect(ctx, GRect(0, band_y, width, band_h),
+                     0, GCornerNone);
 
-  number_text[0] = (char)('0' + visible_count);
-  number_text[1] = '\0';
-  graphics_context_set_text_color(ctx, color_text());
-  graphics_draw_text(ctx, number_text, font_timer(),
-                     GRect(0, center_y - 24, right, 46),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+  if (number_icon) {
+    GRect icon_bounds = gbitmap_get_bounds(number_icon);
+    icon_bounds.origin.x = (width - icon_bounds.size.w) / 2;
+    icon_bounds.origin.y = band_y + (band_h - icon_bounds.size.h) / 2;
+    graphics_context_set_compositing_mode(ctx, GCompOpSet);
+    graphics_draw_bitmap_in_rect(ctx, number_icon, icon_bounds);
+    graphics_context_set_compositing_mode(ctx, GCompOpAssign);
+  }
 
   graphics_context_set_text_color(ctx, color_muted());
   graphics_draw_text(ctx, ACTIVITY_LABELS[s_activity_type], font_label(),
-                     GRect(8, center_y + 38, right - 8, 18),
+                     GRect(8, band_y + band_h + 10, width - 16, 18),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 }
 
@@ -1501,6 +1521,8 @@ static void load_activity_icons(void) {
     for (int variant = 0; variant < 2; variant++) {
       s_activity_icons[type][variant] =
           gbitmap_create_with_resource(ACTIVITY_ICON_RESOURCE_IDS[type][variant]);
+      s_countdown_icons[type][variant] =
+          gbitmap_create_with_resource(COUNTDOWN_ICON_RESOURCE_IDS[type][variant]);
     }
   }
 }
@@ -1511,6 +1533,10 @@ static void unload_activity_icons(void) {
       if (s_activity_icons[type][variant]) {
         gbitmap_destroy(s_activity_icons[type][variant]);
         s_activity_icons[type][variant] = NULL;
+      }
+      if (s_countdown_icons[type][variant]) {
+        gbitmap_destroy(s_countdown_icons[type][variant]);
+        s_countdown_icons[type][variant] = NULL;
       }
     }
   }

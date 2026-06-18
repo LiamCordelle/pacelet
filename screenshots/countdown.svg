@@ -13,8 +13,11 @@
 <text x="8" y="17" class="status" fill="#3e5459">RUN</text>
 <text x="90" y="17" class="status" fill="#071014" text-anchor="middle">10:09</text>
 <text x="180" y="17" class="status" fill="#007c54" text-anchor="end">3-2-1</text>
-<circle cx="90" cy="96" r="38" fill="none" stroke="#007c54" stroke-width="3"/>
-<circle cx="90" cy="96" r="46" fill="none" stroke="#3e5459" stroke-width="1"/>
-<text x="90" y="110" class="timer" fill="#071014" text-anchor="middle">3</text>
-<text x="90" y="148" class="label" text-anchor="middle">RUNNING</text>
+<rect x="0" y="38" width="200" height="120" fill="#007c54"/>
+<rect x="78" y="56" width="44" height="12" fill="#ffffff"/>
+<rect x="116" y="62" width="12" height="36" fill="#ffffff"/>
+<rect x="78" y="92" width="44" height="12" fill="#ffffff"/>
+<rect x="116" y="98" width="12" height="36" fill="#ffffff"/>
+<rect x="78" y="128" width="44" height="12" fill="#ffffff"/>
+<text x="100" y="181" class="label" text-anchor="middle">RUNNING</text>
 </svg>
