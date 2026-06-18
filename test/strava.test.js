@@ -48,11 +48,20 @@ run('settings normalize booleans and token expiry', function() {
   assert.strictEqual(settings.stravaAutoUpload, true);
   assert.strictEqual(settings.stravaClientId, '123');
   assert.strictEqual(settings.stravaExpiresAt, 456);
+  assert.strictEqual(settings.hrZone1Bpm, 100);
+  assert.strictEqual(settings.hrZone2Bpm, 130);
+  assert.strictEqual(settings.hrZone3Bpm, 160);
 
   settings = Strava.copyDefaults({
-    darkMode: 'on'
+    darkMode: 'on',
+    hrZone1Bpm: '110',
+    hrZone2Bpm: '150',
+    hrZone3Bpm: '175'
   });
   assert.strictEqual(settings.darkMode, true);
+  assert.strictEqual(settings.hrZone1Bpm, 110);
+  assert.strictEqual(settings.hrZone2Bpm, 150);
+  assert.strictEqual(settings.hrZone3Bpm, 175);
 });
 
 run('configuration requires enabled credentials and a token', function() {
@@ -182,6 +191,8 @@ run('config page URL embeds settings, actions, OAuth guidance, and notices', fun
       startedAt: activity.startedAt,
       movingTimeS: 10,
       distanceM: 30,
+      avgHrBpm: 145,
+      hrZoneTimeS: [0, 0, 6, 4],
       points: 2,
       stravaStatus: 'not_uploaded'
     }
@@ -191,6 +202,9 @@ run('config page URL embeds settings, actions, OAuth guidance, and notices', fun
   assert.ok(url.indexOf('data:text/html;charset=utf-8,') === 0);
   assert.ok(html.indexOf('Pacelet') !== -1);
   assert.ok(html.indexOf('darkMode') !== -1);
+  assert.ok(html.indexOf('hrZone1Bpm') !== -1);
+  assert.ok(html.indexOf('145 bpm avg') !== -1);
+  assert.ok(html.indexOf('Z2 0:06') !== -1);
   assert.ok(html.indexOf('stravaClientId') !== -1);
   assert.ok(html.indexOf('Open Strava Authorization') !== -1);
   assert.ok(html.indexOf('activity:write') !== -1);

@@ -56,6 +56,22 @@ function activityStatus(activity) {
   return status;
 }
 
+function formatHrSummary(activity) {
+  var parts = [];
+  var zoneTime = activity.hrZoneTimeS || [];
+  var i;
+
+  if (activity.avgHrBpm) {
+    parts.push(activity.avgHrBpm + ' bpm avg');
+  }
+  for (i = 1; i <= 3; i += 1) {
+    if (zoneTime[i]) {
+      parts.push('Z' + i + ' ' + formatDuration(zoneTime[i]));
+    }
+  }
+  return parts.join(' · ');
+}
+
 function renderActivities(activities) {
   var output = [];
   var i;
@@ -71,6 +87,9 @@ function renderActivities(activities) {
     output.push('<p>' + escapeHtml(formatDistance(activities[i].distanceM)) +
         ' · ' + escapeHtml(formatDuration(activities[i].movingTimeS)) +
         ' · ' + escapeHtml((activities[i].points || 0) + ' points') + '</p>');
+    if (formatHrSummary(activities[i])) {
+      output.push('<p>' + escapeHtml(formatHrSummary(activities[i])) + '</p>');
+    }
     output.push('<p>Strava: ' + escapeHtml(activityStatus(activities[i])) + '</p>');
     output.push('<div class="actions">');
     output.push('<button type="button" data-action="export_tcx" data-id="' +
@@ -129,6 +148,15 @@ function buildConfigHtml(settings, activities, notice) {
     '<label class="check"><input id="darkMode" type="checkbox"' + checked(settings.darkMode) + '> Dark mode on watch</label>',
     '</fieldset>',
     '<fieldset>',
+    '<legend>Heart Rate Zones</legend>',
+    '<label for="hrZone1Bpm">Zone 1 starts (bpm)</label>',
+    '<input id="hrZone1Bpm" type="number" inputmode="numeric" min="40" max="220" value="' + escapeHtml(settings.hrZone1Bpm || 100) + '">',
+    '<label for="hrZone2Bpm">Zone 2 starts (bpm)</label>',
+    '<input id="hrZone2Bpm" type="number" inputmode="numeric" min="41" max="230" value="' + escapeHtml(settings.hrZone2Bpm || 130) + '">',
+    '<label for="hrZone3Bpm">Zone 3 starts (bpm)</label>',
+    '<input id="hrZone3Bpm" type="number" inputmode="numeric" min="42" max="240" value="' + escapeHtml(settings.hrZone3Bpm || 160) + '">',
+    '</fieldset>',
+    '<fieldset>',
     '<legend>Strava</legend>',
     '<label class="check"><input id="stravaEnabled" type="checkbox"' + checked(settings.stravaEnabled) + '> Enable Strava</label>',
     '<label class="check"><input id="stravaAutoUpload" type="checkbox"' + checked(settings.stravaAutoUpload) + '> Upload when an activity is saved</label>',
@@ -170,6 +198,9 @@ function buildConfigHtml(settings, activities, notice) {
     'var data={',
     'action:"save_settings",',
     'darkMode:enabled("darkMode"),',
+    'hrZone1Bpm:value("hrZone1Bpm"),',
+    'hrZone2Bpm:value("hrZone2Bpm"),',
+    'hrZone3Bpm:value("hrZone3Bpm"),',
     'stravaEnabled:enabled("stravaEnabled"),',
     'stravaAutoUpload:enabled("stravaAutoUpload"),',
     'stravaClientId:value("stravaClientId"),',

@@ -7,7 +7,10 @@
 #define SPLIT_DISTANCE_M 1000
 #define SPLIT_SUMMARY_MS 6000
 #define SETTINGS_KEY 1
-#define SETTINGS_VERSION 1
+#define SETTINGS_VERSION 2
+#define DEFAULT_HR_ZONE_1_BPM 100
+#define DEFAULT_HR_ZONE_2_BPM 130
+#define DEFAULT_HR_ZONE_3_BPM 160
 
 typedef enum {
   ActivityStateChoose = 0,
@@ -43,6 +46,13 @@ typedef enum {
   ActionIconNew
 } ActionIcon;
 
+typedef enum {
+  HrZoneBelow = 0,
+  HrZoneOne = 1,
+  HrZoneTwo = 2,
+  HrZoneThree = 3
+} HrZone;
+
 #define ACTION_RAIL_W 18
 
 static Window *s_main_window;
@@ -69,6 +79,9 @@ static int32_t s_gps_accuracy_m = -1;
 static int32_t s_gps_age_s = -1;
 static int32_t s_last_hr_bpm;
 static int32_t s_last_hr_sent_elapsed_s = -1;
+static int32_t s_hr_zone_1_bpm = DEFAULT_HR_ZONE_1_BPM;
+static int32_t s_hr_zone_2_bpm = DEFAULT_HR_ZONE_2_BPM;
+static int32_t s_hr_zone_3_bpm = DEFAULT_HR_ZONE_3_BPM;
 static int32_t s_summary_distance_m;
 static int32_t s_summary_moving_s;
 static int32_t s_summary_points;
@@ -85,7 +98,15 @@ static GBitmap *s_activity_icons[3][2];
 typedef struct {
   uint8_t version;
   bool dark_mode;
+  uint16_t hr_zone_1_bpm;
+  uint16_t hr_zone_2_bpm;
+  uint16_t hr_zone_3_bpm;
 } AppSettings;
+
+typedef struct {
+  uint8_t version;
+  bool dark_mode;
+} AppSettingsV1;
 
 static void update_hr(void);
 
@@ -195,17 +216,84 @@ static void mark_dirty(void) {
 static void save_settings(void) {
   AppSettings settings = {
     .version = SETTINGS_VERSION,
-    .dark_mode = s_dark_mode
+    .dark_mode = s_dark_mode,
+    .hr_zone_1_bpm = (uint16_t)s_hr_zone_1_bpm,
+    .hr_zone_2_bpm = (uint16_t)s_hr_zone_2_bpm,
+    .hr_zone_3_bpm = (uint16_t)s_hr_zone_3_bpm
   };
   persist_write_data(SETTINGS_KEY, &settings, sizeof(settings));
 }
 
+static void normalize_hr_zone_thresholds(void) {
+  s_hr_zone_1_bpm = clamp_i32(s_hr_zone_1_bpm, 40, 220);
+  s_hr_zone_2_bpm = clamp_i32(
+      s_hr_zone_2_bpm, s_hr_zone_1_bpm + 1, 230);
+  s_hr_zone_3_bpm = clamp_i32(
+      s_hr_zone_3_bpm, s_hr_zone_2_bpm + 1, 240);
+}
+
 static void load_settings(void) {
+  int settings_size = persist_get_size(SETTINGS_KEY);
   AppSettings settings;
-  if (persist_read_data(SETTINGS_KEY, &settings, sizeof(settings)) ==
+
+  if (settings_size == (int)sizeof(settings) &&
+      persist_read_data(SETTINGS_KEY, &settings, sizeof(settings)) ==
           (int)sizeof(settings) &&
       settings.version == SETTINGS_VERSION) {
     s_dark_mode = settings.dark_mode;
+    s_hr_zone_1_bpm = settings.hr_zone_1_bpm;
+    s_hr_zone_2_bpm = settings.hr_zone_2_bpm;
+    s_hr_zone_3_bpm = settings.hr_zone_3_bpm;
+    normalize_hr_zone_thresholds();
+  } else if (settings_size == (int)sizeof(AppSettingsV1)) {
+    AppSettingsV1 old_settings;
+    if (persist_read_data(SETTINGS_KEY, &old_settings, sizeof(old_settings)) ==
+            (int)sizeof(old_settings) &&
+        old_settings.version == 1) {
+      s_dark_mode = old_settings.dark_mode;
+      save_settings();
+    }
+  }
+}
+
+static HrZone hr_zone_for_bpm(int32_t bpm) {
+  if (bpm < s_hr_zone_1_bpm) {
+    return HrZoneBelow;
+  }
+  if (bpm < s_hr_zone_2_bpm) {
+    return HrZoneOne;
+  }
+  if (bpm < s_hr_zone_3_bpm) {
+    return HrZoneTwo;
+  }
+  return HrZoneThree;
+}
+
+static const char *hr_zone_label(HrZone zone) {
+  switch (zone) {
+    case HrZoneOne:
+      return "FAT BURN";
+    case HrZoneTwo:
+      return "ENDURANCE";
+    case HrZoneThree:
+      return "PERFORMANCE";
+    case HrZoneBelow:
+    default:
+      return "HR";
+  }
+}
+
+static GColor hr_zone_color(HrZone zone) {
+  switch (zone) {
+    case HrZoneOne:
+      return PBL_IF_COLOR_ELSE(GColorMelon, GColorWhite);
+    case HrZoneTwo:
+      return PBL_IF_COLOR_ELSE(GColorChromeYellow, GColorWhite);
+    case HrZoneThree:
+      return PBL_IF_COLOR_ELSE(GColorOrange, GColorWhite);
+    case HrZoneBelow:
+    default:
+      return color_bg();
   }
 }
 
@@ -662,6 +750,50 @@ static void draw_row(GContext *ctx, GRect bounds, int y, const char *label,
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
 }
 
+static void draw_hr_row(GContext *ctx, GRect bounds, int y, int32_t bpm) {
+  int right = content_right(bounds);
+  HrZone zone = bpm > 0 ? hr_zone_for_bpm(bpm) : HrZoneBelow;
+  GColor zone_ink = PBL_IF_COLOR_ELSE(GColorBlack, color_text());
+  char value[16];
+
+  if (zone == HrZoneBelow) {
+    if (bpm > 0) {
+      snprintf(value, sizeof(value), "%ld bpm", (long)bpm);
+    } else {
+      snprintf(value, sizeof(value), "-- bpm");
+    }
+    draw_row(ctx, bounds, y, "HR", value);
+    return;
+  }
+
+  graphics_context_set_fill_color(ctx, hr_zone_color(zone));
+  graphics_fill_rect(ctx, GRect(6, y - 3, right - 10, 29),
+                     3, GCornersAll);
+
+  graphics_context_set_text_color(ctx, zone_ink);
+  graphics_draw_text(ctx, hr_zone_label(zone), font_status(),
+                     GRect(10, y, 72, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+
+  snprintf(value, sizeof(value), "%ld", (long)bpm);
+  graphics_draw_text(ctx, value, font_value(),
+                     GRect(75, y - 4, right - 83, 28),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentRight, NULL);
+
+  graphics_context_set_fill_color(ctx, zone_ink);
+  graphics_context_set_stroke_color(ctx, zone_ink);
+  for (int i = 1; i <= 3; i++) {
+    GRect bar = GRect(10 + (i - 1) * 14, y + 20, 11, 3);
+    if (i <= (int)zone) {
+      graphics_fill_rect(ctx, bar, 1, GCornersAll);
+    } else {
+      graphics_draw_rect(ctx, bar);
+    }
+  }
+}
+
 static void draw_top_bar(GContext *ctx, GRect bounds) {
   int right = content_right(bounds);
   int third = right / 3;
@@ -947,7 +1079,6 @@ static void draw_split_screen(GContext *ctx, GRect bounds) {
   char title_text[20];
   char split_time_text[16];
   char movement_text[20];
-  char hr_text[16];
 
   draw_top_bar(ctx, bounds);
 
@@ -972,15 +1103,9 @@ static void draw_split_screen(GContext *ctx, GRect bounds) {
   } else {
     format_pace(s_split_elapsed_s, movement_text, sizeof(movement_text));
   }
-  if (s_last_hr_bpm > 0) {
-    snprintf(hr_text, sizeof(hr_text), "%ld bpm", (long)s_last_hr_bpm);
-  } else {
-    snprintf(hr_text, sizeof(hr_text), "-- bpm");
-  }
-
   draw_row(ctx, bounds, row_1_y,
            activity_uses_speed() ? "AVG" : "PACE", movement_text);
-  draw_row(ctx, bounds, row_1_y + row_gap, "HR", hr_text);
+  draw_hr_row(ctx, bounds, row_1_y + row_gap, s_last_hr_bpm);
 
   graphics_context_set_text_color(ctx, color_muted());
   graphics_draw_text(ctx, "Activity still recording",
@@ -1002,7 +1127,6 @@ static void draw_activity_screen(GContext *ctx, GRect bounds) {
   char elapsed_text[16];
   char distance_text[16];
   char movement_text[16];
-  char hr_text[16];
   char gps_text[32];
   char summary_text[32];
 
@@ -1021,16 +1145,10 @@ static void draw_activity_screen(GContext *ctx, GRect bounds) {
     format_pace(s_current_pace_s_per_km, movement_text, sizeof(movement_text));
   }
 
-  if (s_last_hr_bpm > 0) {
-    snprintf(hr_text, sizeof(hr_text), "%ld bpm", (long)s_last_hr_bpm);
-  } else {
-    snprintf(hr_text, sizeof(hr_text), "-- bpm");
-  }
-
   draw_row(ctx, bounds, row_1_y, "DIST", distance_text);
   draw_row(ctx, bounds, row_1_y + row_gap, activity_uses_speed() ? "SPEED" : "PACE",
            movement_text);
-  draw_row(ctx, bounds, row_1_y + row_gap * 2, "HR", hr_text);
+  draw_hr_row(ctx, bounds, row_1_y + row_gap * 2, s_last_hr_bpm);
 
   graphics_context_set_text_color(ctx, color_muted());
   if (s_gps_state == GpsStateLocked && s_gps_accuracy_m >= 0) {
@@ -1126,6 +1244,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
 }
 
 static void inbox_received_callback(DictionaryIterator *iter, void *context) {
+  bool settings_changed = false;
   Tuple *gps_status = dict_find(iter, MESSAGE_KEY_GPS_STATUS);
   if (gps_status) {
     int32_t status = gps_status->value->int32;
@@ -1195,10 +1314,33 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   Tuple *dark_mode = dict_find(iter, MESSAGE_KEY_DARK_MODE);
   if (dark_mode) {
     s_dark_mode = dark_mode->value->int32 ? true : false;
-    save_settings();
+    settings_changed = true;
     if (s_main_window) {
       window_set_background_color(s_main_window, color_bg());
     }
+  }
+
+  Tuple *hr_zone_1 = dict_find(iter, MESSAGE_KEY_HR_ZONE_1_BPM);
+  if (hr_zone_1) {
+    s_hr_zone_1_bpm = hr_zone_1->value->int32;
+    settings_changed = true;
+  }
+
+  Tuple *hr_zone_2 = dict_find(iter, MESSAGE_KEY_HR_ZONE_2_BPM);
+  if (hr_zone_2) {
+    s_hr_zone_2_bpm = hr_zone_2->value->int32;
+    settings_changed = true;
+  }
+
+  Tuple *hr_zone_3 = dict_find(iter, MESSAGE_KEY_HR_ZONE_3_BPM);
+  if (hr_zone_3) {
+    s_hr_zone_3_bpm = hr_zone_3->value->int32;
+    settings_changed = true;
+  }
+
+  if (settings_changed) {
+    normalize_hr_zone_thresholds();
+    save_settings();
   }
 
   mark_dirty();

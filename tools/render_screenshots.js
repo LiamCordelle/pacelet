@@ -31,7 +31,10 @@ var THEME = {
   accent: '#007c54',
   onAccent: '#ffffff',
   warning: '#9a6500',
-  bad: '#b00020'
+  bad: '#b00020',
+  hrZone1: '#ffaaa9',
+  hrZone2: '#ffdc00',
+  hrZone3: '#ff5500'
 };
 
 function optionValue(name, fallback) {
@@ -133,7 +136,8 @@ var screens = [
     distance: '1.32 km',
     metricLabel: 'PACE',
     metricValue: '11:06/km',
-    hr: '112 bpm',
+    hrBpm: 112,
+    hrZone: 1,
     gps: 'GPS lock 12m'
   },
   {
@@ -144,7 +148,8 @@ var screens = [
     distance: '4.62 km',
     metricLabel: 'PACE',
     metricValue: '5:02/km',
-    hr: '153 bpm',
+    hrBpm: 153,
+    hrZone: 2,
     gps: 'GPS lock 10m'
   },
   {
@@ -155,7 +160,8 @@ var screens = [
     splitTime: '05:02',
     metricLabel: 'PACE',
     metricValue: '5:02/km',
-    hr: '154 bpm'
+    hrBpm: 154,
+    hrZone: 2
   },
   {
     name: 'paused',
@@ -172,7 +178,8 @@ var screens = [
     distance: '18.74 km',
     metricLabel: 'SPEED',
     metricValue: '27.3 km/h',
-    hr: '146 bpm',
+    hrBpm: 146,
+    hrZone: 2,
     gps: 'GPS lock 14m'
   }
 ];
@@ -704,6 +711,39 @@ function row(y, label, value) {
   ].join('\n');
 }
 
+function hrZoneLabel(zone) {
+  if (zone === 1) {
+    return 'FAT BURN';
+  }
+  if (zone === 2) {
+    return 'ENDURANCE';
+  }
+  return 'PERFORMANCE';
+}
+
+function hrZoneColor(zone) {
+  return THEME['hrZone' + zone];
+}
+
+function hrRow(y, bpm, zone) {
+  var content = [
+    '<rect x="6" y="' + (y - 3) + '" width="' + (RIGHT - 10) +
+      '" height="29" rx="3" fill="' + hrZoneColor(zone) + '"/>',
+    '<text x="10" y="' + (y + 12) +
+      '" class="status" fill="#000000">' + esc(hrZoneLabel(zone)) + '</text>',
+    '<text x="' + (RIGHT - 8) + '" y="' + (y + 19) +
+      '" class="value" fill="#000000" text-anchor="end">' +
+      esc(bpm) + '</text>'
+  ];
+  for (var i = 1; i <= 3; i += 1) {
+    content.push('<rect x="' + (10 + (i - 1) * 14) +
+      '" y="' + (y + 20) + '" width="11" height="3" rx="1" ' +
+      (i <= zone ? 'fill="#000000"' :
+        'fill="none" stroke="#000000" stroke-width="1"') + '/>');
+  }
+  return content.join('\n');
+}
+
 function renderChoose(screen) {
   return base([
     topBar(screen.activity, 'CHOOSE', THEME.muted),
@@ -777,7 +817,7 @@ function renderActivity(screen) {
       '" text-anchor="middle">' + esc(screen.elapsed) + '</text>',
     row(activityRowY(0) + 14, 'DIST', screen.distance),
     row(activityRowY(1) + 14, screen.metricLabel, screen.metricValue),
-    row(activityRowY(2) + 14, 'HR', screen.hr),
+    hrRow(activityRowY(2), screen.hrBpm, screen.hrZone),
     '<text x="' + centerX + '" y="' + (HEIGHT - 6) +
       '" class="footer" text-anchor="middle">' + esc(screen.gps) + '</text>',
     actionRail(null, 'pause', 'save')
@@ -799,7 +839,7 @@ function renderSplit(screen) {
       '" class="timer" fill="' + THEME.text +
       '" text-anchor="middle">' + esc(screen.splitTime) + '</text>',
     row(rowY + 14, screen.metricLabel, screen.metricValue),
-    row(rowY + rowGap + 14, 'HR', screen.hr),
+    hrRow(rowY + rowGap, screen.hrBpm, screen.hrZone),
     '<text x="' + centerX + '" y="' + (HEIGHT - 6) +
       '" class="footer" text-anchor="middle">Activity still recording</text>',
     actionRail(null, 'pause', 'save')
@@ -1002,6 +1042,26 @@ function pixelRow(canvas, y, label, value) {
                'right', true);
 }
 
+function pixelHrRow(canvas, y, bpm, zone) {
+  var ink = '#000000';
+  canvas.fillRect(6, y - 3, RIGHT - 10, 29, hrZoneColor(zone));
+  pixelTextFit(canvas, hrZoneLabel(zone), 10, y + 2, 68, 1, ink,
+               'left', true);
+  pixelTextFit(canvas, String(bpm), RIGHT - 8, y - 1, RIGHT - 83, 3, ink,
+               'right', true);
+  for (var i = 1; i <= 3; i += 1) {
+    var x = 10 + (i - 1) * 14;
+    if (i <= zone) {
+      canvas.fillRect(x, y + 20, 11, 3, ink);
+    } else {
+      canvas.line(x, y + 20, x + 10, y + 20, ink, 1);
+      canvas.line(x, y + 22, x + 10, y + 22, ink, 1);
+      canvas.line(x, y + 20, x, y + 22, ink, 1);
+      canvas.line(x + 10, y + 20, x + 10, y + 22, ink, 1);
+    }
+  }
+}
+
 function pixelGpsIcon(canvas, centerX, centerY, color, locked) {
   canvas.circle(centerX, centerY, 21, THEME.muted, 1);
   canvas.circle(centerX, centerY, 29, THEME.muted, 1);
@@ -1068,7 +1128,7 @@ function renderPixel(screen) {
     canvas.text(screen.splitTime, centerX, splitTimerY + 5, 5, THEME.text,
                 'center', true);
     pixelRow(canvas, splitRowY, screen.metricLabel, screen.metricValue);
-    pixelRow(canvas, splitRowY + splitRowGap, 'HR', screen.hr);
+    pixelHrRow(canvas, splitRowY + splitRowGap, screen.hrBpm, screen.hrZone);
     canvas.text('ACTIVITY STILL RECORDING', centerX, HEIGHT - 14, 1,
                 THEME.muted, 'center', false);
     pixelActionRail(canvas, null, 'pause', 'save');
@@ -1078,7 +1138,7 @@ function renderPixel(screen) {
                 'center', true);
     pixelRow(canvas, activityRowY(0), 'DIST', screen.distance);
     pixelRow(canvas, activityRowY(1), screen.metricLabel, screen.metricValue);
-    pixelRow(canvas, activityRowY(2), 'HR', screen.hr);
+    pixelHrRow(canvas, activityRowY(2), screen.hrBpm, screen.hrZone);
     canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
                 false);
     pixelActionRail(canvas, null, 'pause', 'save');

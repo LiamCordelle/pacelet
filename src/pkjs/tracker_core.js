@@ -7,6 +7,8 @@ var SPEED_EMA_ALPHA = 0.35;
 var SPEED_DECEL_EMA_ALPHA = 0.75;
 var FOOT_STOP_SPEED_CENTI_MPS = 35;
 var CYCLING_STOP_SPEED_CENTI_MPS = 100;
+var DEFAULT_HR_ZONE_THRESHOLDS = [100, 130, 160];
+var MAX_HR_SAMPLE_GAP_MS = 5000;
 
 var ACTIVITY_TYPES = ['walking', 'running', 'cycling'];
 
@@ -197,9 +199,71 @@ function metricsFromActivity(activity, atMs) {
   };
 }
 
+function normalizeHrZoneThresholds(value) {
+  var thresholds = value || DEFAULT_HR_ZONE_THRESHOLDS;
+  var zone1 = parseInt(thresholds[0], 10);
+  var zone2 = parseInt(thresholds[1], 10);
+  var zone3 = parseInt(thresholds[2], 10);
+
+  zone1 = isNaN(zone1) ? DEFAULT_HR_ZONE_THRESHOLDS[0] : zone1;
+  zone2 = isNaN(zone2) ? DEFAULT_HR_ZONE_THRESHOLDS[1] : zone2;
+  zone3 = isNaN(zone3) ? DEFAULT_HR_ZONE_THRESHOLDS[2] : zone3;
+
+  zone1 = Math.max(40, Math.min(220, zone1));
+  zone2 = Math.max(zone1 + 1, Math.min(230, zone2));
+  zone3 = Math.max(zone2 + 1, Math.min(240, zone3));
+  return [zone1, zone2, zone3];
+}
+
+function hrZoneForBpm(bpm, thresholds) {
+  thresholds = normalizeHrZoneThresholds(thresholds);
+  if (bpm < thresholds[0]) {
+    return 0;
+  }
+  if (bpm < thresholds[1]) {
+    return 1;
+  }
+  if (bpm < thresholds[2]) {
+    return 2;
+  }
+  return 3;
+}
+
+function summarizeHeartRate(samples, endMs, thresholds) {
+  var zoneTimeMs = [0, 0, 0, 0];
+  var sum = 0;
+  var count = 0;
+  var i;
+
+  samples = samples || [];
+  thresholds = normalizeHrZoneThresholds(thresholds);
+  for (i = 0; i < samples.length; i += 1) {
+    var sample = samples[i];
+    var nextTime = i + 1 < samples.length ? samples[i + 1].t : endMs;
+    var durationMs = Math.max(0, Math.min(
+      MAX_HR_SAMPLE_GAP_MS,
+      (nextTime || sample.t) - sample.t
+    ));
+    var zone = hrZoneForBpm(sample.bpm, thresholds);
+
+    sum += sample.bpm;
+    count += 1;
+    zoneTimeMs[zone] += durationMs;
+  }
+
+  return {
+    avgHrBpm: count ? Math.round(sum / count) : 0,
+    hrZoneTimeS: zoneTimeMs.map(function(value) {
+      return Math.round(value / 1000);
+    })
+  };
+}
+
 function createTrackerCore(options) {
   options = options || {};
   var nowFn = options.nowMs || defaultNowMs;
+  var hrZoneThresholds = normalizeHrZoneThresholds(
+    options.hrZoneThresholds);
   var currentHrBpm = 0;
   var activeActivity = null;
 
@@ -224,7 +288,8 @@ function createTrackerCore(options) {
       lastPoint: null,
       speedWindow: [],
       smoothedSpeedCentiMps: 0,
-      hrSamples: []
+      hrSamples: [],
+      hrZoneThresholds: hrZoneThresholds.slice()
     };
 
     recordPoint(activeActivity, normalizePoint(position, now), currentHrBpm);
@@ -280,6 +345,13 @@ function createTrackerCore(options) {
     );
     activeActivity.summaryDistanceM = Math.round(activeActivity.distanceM);
     activeActivity.summarySpeedCentiMps = activeActivity.smoothedSpeedCentiMps || 0;
+    var hrSummary = summarizeHeartRate(
+      activeActivity.hrSamples,
+      activeActivity.finishedAt,
+      activeActivity.hrZoneThresholds
+    );
+    activeActivity.avgHrBpm = hrSummary.avgHrBpm;
+    activeActivity.hrZoneTimeS = hrSummary.hrZoneTimeS;
 
     var finished = activeActivity;
     activeActivity = null;
@@ -320,6 +392,9 @@ function createTrackerCore(options) {
     resumeActivity: resumeActivity,
     finishActivity: finishActivity,
     recordHr: recordHr,
+    setHrZoneThresholds: function(value) {
+      hrZoneThresholds = normalizeHrZoneThresholds(value);
+    },
     getMetrics: getMetrics,
     getActiveActivity: function() {
       return activeActivity;
@@ -335,12 +410,16 @@ module.exports = {
     MIN_POINT_INTERVAL_MS: MIN_POINT_INTERVAL_MS,
     MIN_POINT_DISTANCE_M: MIN_POINT_DISTANCE_M,
     SPEED_WINDOW_MS: SPEED_WINDOW_MS,
+    DEFAULT_HR_ZONE_THRESHOLDS: DEFAULT_HR_ZONE_THRESHOLDS,
     ACTIVITY_TYPES: ACTIVITY_TYPES
   },
   activityTypeName: activityTypeName,
   canStartFromPosition: canStartFromPosition,
   createTrackerCore: createTrackerCore,
   haversineMeters: haversineMeters,
+  hrZoneForBpm: hrZoneForBpm,
   metricsFromActivity: metricsFromActivity,
-  movingTimeMs: movingTimeMs
+  movingTimeMs: movingTimeMs,
+  normalizeHrZoneThresholds: normalizeHrZoneThresholds,
+  summarizeHeartRate: summarizeHeartRate
 };

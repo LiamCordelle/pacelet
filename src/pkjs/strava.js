@@ -2,9 +2,15 @@ var TOKEN_URL = 'https://www.strava.com/oauth/token';
 var UPLOAD_URL = 'https://www.strava.com/api/v3/uploads';
 var AUTHORIZE_URL = 'https://www.strava.com/oauth/authorize';
 var TOKEN_REFRESH_MARGIN_S = 3600;
+var DEFAULT_HR_ZONE_1_BPM = 100;
+var DEFAULT_HR_ZONE_2_BPM = 130;
+var DEFAULT_HR_ZONE_3_BPM = 160;
 
 var DEFAULT_SETTINGS = {
   darkMode: false,
+  hrZone1Bpm: DEFAULT_HR_ZONE_1_BPM,
+  hrZone2Bpm: DEFAULT_HR_ZONE_2_BPM,
+  hrZone3Bpm: DEFAULT_HR_ZONE_3_BPM,
   stravaEnabled: false,
   stravaAutoUpload: false,
   stravaClientId: '',
@@ -44,6 +50,14 @@ function normalizeSettings(value) {
   value.stravaAutoUpload = value.stravaAutoUpload === true ||
       value.stravaAutoUpload === 'true' || value.stravaAutoUpload === 1 ||
       value.stravaAutoUpload === '1' || value.stravaAutoUpload === 'on';
+  value.hrZone1Bpm = clampInt(
+    value.hrZone1Bpm, 40, 220, DEFAULT_HR_ZONE_1_BPM);
+  value.hrZone2Bpm = clampInt(
+    value.hrZone2Bpm, value.hrZone1Bpm + 1, 230,
+    Math.max(DEFAULT_HR_ZONE_2_BPM, value.hrZone1Bpm + 1));
+  value.hrZone3Bpm = clampInt(
+    value.hrZone3Bpm, value.hrZone2Bpm + 1, 240,
+    Math.max(DEFAULT_HR_ZONE_3_BPM, value.hrZone2Bpm + 1));
   value.stravaClientId = stringValue(value.stravaClientId);
   value.stravaClientSecret = stringValue(value.stravaClientSecret);
   value.stravaAuthorizationCode = stringValue(value.stravaAuthorizationCode);
@@ -66,6 +80,11 @@ function stringValue(value) {
 function intValue(value, fallback) {
   var parsed = parseInt(value, 10);
   return isNaN(parsed) ? fallback : parsed;
+}
+
+function clampInt(value, minValue, maxValue, fallback) {
+  var parsed = intValue(value, fallback);
+  return Math.max(minValue, Math.min(maxValue, parsed));
 }
 
 function isConfigured(settings) {

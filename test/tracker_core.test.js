@@ -145,6 +145,30 @@ run('heart-rate samples attach to activity and latest point', function() {
   assert.strictEqual(activity.lastPoint.hr, 148);
 });
 
+run('heart-rate summary includes average and configured zone times', function() {
+  var clock = 0;
+  var tracker = TrackerCore.createTrackerCore({
+    nowMs: function() { return clock; },
+    hrZoneThresholds: [100, 140, 170]
+  });
+
+  tracker.startActivity(START, 1);
+  clock = 1000;
+  tracker.recordHr(90);
+  clock = 2000;
+  tracker.recordHr(120);
+  clock = 3000;
+  tracker.recordHr(150);
+  clock = 4000;
+  tracker.recordHr(180);
+  clock = 5000;
+  var finished = tracker.finishActivity();
+
+  assert.strictEqual(finished.avgHrBpm, 135);
+  assert.deepStrictEqual(finished.hrZoneTimeS, [1, 1, 1, 1]);
+  assert.deepStrictEqual(finished.hrZoneThresholds, [100, 140, 170]);
+});
+
 run('finish returns a saved activity summary and clears active state', function() {
   var clock = 0;
   var tracker = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });

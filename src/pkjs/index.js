@@ -13,8 +13,10 @@ var latestPosition = null;
 var latestGpsStatus = 0;
 var latestGpsError = '';
 var lastStatusSentAt = 0;
-var tracker = TrackerCore.createTrackerCore();
 var settings = loadSettings();
+var tracker = TrackerCore.createTrackerCore({
+  hrZoneThresholds: hrZoneThresholdsFromSettings(settings)
+});
 
 function nowMs() {
   return Date.now ? Date.now() : new Date().getTime();
@@ -54,8 +56,19 @@ function sendMessage(dictionary, successMessage, failureMessage) {
 
 function sendSettingsToWatch() {
   sendMessage({
-    DARK_MODE: settings.darkMode ? 1 : 0
+    DARK_MODE: settings.darkMode ? 1 : 0,
+    HR_ZONE_1_BPM: settings.hrZone1Bpm,
+    HR_ZONE_2_BPM: settings.hrZone2Bpm,
+    HR_ZONE_3_BPM: settings.hrZone3Bpm
   }, null, 'Settings send failed');
+}
+
+function hrZoneThresholdsFromSettings(value) {
+  return [
+    value.hrZone1Bpm,
+    value.hrZone2Bpm,
+    value.hrZone3Bpm
+  ];
 }
 
 function parseJson(text, fallback) {
@@ -119,6 +132,8 @@ function activitySummaries() {
       startedAt: history[i].startedAt,
       movingTimeS: history[i].movingTimeS,
       distanceM: history[i].distanceM,
+      avgHrBpm: history[i].avgHrBpm || 0,
+      hrZoneTimeS: history[i].hrZoneTimeS || [0, 0, 0, 0],
       points: history[i].points ? history[i].points.length : 0,
       stravaStatus: history[i].stravaStatus,
       stravaError: history[i].stravaError,
@@ -343,6 +358,9 @@ function saveActivity(activity) {
     distanceM: activity.summaryDistanceM,
     points: activity.points,
     hrSamples: activity.hrSamples,
+    avgHrBpm: activity.avgHrBpm,
+    hrZoneTimeS: activity.hrZoneTimeS,
+    hrZoneThresholds: activity.hrZoneThresholds,
     speedCentiMps: activity.summarySpeedCentiMps,
     stravaStatus: 'not_uploaded'
   };
@@ -703,6 +721,7 @@ function handleConfigPayload(payload) {
 
   hasSettingsPayload =
       typeof payload.darkMode !== 'undefined' ||
+      typeof payload.hrZone1Bpm !== 'undefined' ||
       typeof payload.stravaEnabled !== 'undefined' ||
       typeof payload.stravaClientId !== 'undefined';
   if (!hasSettingsPayload) {
@@ -711,6 +730,7 @@ function handleConfigPayload(payload) {
   }
 
   settings = Strava.copyDefaults(payload);
+  tracker.setHrZoneThresholds(hrZoneThresholdsFromSettings(settings));
   hadAuthorizationCode = !!settings.stravaAuthorizationCode;
   saveSettings();
   sendSettingsToWatch();

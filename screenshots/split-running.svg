@@ -17,8 +17,12 @@
 <text x="90" y="103" class="timer" fill="#071014" text-anchor="middle">05:02</text>
 <text x="8" y="138" class="label">PACE</text>
 <text x="180" y="140" class="value" text-anchor="end">5:02/km</text>
-<text x="8" y="176" class="label">HR</text>
-<text x="180" y="178" class="value" text-anchor="end">154 bpm</text>
+<rect x="6" y="159" width="170" height="29" rx="3" fill="#ffdc00"/>
+<text x="10" y="174" class="status" fill="#000000">ENDURANCE</text>
+<text x="172" y="181" class="value" fill="#000000" text-anchor="end">154</text>
+<rect x="10" y="182" width="11" height="3" rx="1" fill="#000000"/>
+<rect x="24" y="182" width="11" height="3" rx="1" fill="#000000"/>
+<rect x="38" y="182" width="11" height="3" rx="1" fill="none" stroke="#000000" stroke-width="1"/>
 <text x="90" y="222" class="footer" text-anchor="middle">Activity still recording</text>
 <rect x="182" y="0" width="18" height="228" fill="#071014"/>
 

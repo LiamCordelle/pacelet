@@ -57,7 +57,10 @@
       "SUMMARY_POINTS",
       "ACTIVITY_ID",
       "REQUEST_SETTINGS",
-      "DARK_MODE"
+      "DARK_MODE",
+      "HR_ZONE_1_BPM",
+      "HR_ZONE_2_BPM",
+      "HR_ZONE_3_BPM"
     ],
     "resources": {
       "media": [
