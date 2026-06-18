@@ -1,6 +1,7 @@
 var fs = require('fs');
 var path = require('path');
 var zlib = require('zlib');
+var materialIcons = require('./material_icons');
 
 var ARGS = process.argv.slice(2);
 var OUT_DIR = path.join(__dirname, '..', 'screenshots');
@@ -23,6 +24,7 @@ var HEIGHT = PLATFORMS[PLATFORM_NAME].height;
 var PNG_SCALE = 2;
 var ACTION_RAIL_W = 20;
 var RIGHT = WIDTH - ACTION_RAIL_W;
+var MATERIAL_ICON_CACHE = {};
 
 var THEME = {
   bg: '#f7fbf8',
@@ -676,66 +678,31 @@ function actionRail(up, select, down, requestedRailColor, requestedIconColor) {
   ].join('\n');
 }
 
+function materialIcon(name) {
+  if (!MATERIAL_ICON_CACHE[name]) {
+    MATERIAL_ICON_CACHE[name] = materialIcons.readIcon(name);
+  }
+  return MATERIAL_ICON_CACHE[name];
+}
+
+function materialIconSvg(name, cx, cy, size, color, padding) {
+  var icon = materialIcon(name);
+  var available = size - (padding || 0) * 2;
+  var scale = Math.min(
+    available / icon.viewBox.width,
+    available / icon.viewBox.height
+  );
+  var x = cx - icon.viewBox.width * scale / 2 -
+    icon.viewBox.x * scale;
+  var y = cy - icon.viewBox.height * scale / 2 -
+    icon.viewBox.y * scale;
+  return '<path d="' + icon.path + '" transform="translate(' +
+    x + ' ' + y + ') scale(' + scale + ')" fill="' + color + '"/>';
+}
+
 function activityIcon(activity, cx, cy, size, color) {
-  var scale = size / 28;
-  var originX = cx - size / 2;
-  var originY = cy - size / 2;
-  var open = '<g transform="translate(' + originX + ' ' + originY +
-    ') scale(' + scale + ')" stroke="' + color +
-    '" stroke-linecap="round" stroke-linejoin="round">';
-  var close = '</g>';
-  function l(x1, y1, x2, y2, width) {
-    return '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 +
-      '" y2="' + y2 + '" stroke-width="' + width + '"/>';
-  }
-  function c(x, y, r) {
-    return '<circle cx="' + x + '" cy="' + y + '" r="' + r +
-      '" fill="' + color + '" stroke="none"/>';
-  }
-  function ring(x, y, r, width) {
-    return '<circle cx="' + x + '" cy="' + y + '" r="' + r +
-      '" fill="none" stroke-width="' + width + '"/>';
-  }
-
-  if (activity === 'WALKING') {
-    return [
-      open, c(14.0, 4.8, 3.1), l(13.8, 8.2, 13.0, 14.8, 3.0),
-      l(13.2, 10.5, 8.6, 15.3, 2.5),
-      l(13.2, 10.5, 18.0, 10.1, 2.5),
-      l(13.0, 14.5, 9.5, 22.4, 3.0),
-      l(9.5, 22.4, 5.6, 22.9, 2.4),
-      l(13.1, 14.7, 18.3, 21.0, 3.0),
-      l(18.3, 21.0, 21.8, 23.4, 2.4), close
-    ].join('\n');
-  }
-
-  if (activity === 'CYCLING') {
-    return [
-      open, ring(7.5, 20.8, 5.0, 2.0), ring(21.0, 20.8, 5.0, 2.0),
-      l(7.5, 20.8, 13.5, 20.8, 2.0),
-      l(13.5, 20.8, 11.8, 13.2, 2.0),
-      l(11.8, 13.2, 21.0, 20.8, 2.0),
-      l(13.5, 20.8, 18.0, 13.0, 2.0),
-      l(18.0, 13.0, 21.0, 20.8, 2.0),
-      l(11.0, 12.4, 14.2, 12.4, 2.0),
-      l(17.8, 13.0, 22.5, 11.7, 1.8),
-      l(22.5, 11.7, 25.0, 13.1, 1.8),
-      c(13.5, 20.8, 2.0), close
-    ].join('\n');
-  }
-
-  return [
-    open, c(14.6, 4.7, 3.0), l(13.6, 8.5, 10.6, 14.4, 3.0),
-    l(12.2, 10.3, 6.6, 10.6, 2.6),
-    l(12.2, 10.4, 16.9, 14.2, 2.6),
-    l(10.8, 14.2, 6.0, 21.0, 3.2),
-    l(6.0, 21.0, 2.6, 20.6, 2.4),
-    l(10.8, 14.2, 19.0, 16.6, 3.2),
-    l(19.0, 16.6, 23.8, 23.2, 2.9),
-    l(2.8, 7.8, 7.5, 7.8, 1.4),
-    l(2.2, 14.0, 6.1, 14.0, 1.4),
-    l(2.5, 25.0, 8.0, 25.0, 1.4), close
-  ].join('\n');
+  return materialIconSvg(activity, cx, cy, size, color,
+                         activity === 'CYCLING' ? 0 : 1);
 }
 
 function menuItem(activity, selected, y) {
@@ -876,20 +843,12 @@ function measuringHeart(cx, cy) {
   return [
     '<circle cx="' + cx + '" cy="' + cy + '" r="11" fill="none" stroke="' +
       THEME.muted + '" stroke-width="1"/>',
-    '<path d="M ' + cx + ' ' + (cy + 8) +
-      ' C ' + (cx - 12) + ' ' + cy + ', ' + (cx - 8) + ' ' + (cy - 8) +
-      ', ' + cx + ' ' + (cy - 3) +
-      ' C ' + (cx + 8) + ' ' + (cy - 8) + ', ' + (cx + 12) + ' ' + cy +
-      ', ' + cx + ' ' + (cy + 8) + ' Z" fill="' + THEME.accent + '"/>'
+    materialIconSvg('HEART', cx, cy, 16, THEME.text, 1)
   ].join('\n');
 }
 
 function heartIcon(cx, cy, color) {
-  return '<path d="M ' + cx + ' ' + (cy + 8) +
-    ' C ' + (cx - 12) + ' ' + cy + ', ' + (cx - 8) + ' ' + (cy - 8) +
-    ', ' + cx + ' ' + (cy - 3) +
-    ' C ' + (cx + 8) + ' ' + (cy - 8) + ', ' + (cx + 12) + ' ' + cy +
-    ', ' + cx + ' ' + (cy + 8) + ' Z" fill="' + color + '"/>';
+  return materialIconSvg('HEART', cx, cy, 24, color, 1);
 }
 
 function hrRow(y, height, bpm, zone, measuring) {
@@ -1186,63 +1145,22 @@ function pixelActionRail(canvas, up, select, down,
 }
 
 function pixelActivityIcon(canvas, activity, cx, cy, size, color) {
-  var scale = size / 28;
-  var originX = cx - size / 2;
-  var originY = cy - size / 2;
-  function x(value) {
-    return Math.round(originX + value * scale);
-  }
-  function y(value) {
-    return Math.round(originY + value * scale);
-  }
-  function w(value) {
-    return Math.max(1, Math.round(value * scale));
-  }
-  function l(x1, y1, x2, y2, width) {
-    canvas.line(x(x1), y(y1), x(x2), y(y2), color, w(width));
-  }
-  function c(cx2, cy2, radius) {
-    canvas.fillCircle(x(cx2), y(cy2), Math.max(1, Math.round(radius * scale)),
-                      color);
-  }
-  function ring(cx2, cy2, radius, width) {
-    canvas.circle(x(cx2), y(cy2), Math.max(1, Math.round(radius * scale)),
-                  color, w(width));
-  }
+  pixelMaterialIcon(canvas, activity, cx, cy, size, color,
+                    activity === 'CYCLING' ? 0 : 1);
+}
 
-  if (activity === 'CYCLING') {
-    ring(7.5, 20.8, 5.0, 2.0);
-    ring(21.0, 20.8, 5.0, 2.0);
-    l(7.5, 20.8, 13.5, 20.8, 2.0);
-    l(13.5, 20.8, 11.8, 13.2, 2.0);
-    l(11.8, 13.2, 21.0, 20.8, 2.0);
-    l(13.5, 20.8, 18.0, 13.0, 2.0);
-    l(18.0, 13.0, 21.0, 20.8, 2.0);
-    l(11.0, 12.4, 14.2, 12.4, 2.0);
-    l(17.8, 13.0, 22.5, 11.7, 1.8);
-    l(22.5, 11.7, 25.0, 13.1, 1.8);
-    c(13.5, 20.8, 2.0);
-  } else if (activity === 'WALKING') {
-    c(14.0, 4.8, 3.1);
-    l(13.8, 8.2, 13.0, 14.8, 3.0);
-    l(13.2, 10.5, 8.6, 15.3, 2.5);
-    l(13.2, 10.5, 18.0, 10.1, 2.5);
-    l(13.0, 14.5, 9.5, 22.4, 3.0);
-    l(9.5, 22.4, 5.6, 22.9, 2.4);
-    l(13.1, 14.7, 18.3, 21.0, 3.0);
-    l(18.3, 21.0, 21.8, 23.4, 2.4);
-  } else {
-    c(14.6, 4.7, 3.0);
-    l(13.6, 8.5, 10.6, 14.4, 3.0);
-    l(12.2, 10.3, 6.6, 10.6, 2.6);
-    l(12.2, 10.4, 16.9, 14.2, 2.6);
-    l(10.8, 14.2, 6.0, 21.0, 3.2);
-    l(6.0, 21.0, 2.6, 20.6, 2.4);
-    l(10.8, 14.2, 19.0, 16.6, 3.2);
-    l(19.0, 16.6, 23.8, 23.2, 2.9);
-    l(2.8, 7.8, 7.5, 7.8, 1.4);
-    l(2.2, 14.0, 6.1, 14.0, 1.4);
-    l(2.5, 25.0, 8.0, 25.0, 1.4);
+function pixelMaterialIcon(canvas, name, cx, cy, size, color, padding) {
+  var alpha = materialIcons.rasterize(
+    materialIcon(name), size, size, padding || 0, 4
+  );
+  var originX = Math.round(cx - size / 2);
+  var originY = Math.round(cy - size / 2);
+  for (var y = 0; y < size; y++) {
+    for (var x = 0; x < size; x++) {
+      if (alpha[y * size + x] >= 128) {
+        canvas.setPixel(originX + x, originY + y, color);
+      }
+    }
   }
 }
 
@@ -1319,13 +1237,7 @@ function pixelMetricRow(canvas, y, height, label, text) {
 }
 
 function pixelHeartIcon(canvas, cx, cy, color) {
-  canvas.fillCircle(cx - 3, cy - 3, 4, color);
-  canvas.fillCircle(cx + 3, cy - 3, 4, color);
-  for (var row = 0; row < 8; row += 1) {
-    var halfWidth = 7 - row;
-    canvas.fillRect(cx - halfWidth, cy - 1 + row,
-                    halfWidth * 2 + 1, 1, color);
-  }
+  pixelMaterialIcon(canvas, 'HEART', cx, cy, 24, color, 1);
 }
 
 function pixelHrRow(canvas, y, height, bpm, zone) {
@@ -1359,13 +1271,7 @@ function pixelHrRow(canvas, y, height, bpm, zone) {
 
 function pixelMeasuringHeart(canvas, cx, cy) {
   canvas.circle(cx, cy, 11, THEME.muted, 1);
-  canvas.fillCircle(cx - 3, cy - 3, 4, THEME.accent);
-  canvas.fillCircle(cx + 3, cy - 3, 4, THEME.accent);
-  for (var rowIndex = 0; rowIndex < 8; rowIndex += 1) {
-    var halfWidth = Math.max(0, 7 - rowIndex);
-    canvas.fillRect(cx - halfWidth, cy - 1 + rowIndex,
-                    halfWidth * 2 + 1, 1, THEME.accent);
-  }
+  pixelMaterialIcon(canvas, 'HEART', cx, cy, 16, THEME.text, 1);
 }
 
 function pixelHrDisplay(canvas, y, height, screen) {

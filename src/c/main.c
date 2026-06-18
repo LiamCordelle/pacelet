@@ -103,6 +103,8 @@ static char s_activity_id[32] = "";
 static bool s_hr_sample_period_requested;
 static GBitmap *s_activity_icons[3][2];
 static GBitmap *s_countdown_icons[3][2];
+static GBitmap *s_heart_icons[2];
+static GBitmap *s_measuring_heart_icons[2];
 
 typedef struct {
   uint8_t version;
@@ -159,6 +161,16 @@ static const uint32_t COUNTDOWN_ICON_RESOURCE_IDS[3][2] = {
     RESOURCE_ID_IMAGE_COUNTDOWN_3_BLACK,
     RESOURCE_ID_IMAGE_COUNTDOWN_3_WHITE
   }
+};
+
+static const uint32_t HEART_ICON_RESOURCE_IDS[2] = {
+  RESOURCE_ID_IMAGE_HEART_BLACK,
+  RESOURCE_ID_IMAGE_HEART_WHITE
+};
+
+static const uint32_t MEASURING_HEART_ICON_RESOURCE_IDS[2] = {
+  RESOURCE_ID_IMAGE_HEART_MEASURING_BLACK,
+  RESOURCE_ID_IMAGE_HEART_MEASURING_WHITE
 };
 
 static int32_t clamp_i32(int32_t value, int32_t min_value, int32_t max_value) {
@@ -934,37 +946,29 @@ static void draw_metric_row(GContext *ctx, GRect bounds, int y, int height,
 }
 
 static void draw_heart_icon(GContext *ctx, GPoint center, GColor color) {
-  graphics_context_set_fill_color(ctx, color);
-  graphics_fill_circle(ctx, GPoint(center.x - 3, center.y - 3), 4);
-  graphics_fill_circle(ctx, GPoint(center.x + 3, center.y - 3), 4);
-  graphics_context_set_stroke_color(ctx, color);
-  for (int row = 0; row < 8; row++) {
-    int half_width = 7 - row;
-    graphics_draw_line(ctx,
-                       GPoint(center.x - half_width, center.y - 1 + row),
-                       GPoint(center.x + half_width, center.y - 1 + row));
+  int variant = gcolor_equal(color, GColorWhite) ? 1 : 0;
+  GBitmap *icon = s_heart_icons[variant];
+  if (icon) {
+    graphics_context_set_compositing_mode(ctx, GCompOpSet);
+    graphics_draw_bitmap_in_rect(
+        ctx, icon, GRect(center.x - 12, center.y - 12, 24, 24));
+    graphics_context_set_compositing_mode(ctx, GCompOpAssign);
   }
 }
 
 static void draw_measuring_heart(GContext *ctx, GPoint center) {
   int pulse = s_anim_tick % 2;
-  int radius = pulse ? 4 : 3;
-  int half_width = radius * 2;
+  int variant = s_dark_mode ? 1 : 0;
+  GBitmap *icon = s_measuring_heart_icons[variant];
 
   graphics_context_set_stroke_color(ctx, color_muted());
   graphics_draw_circle(ctx, center, pulse ? 11 : 9);
 
-  graphics_context_set_fill_color(ctx, color_accent());
-  graphics_fill_circle(
-      ctx, GPoint(center.x - radius + 1, center.y - radius + 1), radius);
-  graphics_fill_circle(
-      ctx, GPoint(center.x + radius - 1, center.y - radius + 1), radius);
-  graphics_context_set_stroke_color(ctx, color_accent());
-  for (int row = 0; row <= half_width; row++) {
-    graphics_draw_line(
-        ctx,
-        GPoint(center.x - half_width + row, center.y - 1 + row),
-        GPoint(center.x + half_width - row, center.y - 1 + row));
+  if (icon) {
+    graphics_context_set_compositing_mode(ctx, GCompOpSet);
+    graphics_draw_bitmap_in_rect(
+        ctx, icon, GRect(center.x - 8, center.y - 8, 16, 16));
+    graphics_context_set_compositing_mode(ctx, GCompOpAssign);
   }
 }
 
@@ -1807,6 +1811,13 @@ static void click_config_provider(void *context) {
 }
 
 static void load_activity_icons(void) {
+  for (int variant = 0; variant < 2; variant++) {
+    s_heart_icons[variant] =
+        gbitmap_create_with_resource(HEART_ICON_RESOURCE_IDS[variant]);
+    s_measuring_heart_icons[variant] = gbitmap_create_with_resource(
+        MEASURING_HEART_ICON_RESOURCE_IDS[variant]);
+  }
+
   for (int type = 0; type < 3; type++) {
     for (int variant = 0; variant < 2; variant++) {
       s_activity_icons[type][variant] =
@@ -1818,6 +1829,17 @@ static void load_activity_icons(void) {
 }
 
 static void unload_activity_icons(void) {
+  for (int variant = 0; variant < 2; variant++) {
+    if (s_heart_icons[variant]) {
+      gbitmap_destroy(s_heart_icons[variant]);
+      s_heart_icons[variant] = NULL;
+    }
+    if (s_measuring_heart_icons[variant]) {
+      gbitmap_destroy(s_measuring_heart_icons[variant]);
+      s_measuring_heart_icons[variant] = NULL;
+    }
+  }
+
   for (int type = 0; type < 3; type++) {
     for (int variant = 0; variant < 2; variant++) {
       if (s_activity_icons[type][variant]) {
