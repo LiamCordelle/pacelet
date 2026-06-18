@@ -13,9 +13,10 @@ OUT_DIR = ROOT / 'screenshots' / 'emulator'
 SIM_PATH = ROOT / 'tools' / 'pypkjs_gps_sim'
 
 PLATFORMS = ['emery', 'basalt', 'chalk', 'diorite']
-SCREENS = ['choose', 'gps-search', 'gps-ready', 'countdown', 'activity', 'paused']
+SCREENS = ['choose', 'gps-search', 'gps-ready', 'countdown', 'activity',
+           'split', 'paused']
 ALL_SCREEN_SEQUENCE = ['choose', 'gps-search', 'gps-ready', 'countdown',
-                       'activity', 'paused']
+                       'activity', 'split', 'paused']
 ACTIVITY_DOWN_CLICKS = {
     'running': 0,
     'cycling': 1,
@@ -103,7 +104,9 @@ def command_env(args):
     env['PEBBLE_TRACKER_SIM_DELAY_S'] = str(lock_delay)
     env['PEBBLE_TRACKER_SIM_INTERVAL_S'] = '1.0'
     env['PEBBLE_TRACKER_SIM_LOOP_DISTANCE_M'] = '1000'
-    env['PEBBLE_TRACKER_SIM_SPEED_MPS'] = '3.0'
+    env['PEBBLE_TRACKER_SIM_SPEED_MPS'] = (
+        '250.0' if args.screen == 'split' else '3.0'
+    )
     env['PEBBLE_TRACKER_SIM_JITTER_M'] = '4.0'
     env['PEBBLE_TRACKER_SIM_ACCURACY_M'] = '10.0'
     env['PEBBLE_TRACKER_SIM_CENTER_LAT'] = '51.5074'
@@ -177,6 +180,10 @@ def drive_to_screen(args, env, lock_delay):
 
     wait(4.0, args.dry_run)
 
+    if args.screen == 'split':
+        wait(5.0, args.dry_run)
+        return
+
     if args.screen == 'paused':
         click(args, 'select', env)
         wait(0.5, args.dry_run)
@@ -218,11 +225,14 @@ def capture_all_screens(args, sim_env, base_env, lock_delay):
     try:
         for screen in ALL_SCREEN_SEQUENCE:
             args.screen = screen
+            screen_env = sim_env.copy()
+            if screen == 'split':
+                screen_env['PEBBLE_TRACKER_SIM_SPEED_MPS'] = '250.0'
             run(['pebble', 'kill', '--force'], env=base_env, check=False,
                 dry_run=args.dry_run)
             run(['pebble', 'install', '--emulator', args.platform, str(PBW)],
-                env=sim_env, dry_run=args.dry_run, args=args)
-            drive_to_screen(args, sim_env, lock_delay)
+                env=screen_env, dry_run=args.dry_run, args=args)
+            drive_to_screen(args, screen_env, lock_delay)
             captured.append(all_output_path(args, screen, index))
             capture(args, base_env, captured[-1])
             index += 1

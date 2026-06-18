@@ -10,8 +10,9 @@
 </style>
 <rect width="200" height="228" fill="#f7fbf8"/>
 <rect width="180" height="2" fill="#9a6500"/>
-<text x="8" y="17" class="status" fill="#3e5459">RUNNING</text>
-<text x="180" y="17" class="status" fill="#9a6500" text-anchor="end">PAUSED</text>
+<text x="8" y="17" class="status" fill="#3e5459">RUN</text>
+<text x="90" y="17" class="status" fill="#071014" text-anchor="middle">10:09</text>
+<text x="180" y="17" class="status" fill="#9a6500" text-anchor="end">PAUSE</text>
 <g fill="#9a6500">
 <rect x="78" y="48" width="8" height="25" rx="2"/>
 <rect x="94" y="48" width="8" height="25" rx="2"/>

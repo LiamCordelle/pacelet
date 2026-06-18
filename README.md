@@ -20,6 +20,9 @@ layout and manual QA decisions should prioritize `emery`.
   heart rate.
 - Cycling screen shows elapsed time, distance, smoothed speed in km/h, and
   heart rate.
+- The top status bar keeps the current clock visible throughout the app.
+- Each completed kilometre triggers a vibration and a six-second split summary
+  with kilometre time, split pace or average cycling speed, and current HR.
 - Watch screens use a right-side action rail with icons aligned to the hardware
   buttons.
 - Heart rate is read from Pebble Health when supported by the device.
@@ -176,9 +179,9 @@ pixels are easy to inspect. No external renderer is required.
 The emulator screenshot harness builds and installs the PBW, drives the app to a
 selected screen or the main app flow, and saves real captures under
 `screenshots/emulator/`. The all-screens mode captures choose, GPS searching,
-GPS ready, countdown, activity, and paused states with ordered filenames. It
-starts from a fresh install for each screen so previous capture state does not
-leak into the next screenshot.
+GPS ready, countdown, activity, kilometre split, and paused states with ordered
+filenames. It starts from a fresh install for each screen so previous capture
+state does not leak into the next screenshot.
 Useful variants:
 
 ```sh
@@ -197,6 +200,7 @@ screen. The SVG paths are:
 - `screenshots/countdown.svg`
 - `screenshots/walking.svg`
 - `screenshots/running.svg`
+- `screenshots/split-running.svg`
 - `screenshots/paused.svg`
 - `screenshots/cycling.svg`
 

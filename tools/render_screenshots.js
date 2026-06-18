@@ -148,6 +148,16 @@ var screens = [
     gps: 'GPS lock 10m'
   },
   {
+    name: 'split-running',
+    kind: 'split',
+    activity: 'RUNNING',
+    splitNumber: '4',
+    splitTime: '05:02',
+    metricLabel: 'PACE',
+    metricValue: '5:02/km',
+    hr: '154 bpm'
+  },
+  {
     name: 'paused',
     kind: 'paused',
     activity: 'RUNNING',
@@ -173,6 +183,30 @@ function esc(value) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function shortActivity(activity) {
+  if (activity === 'WALKING') {
+    return 'WALK';
+  }
+  if (activity === 'CYCLING') {
+    return 'RIDE';
+  }
+  return 'RUN';
+}
+
+function shortState(state) {
+  var states = {
+    CHOOSE: 'PICK',
+    'GPS SEARCH': 'GPS',
+    'GPS READY': 'READY',
+    'GET READY': '3-2-1',
+    RECORDING: 'REC',
+    PAUSED: 'PAUSE',
+    SAVED: 'SAVED',
+    SPLIT: 'SPLIT'
+  };
+  return states[state] || state;
 }
 
 function hexToRgb(value) {
@@ -469,12 +503,16 @@ function base(content) {
 }
 
 function topBar(activity, state, color) {
+  var third = Math.floor(RIGHT / 3);
   return [
     '<rect width="' + RIGHT + '" height="2" fill="' + color + '"/>',
     '<text x="8" y="17" class="status" fill="' + THEME.muted + '">' +
-      esc(activity) + '</text>',
+      esc(shortActivity(activity)) + '</text>',
+    '<text x="' + (third + Math.floor(third / 2)) +
+      '" y="17" class="status" fill="' + THEME.text +
+      '" text-anchor="middle">10:09</text>',
     '<text x="' + RIGHT + '" y="17" class="status" fill="' + color +
-      '" text-anchor="end">' + esc(state) + '</text>'
+      '" text-anchor="end">' + esc(shortState(state)) + '</text>'
   ].join('\n');
 }
 
@@ -746,6 +784,28 @@ function renderActivity(screen) {
   ].join('\n'));
 }
 
+function renderSplit(screen) {
+  var centerX = Math.round(RIGHT / 2);
+  var titleY = isTall() ? 38 : 29;
+  var timerY = isTall() ? 70 : 56;
+  var rowY = isTall() ? 124 : 105;
+  var rowGap = isTall() ? 38 : 27;
+  return base([
+    topBar(screen.activity, 'SPLIT', THEME.accent),
+    '<text x="' + centerX + '" y="' + (titleY + 21) +
+      '" class="title" fill="' + THEME.accent +
+      '" text-anchor="middle">KM ' + esc(screen.splitNumber) + '</text>',
+    '<text x="' + centerX + '" y="' + (timerY + 33) +
+      '" class="timer" fill="' + THEME.text +
+      '" text-anchor="middle">' + esc(screen.splitTime) + '</text>',
+    row(rowY + 14, screen.metricLabel, screen.metricValue),
+    row(rowY + rowGap + 14, 'HR', screen.hr),
+    '<text x="' + centerX + '" y="' + (HEIGHT - 6) +
+      '" class="footer" text-anchor="middle">Activity still recording</text>',
+    actionRail(null, 'pause', 'save')
+  ].join('\n'));
+}
+
 function renderPaused(screen) {
   var centerX = Math.round(RIGHT / 2);
   return base([
@@ -777,6 +837,9 @@ function render(screen) {
   }
   if (screen.kind === 'paused') {
     return renderPaused(screen);
+  }
+  if (screen.kind === 'split') {
+    return renderSplit(screen);
   }
   return renderActivity(screen);
 }
@@ -902,9 +965,12 @@ function pixelActivityIcon(canvas, activity, cx, cy, size, color) {
 }
 
 function pixelTopBar(canvas, activity, state, color) {
+  var third = Math.floor(RIGHT / 3);
   canvas.fillRect(0, 0, RIGHT, 2, color);
-  canvas.text(activity, 8, 7, 1, THEME.muted, 'left', true);
-  canvas.text(state, RIGHT, 7, 1, color, 'right', true);
+  canvas.text(shortActivity(activity), 8, 7, 1, THEME.muted, 'left', true);
+  canvas.text('10:09', third + Math.floor(third / 2), 7, 1, THEME.text,
+              'center', true);
+  canvas.text(shortState(state), RIGHT, 7, 1, color, 'right', true);
 }
 
 function pixelTextFit(canvas, text, x, y, maxWidth, scale, color, align, bold) {
@@ -991,6 +1057,21 @@ function renderPixel(screen) {
     pixelRow(canvas, pausedRowY(0), 'TIME', screen.elapsed);
     pixelRow(canvas, pausedRowY(1), 'DIST', screen.distance);
     pixelActionRail(canvas, null, 'play', 'save');
+  } else if (screen.kind === 'split') {
+    var splitTitleY = isTall() ? 38 : 29;
+    var splitTimerY = isTall() ? 70 : 56;
+    var splitRowY = isTall() ? 124 : 105;
+    var splitRowGap = isTall() ? 38 : 27;
+    pixelTopBar(canvas, screen.activity, 'SPLIT', THEME.accent);
+    canvas.text('KM ' + screen.splitNumber, centerX, splitTitleY + 2, 3,
+                THEME.accent, 'center', true);
+    canvas.text(screen.splitTime, centerX, splitTimerY + 5, 5, THEME.text,
+                'center', true);
+    pixelRow(canvas, splitRowY, screen.metricLabel, screen.metricValue);
+    pixelRow(canvas, splitRowY + splitRowGap, 'HR', screen.hr);
+    canvas.text('ACTIVITY STILL RECORDING', centerX, HEIGHT - 14, 1,
+                THEME.muted, 'center', false);
+    pixelActionRail(canvas, null, 'pause', 'save');
   } else {
     pixelTopBar(canvas, screen.activity, 'RECORDING', THEME.accent);
     canvas.text(screen.elapsed, centerX, activityTimerY() + 5, 5, THEME.text,

@@ -10,8 +10,9 @@
 </style>
 <rect width="200" height="228" fill="#f7fbf8"/>
 <rect width="180" height="2" fill="#007c54"/>
-<text x="8" y="17" class="status" fill="#3e5459">RUNNING</text>
-<text x="180" y="17" class="status" fill="#007c54" text-anchor="end">GPS READY</text>
+<text x="8" y="17" class="status" fill="#3e5459">RUN</text>
+<text x="90" y="17" class="status" fill="#071014" text-anchor="middle">10:09</text>
+<text x="180" y="17" class="status" fill="#007c54" text-anchor="end">READY</text>
 <g fill="none" stroke="#3e5459" stroke-width="1">
 <circle cx="90" cy="78" r="21"/>
 <circle cx="90" cy="78" r="29"/>

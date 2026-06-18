@@ -4,6 +4,8 @@
 #define GPS_LOCK_ACCURACY_M 25
 #define HR_SAMPLE_PERIOD_S 1
 #define HR_SEND_INTERVAL_S 1
+#define SPLIT_DISTANCE_M 1000
+#define SPLIT_SUMMARY_MS 6000
 #define SETTINGS_KEY 1
 #define SETTINGS_VERSION 1
 
@@ -46,6 +48,7 @@ typedef enum {
 static Window *s_main_window;
 static Layer *s_canvas_layer;
 static AppTimer *s_countdown_timer;
+static AppTimer *s_split_timer;
 static bool s_dark_mode;
 
 static ActivityState s_activity_state = ActivityStateChoose;
@@ -69,6 +72,11 @@ static int32_t s_last_hr_sent_elapsed_s = -1;
 static int32_t s_summary_distance_m;
 static int32_t s_summary_moving_s;
 static int32_t s_summary_points;
+static int32_t s_next_split_km = 1;
+static int32_t s_last_split_elapsed_s;
+static int32_t s_split_elapsed_s;
+static int32_t s_split_number;
+static bool s_split_visible;
 static char s_gps_error[32] = "";
 static char s_activity_id[32] = "";
 static bool s_hr_sample_period_requested;
@@ -85,6 +93,12 @@ static const char *ACTIVITY_LABELS[] = {
   "WALKING",
   "RUNNING",
   "CYCLING"
+};
+
+static const char *ACTIVITY_SHORT_LABELS[] = {
+  "WALK",
+  "RUN",
+  "RIDE"
 };
 
 static const uint32_t ACTIVITY_ICON_RESOURCE_IDS[3][2] = {
@@ -227,6 +241,25 @@ static void format_elapsed(int32_t total_s, char *buffer, size_t buffer_size) {
   }
 }
 
+static void format_clock(char *buffer, size_t buffer_size) {
+  time_t now = time(NULL);
+  struct tm *time_now = localtime(&now);
+
+  if (!time_now) {
+    snprintf(buffer, buffer_size, "--:--");
+    return;
+  }
+
+  if (clock_is_24h_style()) {
+    strftime(buffer, buffer_size, "%H:%M", time_now);
+  } else {
+    strftime(buffer, buffer_size, "%I:%M", time_now);
+    if (buffer[0] == '0') {
+      memmove(buffer, buffer + 1, strlen(buffer));
+    }
+  }
+}
+
 static void format_distance(int32_t meters, char *buffer, size_t buffer_size) {
   if (meters >= 1000) {
     snprintf(buffer, buffer_size, "%ld.%02ld km",
@@ -261,27 +294,24 @@ static bool activity_uses_speed(void) {
   return s_activity_type == ActivityTypeCycling;
 }
 
-static const char *state_label(void) {
+static const char *state_short_label(void) {
   switch (s_activity_state) {
     case ActivityStateChoose:
-      return "CHOOSE";
+      return "PICK";
     case ActivityStateGps:
-      if (s_gps_state == GpsStateError) {
-        return "GPS ERROR";
-      }
-      return "GPS SEARCH";
+      return s_gps_state == GpsStateError ? "ERROR" : "GPS";
     case ActivityStateReady:
-      return "GPS READY";
+      return "READY";
     case ActivityStateCountdown:
-      return "GET READY";
+      return "3-2-1";
     case ActivityStateActive:
-      return "RECORDING";
+      return s_split_visible ? "SPLIT" : "REC";
     case ActivityStatePaused:
-      return "PAUSED";
+      return "PAUSE";
     case ActivityStateFinished:
       return "SAVED";
     default:
-      return "WAITING";
+      return "";
   }
 }
 
@@ -386,7 +416,48 @@ static void cancel_countdown(void) {
   s_countdown_value = 0;
 }
 
+static void hide_split_summary(void) {
+  if (s_split_timer) {
+    app_timer_cancel(s_split_timer);
+    s_split_timer = NULL;
+  }
+  s_split_visible = false;
+}
+
+static void split_timer_callback(void *data) {
+  s_split_timer = NULL;
+  s_split_visible = false;
+  mark_dirty();
+}
+
+static void maybe_show_split_summary(int32_t distance_m) {
+  int32_t completed_km;
+  int32_t current_elapsed_s;
+
+  if (s_activity_state != ActivityStateActive ||
+      distance_m < s_next_split_km * SPLIT_DISTANCE_M) {
+    return;
+  }
+
+  completed_km = distance_m / SPLIT_DISTANCE_M;
+  current_elapsed_s = elapsed_s();
+  s_split_number = completed_km;
+  s_split_elapsed_s = current_elapsed_s - s_last_split_elapsed_s;
+  if (s_split_elapsed_s < 1) {
+    s_split_elapsed_s = 1;
+  }
+  s_last_split_elapsed_s = current_elapsed_s;
+  s_next_split_km = completed_km + 1;
+
+  hide_split_summary();
+  s_split_visible = true;
+  vibes_double_pulse();
+  s_split_timer = app_timer_register(
+      SPLIT_SUMMARY_MS, split_timer_callback, NULL);
+}
+
 static void reset_activity_metrics(void) {
+  hide_split_summary();
   s_started_at = 0;
   s_paused_at = 0;
   s_total_paused_s = 0;
@@ -398,6 +469,10 @@ static void reset_activity_metrics(void) {
   s_summary_distance_m = 0;
   s_summary_moving_s = 0;
   s_summary_points = 0;
+  s_next_split_km = 1;
+  s_last_split_elapsed_s = 0;
+  s_split_elapsed_s = 0;
+  s_split_number = 0;
   s_activity_id[0] = '\0';
 }
 
@@ -484,6 +559,7 @@ static void pause_activity(void) {
     return;
   }
 
+  hide_split_summary();
   s_paused_at = time(NULL);
   s_activity_state = ActivityStatePaused;
   set_activity_hr_sampling(false);
@@ -511,6 +587,7 @@ static void finish_activity(void) {
     return;
   }
 
+  hide_split_summary();
   s_finished_elapsed_s = elapsed_s();
   send_hr_sample();
   set_activity_hr_sampling(false);
@@ -587,18 +664,29 @@ static void draw_row(GContext *ctx, GRect bounds, int y, const char *label,
 
 static void draw_top_bar(GContext *ctx, GRect bounds) {
   int right = content_right(bounds);
+  int third = right / 3;
+  char clock_text[8];
 
   graphics_context_set_fill_color(ctx, state_color());
   graphics_fill_rect(ctx, GRect(0, 0, right, 2), 0, GCornerNone);
 
+  format_clock(clock_text, sizeof(clock_text));
+
   graphics_context_set_text_color(ctx, color_muted());
-  graphics_draw_text(ctx, ACTIVITY_LABELS[s_activity_type], font_status(),
-                     GRect(8, 5, 60, 18), GTextOverflowModeTrailingEllipsis,
+  graphics_draw_text(ctx, ACTIVITY_SHORT_LABELS[s_activity_type], font_status(),
+                     GRect(8, 5, third - 8, 18),
+                     GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentLeft, NULL);
 
+  graphics_context_set_text_color(ctx, color_text());
+  graphics_draw_text(ctx, clock_text, font_status(),
+                     GRect(third, 5, third, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+
   graphics_context_set_text_color(ctx, state_color());
-  graphics_draw_text(ctx, state_label(), font_status(),
-                     GRect(68, 5, right - 72, 18),
+  graphics_draw_text(ctx, state_short_label(), font_status(),
+                     GRect(third * 2, 5, right - third * 2 - 4, 18),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
 }
 
@@ -849,6 +937,62 @@ static void draw_countdown_screen(GContext *ctx, GRect bounds) {
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
 }
 
+static void draw_split_screen(GContext *ctx, GRect bounds) {
+  int right = content_right(bounds);
+  bool tall = layout_is_tall(bounds);
+  int title_y = tall ? 38 : 29;
+  int timer_y = tall ? 70 : 56;
+  int row_1_y = tall ? 124 : 105;
+  int row_gap = tall ? 38 : 27;
+  char title_text[20];
+  char split_time_text[16];
+  char movement_text[20];
+  char hr_text[16];
+
+  draw_top_bar(ctx, bounds);
+
+  snprintf(title_text, sizeof(title_text), "KM %ld",
+           (long)s_split_number);
+  graphics_context_set_text_color(ctx, color_accent());
+  graphics_draw_text(ctx, title_text, font_value(),
+                     GRect(8, title_y, right - 8, 28),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+
+  format_elapsed(s_split_elapsed_s, split_time_text, sizeof(split_time_text));
+  graphics_context_set_text_color(ctx, color_text());
+  graphics_draw_text(ctx, split_time_text, font_timer(),
+                     GRect(0, timer_y, right, 42),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+
+  if (activity_uses_speed()) {
+    format_speed(100000 / s_split_elapsed_s,
+                 movement_text, sizeof(movement_text));
+  } else {
+    format_pace(s_split_elapsed_s, movement_text, sizeof(movement_text));
+  }
+  if (s_last_hr_bpm > 0) {
+    snprintf(hr_text, sizeof(hr_text), "%ld bpm", (long)s_last_hr_bpm);
+  } else {
+    snprintf(hr_text, sizeof(hr_text), "-- bpm");
+  }
+
+  draw_row(ctx, bounds, row_1_y,
+           activity_uses_speed() ? "AVG" : "PACE", movement_text);
+  draw_row(ctx, bounds, row_1_y + row_gap, "HR", hr_text);
+
+  graphics_context_set_text_color(ctx, color_muted());
+  graphics_draw_text(ctx, "Activity still recording",
+                     font_label(),
+                     GRect(8, bounds.size.h - 23, right - 8, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+
+  draw_action_rail(ctx, bounds, ActionIconNone,
+                   ActionIconPause, ActionIconSave);
+}
+
 static void draw_activity_screen(GContext *ctx, GRect bounds) {
   int right = content_right(bounds);
   bool tall = layout_is_tall(bounds);
@@ -965,6 +1109,12 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       draw_countdown_screen(ctx, bounds);
       break;
     case ActivityStateActive:
+      if (s_split_visible) {
+        draw_split_screen(ctx, bounds);
+        break;
+      }
+      draw_activity_screen(ctx, bounds);
+      break;
     case ActivityStateFinished:
       draw_activity_screen(ctx, bounds);
       break;
@@ -1006,6 +1156,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   Tuple *distance = dict_find(iter, MESSAGE_KEY_DISTANCE_M);
   if (distance) {
     s_distance_m = distance->value->int32;
+    maybe_show_split_summary(s_distance_m);
   }
 
   Tuple *pace = dict_find(iter, MESSAGE_KEY_CURRENT_PACE);
@@ -1184,6 +1335,7 @@ static void init(void) {
 
 static void deinit(void) {
   cancel_countdown();
+  hide_split_summary();
   set_activity_hr_sampling(false);
   tick_timer_service_unsubscribe();
 #if defined(PBL_HEALTH)

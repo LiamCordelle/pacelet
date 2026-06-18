@@ -10,8 +10,9 @@
 </style>
 <rect width="200" height="228" fill="#f7fbf8"/>
 <rect width="180" height="2" fill="#007c54"/>
-<text x="8" y="17" class="status" fill="#3e5459">CYCLING</text>
-<text x="180" y="17" class="status" fill="#007c54" text-anchor="end">RECORDING</text>
+<text x="8" y="17" class="status" fill="#3e5459">RIDE</text>
+<text x="90" y="17" class="status" fill="#071014" text-anchor="middle">10:09</text>
+<text x="180" y="17" class="status" fill="#007c54" text-anchor="end">REC</text>
 <text x="90" y="61" class="timer" fill="#071014" text-anchor="middle">41:08</text>
 <text x="8" y="92" class="label">DIST</text>
 <text x="180" y="94" class="value" text-anchor="end">18.74 km</text>

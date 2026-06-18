@@ -2,7 +2,7 @@
   "name": "pacelet",
   "description": "Pebble smartwatch activity tracker with phone GPS, heart rate, and optional personal Strava upload using user-supplied credentials.",
   "author": "Liam Cordelle",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "keywords": [
     "pebble-app"
   ],

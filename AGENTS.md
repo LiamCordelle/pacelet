@@ -21,6 +21,9 @@ Core behavior:
 - Walking and Running show elapsed time, distance, smoothed pace, and heart
   rate.
 - Cycling shows elapsed time, distance, smoothed speed in km/h, and heart rate.
+- The top status bar shows the current time on every watch screen.
+- Each completed kilometre displays a six-second watch-side split summary with
+  kilometre time, split pace or average cycling speed, and current HR.
 - Heart rate comes from Pebble Health on the watch.
 - GPS points, activity summaries, and heart-rate samples are kept by phone-side
   Pebble JavaScript.
@@ -192,9 +195,9 @@ Other supported render targets can be selected with `--platform`: `basalt` and
 and installs the PBW in the selected emulator, defaults to `emery`, saves PNGs
 under `screenshots/emulator/`, and kills/restarts existing emulators unless
 `--reuse-emulator` is passed. Use `npm run screenshots:emulator:all` after UI
-changes to capture choose, GPS searching, GPS ready, countdown, activity, and
-paused states. All-screens mode starts from a fresh install for each screen so
-state does not leak between captures.
+changes to capture choose, GPS searching, GPS ready, countdown, activity,
+kilometre split, and paused states. All-screens mode starts from a fresh install
+for each screen so state does not leak between captures.
 
 Run the manual `emery` emulator GPS harness:
 

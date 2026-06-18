@@ -10,8 +10,9 @@
 </style>
 <rect width="200" height="228" fill="#f7fbf8"/>
 <rect width="180" height="2" fill="#3e5459"/>
-<text x="8" y="17" class="status" fill="#3e5459">RUNNING</text>
-<text x="180" y="17" class="status" fill="#3e5459" text-anchor="end">CHOOSE</text>
+<text x="8" y="17" class="status" fill="#3e5459">RUN</text>
+<text x="90" y="17" class="status" fill="#071014" text-anchor="middle">10:09</text>
+<text x="180" y="17" class="status" fill="#3e5459" text-anchor="end">PICK</text>
 <text x="90" y="47" class="label" text-anchor="middle">Choose Activity</text>
 <line x1="14" y1="86" x2="176" y2="86" stroke="#3e5459" stroke-width="1" opacity="0.45"/>
 <g transform="translate(13 58) scale(1)" stroke="#071014" stroke-linecap="round" stroke-linejoin="round">
