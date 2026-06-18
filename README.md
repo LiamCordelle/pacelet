@@ -6,9 +6,9 @@ Optional Strava upload uses a personal-credentials model: there is no shared
 backend or hosted OAuth service, so users provide their own Strava API details
 in the Pebble configuration page.
 
-The primary platform for this project is `emery` because that is the watch used
-for day-to-day testing. Other configured Pebble targets are kept buildable, but
-layout and manual QA decisions should prioritize `emery`.
+Pacelet targets `emery` exclusively. Its interface, resources, emulator
+tooling, and manual QA are designed for the Pebble Time 2's native 200x228
+display.
 
 ## Features
 
@@ -62,8 +62,8 @@ Choose Activity -> GPS lock status -> 3,2,1 countdown -> Activity started
   upload request building, and upload status helpers.
 - `src/pkjs/config_page.js`: Embedded Pebble configuration page for personal
   Strava credentials.
-- `resources/images/`: Generated monochrome activity icon PNG resources used by
-  the watch menu.
+- `resources/images/`: Generated monochrome Material Symbols icon resources
+  used by the watch UI.
 - `test/tracker_core.test.js`: Test harness for tracking behavior.
 - `test/strava.test.js`: Test harness for TCX/export/upload helpers.
 - `tools/generate_activity_icons.js`: Rebuilds the walking/running/cycling icon
@@ -74,7 +74,7 @@ Choose Activity -> GPS lock status -> 3,2,1 countdown -> Activity started
   to `emery`.
 - `tools/pypkjs_gps_sim/sitecustomize.py`: Local `pypkjs` geolocation shim used
   only by the emulator harnesses.
-- `tools/render_screenshots.js`: Platform-aware screenshot mock renderer.
+- `tools/render_screenshots.js`: Emery screenshot mock renderer.
 - `screenshots/`: Generated SVG/PNG design mockups. Real emulator captures go
   under `screenshots/emulator/` and are ignored by git.
 
@@ -161,16 +161,8 @@ Capture the main app flow from the `emery` emulator in one command with:
 npm run screenshots:emulator:all
 ```
 
-The screenshot renderer defaults to `emery`, which has a 200x228 native screen,
-matching the manual emulator harness. You can render another supported target
-with `--platform`, for example:
-
-```sh
-npm run screenshots:png -- --platform basalt
-```
-
-Supported screenshot targets are `basalt` and `diorite` at 144x168, `chalk` at
-180x180, and `emery` at 200x228.
+The screenshot renderer uses Emery's native 200x228 screen, matching the manual
+emulator harness and Pacelet's only supported watch platform.
 
 PNG rendering uses a custom software renderer: it draws the native Pebble screen
 into a pixel buffer, then writes a 2x nearest-neighbor PNG so individual watch

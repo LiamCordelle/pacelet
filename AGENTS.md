@@ -9,9 +9,9 @@ Pacelet is a Pebble watchapp for recording outdoor activities.
 The watch app is the activity controller and live dashboard; the paired phone is
 the GPS recorder.
 
-The primary target platform is `emery`. It is the device the owner has and the
-platform that should guide visual layout, emulator screenshots, and manual QA.
-The app still targets `basalt`, `chalk`, and `diorite`, but those are secondary.
+The only target platform is `emery`. It is the device the owner has and its
+native 200x228 display should guide visual layout, emulator screenshots, and
+manual QA.
 
 Core behavior:
 
@@ -50,8 +50,8 @@ Core behavior:
   status helpers.
 - `src/pkjs/config_page.js`: Embedded settings page opened by Pebble's
   configuration flow.
-- `resources/images/`: Generated black/white activity icon PNG resources used
-  by the watch menu.
+- `resources/images/`: Generated black/white Material Symbols icon PNG
+  resources used by the watch UI.
 - `test/tracker_core.test.js`: Node test harness for GPS lock gating,
   pace/speed smoothing, pause/resume behavior, HR samples, and finish summaries.
 - `test/strava.test.js`: Node test harness for Strava settings, TCX generation,
@@ -64,8 +64,8 @@ Core behavior:
   `emery` and can drive the app to choose/GPS/countdown/activity/paused screens.
 - `tools/pypkjs_gps_sim/sitecustomize.py`: Local `pypkjs` geolocation shim
   loaded only by the emulator harnesses via `PYTHONPATH`.
-- `tools/render_screenshots.js`: Generates platform-aware SVG/PNG design
-  screenshots into `screenshots/`.
+- `tools/render_screenshots.js`: Generates Emery SVG/PNG design screenshots
+  into `screenshots/`.
 
 ## Architecture Notes
 
@@ -186,14 +186,12 @@ npm run screenshots:emulator:all
 ```
 
 PNG rendering uses the custom software pixel renderer in
-`tools/render_screenshots.js`; it defaults to the `emery` native 200x228 screen
-buffer and writes a 2x nearest-neighbor PNG. No external renderer is required.
-Other supported render targets can be selected with `--platform`: `basalt` and
-`diorite` are 144x168, `chalk` is 180x180, and `emery` is 200x228.
+`tools/render_screenshots.js`; it uses the `emery` native 200x228 screen buffer
+and writes a 2x nearest-neighbor PNG. No external renderer is required.
 
 `npm run screenshots:emulator` uses `tools/screenshot_emulator.py`. It builds
-and installs the PBW in the selected emulator, defaults to `emery`, saves PNGs
-under `screenshots/emulator/`, and kills/restarts existing emulators unless
+and installs the PBW in the `emery` emulator, saves PNGs under
+`screenshots/emulator/`, and kills/restarts existing emulators unless
 `--reuse-emulator` is passed. Use `npm run screenshots:emulator:all` after UI
 changes to capture choose, GPS searching, GPS ready, countdown, activity,
 kilometre split, and paused states. All-screens mode starts from a fresh install

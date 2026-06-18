@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PBW = ROOT / 'build' / 'pebble-activity-tracker.pbw'
 SIM_PATH = ROOT / 'tools' / 'pypkjs_gps_sim'
+EMULATOR = 'emery'
 
 ACTIVITY_DOWN_CLICKS = {
     'running': 0,
@@ -26,9 +27,6 @@ def build_parser():
             'configured delay, then moves around a slightly jittered 1 km loop.'
         )
     )
-    parser.add_argument('--platform', default='emery',
-                        choices=['emery', 'basalt', 'chalk', 'diorite'],
-                        help='Pebble emulator platform to launch. Default: emery.')
     parser.add_argument('--activity', default='running',
                         choices=['running', 'walking', 'cycling'],
                         help='Activity selected with emulator button clicks before GPS request.')
@@ -97,14 +95,14 @@ def run(command, *, env=None, check=True, dry_run=False):
     return completed.returncode
 
 
-def click(platform, button, *, env, dry_run):
-    run(['pebble', 'emu-button', '--emulator', platform, 'click', button],
+def click(button, *, env, dry_run):
+    run(['pebble', 'emu-button', '--emulator', EMULATOR, 'click', button],
         env=env, dry_run=dry_run)
 
 
 def press_activity_buttons(args, env):
     for _ in range(ACTIVITY_DOWN_CLICKS[args.activity]):
-        click(args.platform, 'down', env=env, dry_run=args.dry_run)
+        click('down', env=env, dry_run=args.dry_run)
         if not args.dry_run:
             time.sleep(0.4)
 
@@ -116,7 +114,7 @@ def main(argv):
     base_env = os.environ.copy()
 
     print('Manual GPS harness')
-    print('  platform:          {}'.format(args.platform))
+    print('  platform:          {}'.format(EMULATOR))
     print('  activity:          {}'.format(args.activity))
     print('  GPS lock delay:    {:.1f}s after GPS request'.format(args.lock_delay_s))
     print('  loop distance:     {:.0f}m'.format(args.loop_distance_m))
@@ -135,14 +133,14 @@ def main(argv):
     if not PBW.exists() and not args.dry_run:
         raise SystemExit('PBW not found: {}'.format(PBW))
 
-    run(['pebble', 'install', '--emulator', args.platform, str(PBW)],
+    run(['pebble', 'install', '--emulator', EMULATOR, str(PBW)],
         env=sim_env, dry_run=args.dry_run)
 
     if not args.no_auto_request_gps:
         if not args.dry_run:
             time.sleep(max(0.0, args.select_delay_s))
         press_activity_buttons(args, sim_env)
-        click(args.platform, 'select', env=sim_env, dry_run=args.dry_run)
+        click('select', env=sim_env, dry_run=args.dry_run)
         print('Requested GPS from the watch. Simulated fixes begin after {:.1f}s.'.format(
             args.lock_delay_s
         ))
@@ -152,7 +150,7 @@ def main(argv):
         print('Waiting {:.1f}s, then pressing SELECT to start countdown.'.format(wait_s))
         if not args.dry_run:
             time.sleep(wait_s)
-        click(args.platform, 'select', env=sim_env, dry_run=args.dry_run)
+        click('select', env=sim_env, dry_run=args.dry_run)
 
     if args.no_logs:
         print('Setup complete. Emulator continues running until `pebble kill --force`.')
@@ -160,7 +158,7 @@ def main(argv):
 
     print('Streaming logs. Press Ctrl+C to stop logs; the emulator will keep running.')
     try:
-        run(['pebble', 'logs', '--emulator', args.platform],
+        run(['pebble', 'logs', '--emulator', EMULATOR],
             env=base_env, dry_run=args.dry_run)
     except KeyboardInterrupt:
         print()

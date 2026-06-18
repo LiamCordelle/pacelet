@@ -496,17 +496,12 @@ static int action_rail_x(GRect bounds) {
   return bounds.size.w - ACTION_RAIL_W;
 }
 
-static bool layout_is_tall(GRect bounds) {
-  return bounds.size.h >= 200;
-}
-
 static int rail_icon_y(GRect bounds, int index) {
   return (bounds.size.h * (index + 1)) / 4;
 }
 
-static int choose_row_y(GRect bounds, int index) {
-  return (layout_is_tall(bounds) ? 38 : 30) +
-         index * (layout_is_tall(bounds) ? 54 : 42);
+static int choose_row_y(int index) {
+  return 38 + index * 54;
 }
 
 static void send_simple_command(uint32_t command_key) {
@@ -901,7 +896,7 @@ static void draw_duration_band(GContext *ctx, GRect bounds, int y, int height,
   graphics_context_set_fill_color(ctx, bg);
   graphics_fill_rect(ctx, GRect(0, y, right, height), 0, GCornerNone);
 
-  if (paused && layout_is_tall(bounds)) {
+  if (paused) {
     graphics_context_set_text_color(ctx, ink);
     graphics_draw_text(ctx, "PAUSED", font_status(),
                        GRect(7, y + 2, right - 14, 18),
@@ -1188,10 +1183,9 @@ static void draw_activity_icon_for_type(GContext *ctx, ActivityType type,
 static void draw_choose_menu_item(GContext *ctx, GRect bounds,
                                   ActivityType type, int y) {
   bool selected = s_activity_type == type;
-  bool tall = layout_is_tall(bounds);
   int right = content_right(bounds);
-  int row_h = tall ? 48 : 38;
-  int icon_size = tall ? 34 : 28;
+  int row_h = 48;
+  int icon_size = 34;
   GRect row_bounds = GRect(0, y, right, row_h);
   GColor item_text = selected ? color_on_accent() : color_text();
   GColor item_icon = selected ? color_on_accent() : color_text();
@@ -1242,18 +1236,17 @@ static void draw_gps_icon(GContext *ctx, GPoint center) {
 static void draw_choose_screen(GContext *ctx, GRect bounds) {
   draw_top_bar(ctx, bounds);
 
-  draw_choose_menu_item(ctx, bounds, ActivityTypeWalking, choose_row_y(bounds, 0));
-  draw_choose_menu_item(ctx, bounds, ActivityTypeRunning, choose_row_y(bounds, 1));
-  draw_choose_menu_item(ctx, bounds, ActivityTypeCycling, choose_row_y(bounds, 2));
+  draw_choose_menu_item(ctx, bounds, ActivityTypeWalking, choose_row_y(0));
+  draw_choose_menu_item(ctx, bounds, ActivityTypeRunning, choose_row_y(1));
+  draw_choose_menu_item(ctx, bounds, ActivityTypeCycling, choose_row_y(2));
   draw_action_rail(ctx, bounds, ActionIconUp, ActionIconGps, ActionIconDown);
 }
 
 static void draw_gps_screen(GContext *ctx, GRect bounds) {
   int right = content_right(bounds);
-  bool tall = layout_is_tall(bounds);
-  int icon_y = tall ? 78 : 67;
-  int title_y = tall ? 114 : 98;
-  int accuracy_y = tall ? 145 : 126;
+  int icon_y = 78;
+  int title_y = 114;
+  int accuracy_y = 145;
   char accuracy_text[32];
   char detail_text[32];
 
@@ -1301,9 +1294,8 @@ static void draw_gps_screen(GContext *ctx, GRect bounds) {
 static void draw_countdown_screen(GContext *ctx, GRect bounds) {
   int right = content_right(bounds);
   int visible_count = (int)clamp_i32(s_countdown_value, 1, 3);
-  bool tall = layout_is_tall(bounds);
-  int band_y = tall ? 38 : 28;
-  int band_h = tall ? 120 : 106;
+  int band_y = 38;
+  int band_h = 120;
   int variant = gcolor_equal(color_on_accent(), GColorWhite) ? 1 : 0;
   GBitmap *number_icon = s_countdown_icons[visible_count - 1][variant];
 
@@ -1333,10 +1325,9 @@ static void draw_countdown_screen(GContext *ctx, GRect bounds) {
 
 static void draw_split_screen(GContext *ctx, GRect bounds) {
   int right = content_right(bounds);
-  bool tall = layout_is_tall(bounds);
-  int band_y = tall ? 27 : 22;
-  int band_h = tall ? 96 : 70;
-  int row_h = tall ? 44 : 30;
+  int band_y = 27;
+  int band_h = 96;
+  int row_h = 44;
   int movement_y = band_y + band_h + 1;
   int hr_y = movement_y + row_h;
   char title_text[20];
@@ -1384,10 +1375,9 @@ static void draw_split_screen(GContext *ctx, GRect bounds) {
 
 static void draw_activity_screen(GContext *ctx, GRect bounds) {
   int right = content_right(bounds);
-  bool tall = layout_is_tall(bounds);
-  int duration_y = tall ? 27 : 22;
-  int duration_h = tall ? 58 : 44;
-  int row_h = tall ? 39 : 30;
+  int duration_y = 27;
+  int duration_h = 58;
+  int row_h = 39;
   int distance_y = duration_y + duration_h + 1;
   int movement_y = distance_y + row_h;
   int hr_y = movement_y + row_h;
@@ -1438,12 +1428,10 @@ static void draw_activity_screen(GContext *ctx, GRect bounds) {
     snprintf(gps_text, sizeof(gps_text), "GPS --");
   }
 
-  if (tall) {
-    graphics_draw_text(ctx, gps_text, font_label(),
-                       GRect(8, bounds.size.h - 23, right - 8, 18),
-                       GTextOverflowModeTrailingEllipsis,
-                       GTextAlignmentCenter, NULL);
-  }
+  graphics_draw_text(ctx, gps_text, font_label(),
+                     GRect(8, bounds.size.h - 23, right - 8, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
 
   if (s_activity_state == ActivityStateFinished && s_summary_points > 0) {
     snprintf(summary_text, sizeof(summary_text), "%ld pts saved",
@@ -1465,12 +1453,11 @@ static void draw_activity_screen(GContext *ctx, GRect bounds) {
 static void draw_finish_confirm_screen(GContext *ctx, GRect bounds) {
   int right = content_right(bounds);
   int third = right / 3;
-  bool tall = layout_is_tall(bounds);
-  int stop_size = tall ? 34 : 28;
-  int stop_y = tall ? 47 : 37;
-  int title_y = tall ? 91 : 70;
-  int activity_y = tall ? 126 : 101;
-  int elapsed_y = tall ? 146 : 119;
+  int stop_size = 34;
+  int stop_y = 47;
+  int title_y = 91;
+  int activity_y = 126;
+  int elapsed_y = 146;
   char clock_text[8];
   char elapsed_text[16];
 
@@ -1511,9 +1498,8 @@ static void draw_finish_confirm_screen(GContext *ctx, GRect bounds) {
                      GTextAlignmentCenter, NULL);
 
   format_elapsed(elapsed_s(), elapsed_text, sizeof(elapsed_text));
-  graphics_draw_text(ctx, elapsed_text,
-                     tall ? font_timer() : font_value(),
-                     GRect(0, elapsed_y, right, tall ? 45 : 30),
+  graphics_draw_text(ctx, elapsed_text, font_timer(),
+                     GRect(0, elapsed_y, right, 45),
                      GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentCenter, NULL);
 
@@ -1524,10 +1510,9 @@ static void draw_finish_confirm_screen(GContext *ctx, GRect bounds) {
 
 static void draw_finished_screen(GContext *ctx, GRect bounds) {
   int right = content_right(bounds);
-  bool tall = layout_is_tall(bounds);
-  int band_y = tall ? 27 : 22;
-  int band_h = tall ? 84 : 61;
-  int row_h = tall ? 45 : 32;
+  int band_y = 27;
+  int band_h = 84;
+  int row_h = 45;
   int time_y = band_y + band_h + 1;
   int distance_y = time_y + row_h;
   int32_t distance_m = s_summary_distance_m > 0 ?
@@ -1546,22 +1531,20 @@ static void draw_finished_screen(GContext *ctx, GRect bounds) {
   graphics_context_set_stroke_width(ctx, 3);
   graphics_context_set_stroke_color(ctx, color_on_accent());
   graphics_draw_line(ctx,
-                     GPoint(tall ? 22 : 14, band_y + band_h / 2),
-                     GPoint(tall ? 34 : 24, band_y + band_h / 2 + 12));
+                     GPoint(22, band_y + band_h / 2),
+                     GPoint(34, band_y + band_h / 2 + 12));
   graphics_draw_line(ctx,
-                     GPoint(tall ? 34 : 24, band_y + band_h / 2 + 12),
-                     GPoint(tall ? 53 : 41, band_y + band_h / 2 - 12));
+                     GPoint(34, band_y + band_h / 2 + 12),
+                     GPoint(53, band_y + band_h / 2 - 12));
 
   graphics_context_set_text_color(ctx, color_on_accent());
-  graphics_draw_text(ctx, "SAVED", tall ? font_value() : font_menu(),
-                     GRect(tall ? 62 : 48, band_y + 11,
-                           right - (tall ? 68 : 54), 30),
+  graphics_draw_text(ctx, "SAVED", font_value(),
+                     GRect(62, band_y + 11, right - 68, 30),
                      GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentLeft, NULL);
   graphics_draw_text(ctx, ACTIVITY_LABELS[s_activity_type],
                      font_metric_label(),
-                     GRect(tall ? 62 : 48, band_y + band_h - 29,
-                           right - (tall ? 68 : 54), 20),
+                     GRect(62, band_y + band_h - 29, right - 68, 20),
                      GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentLeft, NULL);
 
@@ -1574,7 +1557,7 @@ static void draw_finished_screen(GContext *ctx, GRect bounds) {
   draw_metric_row(ctx, bounds, distance_y, row_h,
                   "DIST", distance_value, distance_unit);
 
-  if (tall && s_summary_points > 0) {
+  if (s_summary_points > 0) {
     snprintf(points_text, sizeof(points_text), "%ld GPS PTS",
              (long)s_summary_points);
     graphics_context_set_text_color(ctx, color_muted());

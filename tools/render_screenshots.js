@@ -5,22 +5,8 @@ var materialIcons = require('./material_icons');
 
 var ARGS = process.argv.slice(2);
 var OUT_DIR = path.join(__dirname, '..', 'screenshots');
-var PLATFORMS = {
-  basalt: { width: 144, height: 168 },
-  chalk: { width: 180, height: 180 },
-  diorite: { width: 144, height: 168 },
-  emery: { width: 200, height: 228 }
-};
-var DEFAULT_PLATFORM = 'emery';
-var PLATFORM_NAME = optionValue('--platform', DEFAULT_PLATFORM);
-
-if (!Object.prototype.hasOwnProperty.call(PLATFORMS, PLATFORM_NAME)) {
-  throw new Error('Unknown platform "' + PLATFORM_NAME + '". Expected one of: ' +
-                  Object.keys(PLATFORMS).join(', '));
-}
-
-var WIDTH = PLATFORMS[PLATFORM_NAME].width;
-var HEIGHT = PLATFORMS[PLATFORM_NAME].height;
+var WIDTH = 200;
+var HEIGHT = 228;
 var PNG_SCALE = 2;
 var ACTION_RAIL_W = 20;
 var RIGHT = WIDTH - ACTION_RAIL_W;
@@ -40,61 +26,44 @@ var THEME = {
   hrZone3: '#ff5500'
 };
 
-function optionValue(name, fallback) {
-  var prefix = name + '=';
-  for (var i = 0; i < ARGS.length; i += 1) {
-    if (ARGS[i] === name && i + 1 < ARGS.length) {
-      return ARGS[i + 1];
-    }
-    if (ARGS[i].indexOf(prefix) === 0) {
-      return ARGS[i].slice(prefix.length);
-    }
-  }
-  return fallback;
-}
-
-function isTall() {
-  return HEIGHT >= 200;
-}
-
 function railIconY(index) {
   return Math.round((HEIGHT * (index + 1)) / 4);
 }
 
 function chooseRowY(index) {
-  return (isTall() ? 38 : 30) + index * (isTall() ? 54 : 42);
+  return 38 + index * 54;
 }
 
 function gpsIconY() {
-  return isTall() ? 78 : 67;
+  return 78;
 }
 
 function gpsTitleY() {
-  return isTall() ? 114 : 98;
+  return 114;
 }
 
 function gpsAccuracyY() {
-  return isTall() ? 145 : 126;
+  return 145;
 }
 
 function countdownBandY() {
-  return isTall() ? 38 : 28;
+  return 38;
 }
 
 function countdownBandHeight() {
-  return isTall() ? 120 : 106;
+  return 120;
 }
 
 function durationBandY() {
-  return isTall() ? 27 : 22;
+  return 27;
 }
 
 function durationBandHeight() {
-  return isTall() ? 58 : 44;
+  return 58;
 }
 
 function metricRowHeight() {
-  return isTall() ? 39 : 30;
+  return 39;
 }
 
 function metricRowY(index) {
@@ -103,11 +72,11 @@ function metricRowY(index) {
 }
 
 function splitBandHeight() {
-  return isTall() ? 96 : 70;
+  return 96;
 }
 
 function splitRowHeight() {
-  return isTall() ? 44 : 30;
+  return 44;
 }
 
 var screens = [
@@ -706,9 +675,8 @@ function activityIcon(activity, cx, cy, size, color) {
 }
 
 function menuItem(activity, selected, y) {
-  var tall = isTall();
-  var rowH = tall ? 48 : 38;
-  var iconSize = tall ? 34 : 28;
+  var rowH = 48;
+  var iconSize = 34;
   var labelColor = selected ? THEME.onAccent : THEME.text;
   var iconColor = selected ? THEME.onAccent : THEME.text;
   var background = selected ?
@@ -761,7 +729,7 @@ function durationBand(elapsed, paused) {
   var height = durationBandHeight();
   var bg = paused ? THEME.pauseBg : THEME.accent;
   var ink = paused ? '#000000' : THEME.onAccent;
-  var pausedLabel = paused && isTall() ?
+  var pausedLabel = paused ?
     '<text x="7" y="' + (y + 14) +
       '" class="status" fill="' + ink + '">PAUSED</text>' : '';
 
@@ -990,14 +958,13 @@ function renderPaused(screen) {
 }
 
 function renderConfirm(screen) {
-  var tall = isTall();
   var third = Math.floor(RIGHT / 3);
   var centerX = Math.round(RIGHT / 2);
-  var stopSize = tall ? 34 : 28;
-  var stopY = tall ? 47 : 37;
-  var titleY = tall ? 91 : 70;
-  var activityY = tall ? 126 : 101;
-  var elapsedY = tall ? 146 : 119;
+  var stopSize = 34;
+  var stopY = 47;
+  var titleY = 91;
+  var activityY = 126;
+  var elapsedY = 146;
   return base([
     '<rect x="0" y="0" width="' + RIGHT + '" height="' + HEIGHT +
       '" fill="' + THEME.pauseBg + '"/>',
@@ -1015,23 +982,22 @@ function renderConfirm(screen) {
     '<text x="' + centerX + '" y="' + (activityY + 14) +
       '" class="status" fill="#000000" text-anchor="middle">' +
       esc(screen.activity) + '</text>',
-    '<text x="' + centerX + '" y="' + (elapsedY + (tall ? 34 : 23)) +
-      '" class="' + (tall ? 'timer' : 'value') +
-      '" fill="#000000" text-anchor="middle">' + esc(screen.elapsed) + '</text>',
+    '<text x="' + centerX + '" y="' + (elapsedY + 34) +
+      '" class="timer" fill="#000000" text-anchor="middle">' +
+      esc(screen.elapsed) + '</text>',
     actionRail('check', null, 'close', '#000000', '#ffffff')
   ].join('\n'));
 }
 
 function renderFinished(screen) {
-  var tall = isTall();
   var bandY = durationBandY();
-  var bandHeight = tall ? 84 : 61;
-  var rowHeight = tall ? 45 : 32;
+  var bandHeight = 84;
+  var rowHeight = 45;
   var timeY = bandY + bandHeight + 1;
   var distanceY = timeY + rowHeight;
-  var checkX1 = tall ? 22 : 14;
-  var checkX2 = tall ? 34 : 24;
-  var checkX3 = tall ? 53 : 41;
+  var checkX1 = 22;
+  var checkX2 = 34;
+  var checkX3 = 53;
   var checkY = bandY + Math.round(bandHeight / 2);
   return base([
     topBar(screen.activity, 'SAVED', THEME.accent),
@@ -1040,18 +1006,17 @@ function renderFinished(screen) {
     '<path d="M' + checkX1 + ' ' + checkY + ' L' + checkX2 + ' ' +
       (checkY + 12) + ' L' + checkX3 + ' ' + (checkY - 12) +
       '" fill="none" stroke="' + THEME.onAccent + '" stroke-width="3"/>',
-    '<text x="' + (tall ? 62 : 48) + '" y="' + (bandY + 32) +
-      '" class="' + (tall ? 'title' : 'menu') +
-      '" fill="' + THEME.onAccent + '">SAVED</text>',
-    '<text x="' + (tall ? 62 : 48) + '" y="' +
+    '<text x="62" y="' + (bandY + 32) +
+      '" class="title" fill="' + THEME.onAccent + '">SAVED</text>',
+    '<text x="62" y="' +
       (bandY + bandHeight - 12) +
       '" class="status" fill="' + THEME.onAccent + '">' +
       esc(screen.activity) + '</text>',
     metricRow(timeY, rowHeight, 'TIME', screen.elapsed),
     metricRow(distanceY, rowHeight, 'DIST', screen.distance),
-    tall ? '<text x="' + Math.round(RIGHT / 2) + '" y="' + (HEIGHT - 6) +
+    '<text x="' + Math.round(RIGHT / 2) + '" y="' + (HEIGHT - 6) +
       '" class="footer" text-anchor="middle">' + esc(screen.points) +
-      '</text>' : '',
+      '</text>',
     actionRail('play', null, 'type')
   ].join('\n'));
 }
@@ -1182,9 +1147,8 @@ function pixelTextFit(canvas, text, x, y, maxWidth, scale, color, align, bold) {
 }
 
 function pixelMenuItem(canvas, activity, selected, y) {
-  var tall = isTall();
-  var rowH = tall ? 48 : 38;
-  var iconSize = tall ? 34 : 28;
+  var rowH = 48;
+  var iconSize = 34;
   var labelColor = selected ? THEME.onAccent : THEME.text;
   var iconColor = selected ? THEME.onAccent : THEME.text;
 
@@ -1215,7 +1179,7 @@ function pixelDurationBand(canvas, elapsed, paused) {
   var bg = paused ? THEME.pauseBg : THEME.accent;
   var ink = paused ? '#000000' : THEME.onAccent;
   canvas.fillRect(0, y, RIGHT, height, bg);
-  if (paused && isTall()) {
+  if (paused) {
     canvas.text('PAUSED', 7, y + 3, 1, ink, 'left', true);
   }
   pixelTextFit(canvas, elapsed, Math.round(RIGHT / 2),
@@ -1344,10 +1308,8 @@ function renderPixel(screen) {
     pixelMetricRow(canvas, metricRowY(1), pausedRowHeight,
                    screen.metricLabel, screen.metricValue);
     pixelHrDisplay(canvas, metricRowY(2), pausedRowHeight, screen);
-    if (isTall()) {
-      canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
-                  false);
-    }
+    canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
+                false);
     pixelActionRail(canvas, 'play', 'stop', null);
   } else if (screen.kind === 'split') {
     var splitBandY = durationBandY();
@@ -1367,13 +1329,12 @@ function renderPixel(screen) {
     pixelHrDisplay(canvas, splitHrY, splitMetricH, screen);
     pixelActionRail(canvas, 'pause', null, null);
   } else if (screen.kind === 'confirm') {
-    var confirmTall = isTall();
     var confirmThird = Math.floor(RIGHT / 3);
-    var stopSize = confirmTall ? 34 : 28;
-    var stopY = confirmTall ? 47 : 37;
-    var titleY = confirmTall ? 91 : 70;
-    var activityY = confirmTall ? 126 : 101;
-    var elapsedY = confirmTall ? 146 : 119;
+    var stopSize = 34;
+    var stopY = 47;
+    var titleY = 91;
+    var activityY = 126;
+    var elapsedY = 146;
     canvas.fillRect(0, 0, RIGHT, HEIGHT, THEME.pauseBg);
     canvas.text(shortActivity(screen.activity), 8, 7, 1,
                 '#000000', 'left', true);
@@ -1387,20 +1348,19 @@ function renderPixel(screen) {
     canvas.text(screen.activity, centerX, activityY + 3, 1,
                 '#000000', 'center', true);
     pixelTextFit(canvas, screen.elapsed, centerX, elapsedY,
-                 RIGHT - 8, confirmTall ? 5 : 3,
+                 RIGHT - 8, 5,
                  '#000000', 'center', true);
     pixelActionRail(canvas, 'check', null, 'close',
                     '#000000', '#ffffff');
   } else if (screen.kind === 'finished') {
-    var finishedTall = isTall();
     var finishedBandY = durationBandY();
-    var finishedBandH = finishedTall ? 84 : 61;
-    var finishedRowH = finishedTall ? 45 : 32;
+    var finishedBandH = 84;
+    var finishedRowH = 45;
     var finishedTimeY = finishedBandY + finishedBandH + 1;
     var finishedDistanceY = finishedTimeY + finishedRowH;
-    var checkX1 = finishedTall ? 22 : 14;
-    var checkX2 = finishedTall ? 34 : 24;
-    var checkX3 = finishedTall ? 53 : 41;
+    var checkX1 = 22;
+    var checkX2 = 34;
+    var checkX3 = 53;
     var checkY = finishedBandY + Math.round(finishedBandH / 2);
     pixelTopBar(canvas, screen.activity, 'SAVED', THEME.accent);
     canvas.fillRect(0, finishedBandY, RIGHT, finishedBandH, THEME.accent);
@@ -1408,20 +1368,17 @@ function renderPixel(screen) {
                 THEME.onAccent, 3);
     canvas.line(checkX2, checkY + 12, checkX3, checkY - 12,
                 THEME.onAccent, 3);
-    canvas.text('SAVED', finishedTall ? 62 : 48,
-                finishedBandY + (finishedTall ? 10 : 14),
-                finishedTall ? 3 : 2, THEME.onAccent, 'left', true);
-    canvas.text(screen.activity, finishedTall ? 62 : 48,
+    canvas.text('SAVED', 62, finishedBandY + 10,
+                3, THEME.onAccent, 'left', true);
+    canvas.text(screen.activity, 62,
                 finishedBandY + finishedBandH - 19, 1,
                 THEME.onAccent, 'left', true);
     pixelMetricRow(canvas, finishedTimeY, finishedRowH,
                    'TIME', screen.elapsed);
     pixelMetricRow(canvas, finishedDistanceY, finishedRowH,
                    'DIST', screen.distance);
-    if (finishedTall) {
-      canvas.text(screen.points, centerX, HEIGHT - 14, 1,
-                  THEME.muted, 'center', false);
-    }
+    canvas.text(screen.points, centerX, HEIGHT - 14, 1,
+                THEME.muted, 'center', false);
     pixelActionRail(canvas, 'play', null, 'type');
   } else {
     var activeRowHeight = metricRowHeight();
@@ -1432,10 +1389,8 @@ function renderPixel(screen) {
     pixelMetricRow(canvas, metricRowY(1), activeRowHeight,
                    screen.metricLabel, screen.metricValue);
     pixelHrDisplay(canvas, metricRowY(2), activeRowHeight, screen);
-    if (isTall()) {
-      canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
-                  false);
-    }
+    canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
+                false);
     pixelActionRail(canvas, 'pause', null, null);
   }
 

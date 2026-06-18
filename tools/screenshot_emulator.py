@@ -12,7 +12,7 @@ PBW = ROOT / 'build' / 'pebble-activity-tracker.pbw'
 OUT_DIR = ROOT / 'screenshots' / 'emulator'
 SIM_PATH = ROOT / 'tools' / 'pypkjs_gps_sim'
 
-PLATFORMS = ['emery', 'basalt', 'chalk', 'diorite']
+EMULATOR = 'emery'
 SCREENS = ['choose', 'gps-search', 'gps-ready', 'countdown', 'activity',
            'split', 'paused', 'end-confirm', 'finished']
 ALL_SCREEN_SEQUENCE = ['choose', 'gps-search', 'gps-ready', 'countdown',
@@ -32,8 +32,6 @@ def build_parser():
             'more useful screens, and capture real emulator screenshots.'
         )
     )
-    parser.add_argument('--platform', default='emery', choices=PLATFORMS,
-                        help='Pebble emulator platform to capture. Default: emery.')
     parser.add_argument('--screen', default='choose', choices=SCREENS,
                         help='Screen to drive to before capture. Default: choose.')
     parser.add_argument('--all-screens', action='store_true',
@@ -81,12 +79,12 @@ def output_dir(args):
 def output_path(args):
     if args.output:
         return Path(args.output).expanduser()
-    return output_dir(args) / '{}-{}.png'.format(args.platform, args.screen)
+    return output_dir(args) / '{}-{}.png'.format(EMULATOR, args.screen)
 
 
 def all_output_path(args, screen, index):
     return output_dir(args) / '{}-{}-{:02d}-{}.png'.format(
-        args.platform,
+        EMULATOR,
         args.activity,
         index,
         screen
@@ -138,7 +136,7 @@ def run(command, *, env=None, check=True, dry_run=False, args=None):
 
 def click(args, button, env):
     command = [
-        'pebble', 'emu-button', '--emulator', args.platform, 'click', button
+        'pebble', 'emu-button', '--emulator', EMULATOR, 'click', button
     ]
     attempts = 3
     for attempt in range(attempts):
@@ -212,7 +210,7 @@ def drive_to_screen(args, env, lock_delay):
 
 
 def capture(args, base_env, output):
-    command = ['pebble', 'screenshot', '--emulator', args.platform, '--no-open',
+    command = ['pebble', 'screenshot', '--emulator', EMULATOR, '--no-open',
                str(output)]
     attempts = max(1, args.capture_retries + 1)
     code = 0
@@ -253,7 +251,7 @@ def capture_all_screens(args, sim_env, base_env, lock_delay):
             run(['pebble', 'kill', '--force'], env=base_env, check=False,
                 dry_run=args.dry_run)
             wait(0.75, args.dry_run)
-            run(['pebble', 'install', '--emulator', args.platform, str(PBW)],
+            run(['pebble', 'install', '--emulator', EMULATOR, str(PBW)],
                 env=screen_env, dry_run=args.dry_run, args=args)
             drive_to_screen(args, screen_env, lock_delay)
             captured.append(all_output_path(args, screen, index))
@@ -276,8 +274,7 @@ def main(argv):
     output = output_path(args)
 
     print('Emulator screenshot harness')
-    print('  platform:          {}'.format(args.platform))
-    print('  primary target:    emery')
+    print('  platform:          {}'.format(EMULATOR))
     print('  mode:              {}'.format('all screens' if args.all_screens else 'single screen'))
     print('  screen:            {}'.format(' -> '.join(ALL_SCREEN_SEQUENCE) if args.all_screens else args.screen))
     print('  activity:          {}'.format(args.activity))
@@ -311,7 +308,7 @@ def main(argv):
     if not PBW.exists() and not args.dry_run:
         raise SystemExit('PBW not found: {}'.format(PBW))
 
-    run(['pebble', 'install', '--emulator', args.platform, str(PBW)],
+    run(['pebble', 'install', '--emulator', EMULATOR, str(PBW)],
         env=sim_env, dry_run=args.dry_run, args=args)
 
     drive_to_screen(args, sim_env, lock_delay)
