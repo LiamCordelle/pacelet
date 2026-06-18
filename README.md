@@ -64,10 +64,13 @@ Choose Activity -> GPS lock status -> 3,2,1 countdown -> Activity started
   Strava credentials.
 - `resources/images/`: Generated monochrome Material Symbols icon resources
   used by the watch UI.
+- `store-assets/`: Pacelet's pixel-native app-store icon and SVG master.
 - `test/tracker_core.test.js`: Test harness for tracking behavior.
 - `test/strava.test.js`: Test harness for TCX/export/upload helpers.
 - `tools/generate_activity_icons.js`: Rebuilds the walking/running/cycling icon
   PNG resources without external dependencies.
+- `tools/generate_brand_assets.js`: Rebuilds the 25px Pebble menu icon and
+  144px/512px app-store artwork from one 16x16 pixel grid.
 - `tools/manual_emery_gps.py`: Manual emulator harness that runs the app in
   `emery` with simulated phone GPS.
 - `tools/screenshot_emulator.py`: Real emulator screenshot harness, defaulting
@@ -131,7 +134,7 @@ Pebble app settings on the phone and should never be shared.
 
 ## Screenshots
 
-Regenerate the activity icon PNG resources with:
+Regenerate the UI and brand icon PNG resources with:
 
 ```sh
 npm run icons

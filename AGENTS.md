@@ -52,12 +52,15 @@ Core behavior:
   configuration flow.
 - `resources/images/`: Generated black/white Material Symbols icon PNG
   resources used by the watch UI.
+- `store-assets/`: Pixel-native Pacelet app-store icon assets and SVG master.
 - `test/tracker_core.test.js`: Node test harness for GPS lock gating,
   pace/speed smoothing, pause/resume behavior, HR samples, and finish summaries.
 - `test/strava.test.js`: Node test harness for Strava settings, TCX generation,
   multipart upload body generation, and config page generation.
 - `tools/generate_activity_icons.js`: Dependency-free generator for the
   walking/running/cycling menu icon PNG resources.
+- `tools/generate_brand_assets.js`: Dependency-free generator for the 25px app
+  menu icon and app-store logo assets.
 - `tools/manual_emery_gps.py`: Manual `emery` emulator harness with delayed
   simulated phone GPS around a jittered 1 km loop.
 - `tools/screenshot_emulator.py`: Real emulator screenshot harness. Defaults to
@@ -155,7 +158,7 @@ Run deterministic tests and JS syntax checks:
 npm test
 ```
 
-Regenerate activity icon PNG resources:
+Regenerate UI and brand icon PNG resources:
 
 ```sh
 npm run icons
