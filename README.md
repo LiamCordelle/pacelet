@@ -39,10 +39,14 @@ display.
 
 ## Watch Controls
 
-- `SELECT`: advance the flow, pause, resume, or return to the activity picker.
-- `UP`: refresh GPS on the GPS or saved screens.
-- `DOWN`: cycle activity type on the choose/GPS screens.
-- Hold `DOWN`: finish and save an active or paused activity.
+- Choose: `UP` and `DOWN` change activity type; `SELECT` requests GPS.
+- GPS/Ready: `UP` refreshes GPS, `DOWN` changes activity type, and `SELECT`
+  starts the countdown once GPS is locked.
+- Active: `UP` pauses the activity.
+- Paused: `UP` resumes and `SELECT` opens the finish confirmation.
+- Finish confirmation: `UP` saves the activity and `DOWN` cancels.
+- Saved: `UP` starts another activity of the same type and `DOWN` returns to
+  the activity picker.
 
 Startup flow:
 
@@ -52,8 +56,16 @@ Choose Activity -> GPS lock status -> 3,2,1 countdown -> Activity started
 
 ## Project Layout
 
-- `src/c/main.c`: Pebble watch app UI, state machine, controls, HR reads, and
-  AppMessage communication.
+- `src/c/main.c`: Small watch entry point and Pebble service lifecycle.
+- `src/c/pacelet.h`: Shared watch state and enums.
+- `src/c/pacelet_model.c`: State initialization, elapsed-time helpers, activity
+  labels, and HR-zone rules.
+- `src/c/activity_controller.c`: Button actions, activity transitions, timers,
+  kilometre splits, and watch-side HR sampling.
+- `src/c/watch_services.c`: Persisted settings and AppMessage transport.
+- `src/c/watch_ui.c`: Emery renderer, theme, screen layouts, and bitmap assets.
+- `docs/watch-architecture.md`: Watch module boundaries, state flow, and a
+  guide to where changes belong.
 - `src/pkjs/index.js`: PebbleKit JS runtime integration, phone GPS, persistence,
   and watch-phone messages.
 - `src/pkjs/tracker_core.js`: Pure GPS/activity logic used by the phone runtime

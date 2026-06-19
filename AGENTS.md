@@ -39,8 +39,14 @@ Core behavior:
 - `package.json`: Pebble manifest, message keys, supported platforms, and npm
   scripts.
 - `wscript`: Pebble SDK build configuration.
-- `src/c/main.c`: Watch-side UI, button handling, activity state, HR reads, and
-  AppMessage communication.
+- `src/c/main.c`: Watch entry point, Pebble subscriptions, and window lifecycle.
+- `src/c/pacelet.h`: Shared watch model and synchronized activity/GPS enums.
+- `src/c/pacelet_model.c`: Model initialization and shared state helpers.
+- `src/c/activity_controller.c`: Activity transitions, button actions, timers,
+  kilometre splits, and watch-side HR sampling.
+- `src/c/watch_services.c`: AppMessage transport and persisted watch settings.
+- `src/c/watch_ui.c`: Emery screen rendering, themes, fonts, and bitmap assets.
+- `docs/watch-architecture.md`: Watch-side module boundaries and change guide.
 - `src/pkjs/index.js`: Phone-side PebbleKit JS integration, GPS watch/polling,
   localStorage persistence, and AppMessage handling.
 - `src/pkjs/tracker_core.js`: Pure tracking logic used by the phone app and
@@ -77,6 +83,11 @@ Keep watch-side and phone-side responsibilities separate:
 - Watch C should own UI state, button interactions, elapsed-time display, and
   heart-rate reads. The current watch state flow is `Choose -> GPS/Ready ->
   Countdown -> Active/Paused/Finished`.
+- Keep shared watch state in the single `PaceletModel` declared in
+  `src/c/pacelet.h`; avoid adding unrelated module-level state.
+- Keep lifecycle wiring in `main.c`, state transitions in
+  `activity_controller.c`, transport/persistence in `watch_services.c`, and
+  drawing in `watch_ui.c`.
 - Watch screens use a right-side action rail with small icons aligned to the
   hardware `UP`, `SELECT`, and `DOWN` buttons instead of footer button text.
   The rail should contrast with the theme: dark in light mode, light in dark
@@ -104,7 +115,7 @@ The numeric activity type sent from the watch to the phone is:
 - `1`: Running
 - `2`: Cycling
 
-Keep this mapping synchronized between `src/c/main.c` and
+Keep this mapping synchronized between `src/c/pacelet.h` and
 `src/pkjs/tracker_core.js`.
 
 ## GPS And Metrics
