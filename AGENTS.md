@@ -38,6 +38,8 @@ Core behavior:
 
 - `package.json`: Pebble manifest, message keys, supported platforms, and npm
   scripts.
+- `CHANGELOG.md`: User- and maintainer-facing history for every released
+  version.
 - `wscript`: Pebble SDK build configuration.
 - `src/c/main.c`: Watch entry point, Pebble subscriptions, and window lifecycle.
 - `src/c/pacelet.h`: Shared watch model and synchronized activity/GPS enums.
@@ -47,8 +49,13 @@ Core behavior:
 - `src/c/watch_services.c`: AppMessage transport and persisted watch settings.
 - `src/c/watch_ui.c`: Emery screen rendering, themes, fonts, and bitmap assets.
 - `docs/watch-architecture.md`: Watch-side module boundaries and change guide.
-- `src/pkjs/index.js`: Phone-side PebbleKit JS integration, GPS watch/polling,
-  localStorage persistence, and AppMessage handling.
+- `src/pkjs/index.js`: Phone-side PebbleKit JS entry point and event
+  coordination.
+- `src/pkjs/activity_store.js`: Settings and saved-activity localStorage
+  persistence.
+- `src/pkjs/gps_service.js`: Geolocation watch/polling and live watch updates.
+- `src/pkjs/strava_service.js`: Strava token exchange, upload, and polling
+  orchestration.
 - `src/pkjs/tracker_core.js`: Pure tracking logic used by the phone app and
   deterministic tests.
 - `src/pkjs/strava.js`: Strava settings normalization, token refresh request
@@ -56,6 +63,7 @@ Core behavior:
   status helpers.
 - `src/pkjs/config_page.js`: Embedded settings page opened by Pebble's
   configuration flow.
+- `docs/phone-architecture.md`: Phone-side module boundaries and change guide.
 - `resources/images/`: Generated black/white Material Symbols icon PNG
   resources used by the watch UI.
 - `store-assets/`: Pixel-native Pacelet app-store icon assets and SVG master.
@@ -63,6 +71,8 @@ Core behavior:
   pace/speed smoothing, pause/resume behavior, HR samples, and finish summaries.
 - `test/strava.test.js`: Node test harness for Strava settings, TCX generation,
   multipart upload body generation, and config page generation.
+- `test/runtime_services.test.js`: Node test harness for localStorage, GPS
+  lifecycle, and Strava network orchestration.
 - `tools/generate_activity_icons.js`: Dependency-free generator for the
   walking/running/cycling menu icon PNG resources.
 - `tools/generate_brand_assets.js`: Dependency-free generator for the 25px app
@@ -96,6 +106,10 @@ Keep watch-side and phone-side responsibilities separate:
   smoothed speed/pace calculations, persistence, and sync integrations.
 - Pure logic that can be tested without Pebble runtime should live in
   `src/pkjs/tracker_core.js`.
+- Keep Pebble event wiring and cross-service coordination in
+  `src/pkjs/index.js`; persistence belongs in `activity_store.js`, geolocation
+  lifecycle in `gps_service.js`, and Strava network workflows in
+  `strava_service.js`.
 
 AppMessage payloads are declared in `package.json` under `pebble.messageKeys`.
 Any new watch-phone message must be added there before use in C or JS.
@@ -227,6 +241,14 @@ The built PBW is written to `build/pebble-activity-tracker.pbw`.
 
 ## Development Guidance
 
+- Before committing a completed change set, bump the version in `package.json`
+  and add a dated entry to `CHANGELOG.md`. Use Semantic Versioning: patch for
+  fixes, refactors, tests, documentation, and other compatible improvements;
+  minor for backward-compatible features; major for incompatible changes.
+- Keep an `Unreleased` section at the top of `CHANGELOG.md`. When a change set
+  is completed, move its entries under the new version and current date. Do not
+  bump the version for ignored emulator captures or other uncommitted local
+  artifacts.
 - Prefer small, focused changes. Pebble apps are constrained and AppMessage
   payload size matters.
 - Keep C memory usage conservative; avoid large buffers or dynamic allocation

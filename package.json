@@ -2,14 +2,14 @@
   "name": "pacelet",
   "description": "Pebble smartwatch activity tracker with phone GPS, heart rate, and optional personal Strava upload using user-supplied credentials.",
   "author": "Liam Cordelle",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "keywords": [
     "pebble-app"
   ],
   "private": true,
   "license": "MIT",
   "scripts": {
-    "test": "node test/tracker_core.test.js && node test/strava.test.js && node --check src/pkjs/index.js && node --check src/pkjs/tracker_core.js && node --check src/pkjs/strava.js && node --check src/pkjs/config_page.js && node --check tools/material_icons.js && node --check tools/generate_activity_icons.js && node --check tools/generate_brand_assets.js && node --check tools/generate_countdown_images.js && node --check tools/render_screenshots.js && python3 -B -c \"import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in ('tools/manual_emery_gps.py','tools/screenshot_emulator.py','tools/pypkjs_gps_sim/sitecustomize.py')]\"",
+    "test": "node test/tracker_core.test.js && node test/strava.test.js && node test/runtime_services.test.js && node --check src/pkjs/index.js && node --check src/pkjs/tracker_core.js && node --check src/pkjs/strava.js && node --check src/pkjs/config_page.js && node --check src/pkjs/activity_store.js && node --check src/pkjs/gps_service.js && node --check src/pkjs/strava_service.js && node --check tools/material_icons.js && node --check tools/generate_activity_icons.js && node --check tools/generate_brand_assets.js && node --check tools/generate_countdown_images.js && node --check tools/render_screenshots.js && python3 -B -c \"import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(), filename=p) for p in ('tools/manual_emery_gps.py','tools/screenshot_emulator.py','tools/pypkjs_gps_sim/sitecustomize.py')]\"",
     "manual:emery:gps": "python3 tools/manual_emery_gps.py",
     "icons": "node tools/generate_activity_icons.js && node tools/generate_brand_assets.js && node tools/generate_countdown_images.js",
     "screenshots": "node tools/render_screenshots.js",

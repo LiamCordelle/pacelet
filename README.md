@@ -56,6 +56,7 @@ Choose Activity -> GPS lock status -> 3,2,1 countdown -> Activity started
 
 ## Project Layout
 
+- `CHANGELOG.md`: Versioned history following Keep a Changelog and SemVer.
 - `src/c/main.c`: Small watch entry point and Pebble service lifecycle.
 - `src/c/pacelet.h`: Shared watch state and enums.
 - `src/c/pacelet_model.c`: State initialization, elapsed-time helpers, activity
@@ -66,19 +67,26 @@ Choose Activity -> GPS lock status -> 3,2,1 countdown -> Activity started
 - `src/c/watch_ui.c`: Emery renderer, theme, screen layouts, and bitmap assets.
 - `docs/watch-architecture.md`: Watch module boundaries, state flow, and a
   guide to where changes belong.
-- `src/pkjs/index.js`: PebbleKit JS runtime integration, phone GPS, persistence,
-  and watch-phone messages.
+- `src/pkjs/index.js`: PebbleKit JS entry point and event coordination.
+- `src/pkjs/activity_store.js`: Settings and saved-activity persistence.
+- `src/pkjs/gps_service.js`: Phone geolocation watch, polling, and live watch
+  updates.
+- `src/pkjs/strava_service.js`: Strava token exchange, upload, and polling
+  orchestration.
 - `src/pkjs/tracker_core.js`: Pure GPS/activity logic used by the phone runtime
   and tests.
-- `src/pkjs/strava.js`: Personal Strava token refresh, TCX generation, multipart
-  upload request building, and upload status helpers.
+- `src/pkjs/strava.js`: Pure Strava settings, OAuth request, TCX, multipart,
+  and upload-status helpers.
 - `src/pkjs/config_page.js`: Embedded Pebble configuration page for personal
   Strava credentials.
+- `docs/phone-architecture.md`: Phone-side module boundaries and change guide.
 - `resources/images/`: Generated monochrome Material Symbols icon resources
   used by the watch UI.
 - `store-assets/`: Pacelet's pixel-native app-store icon and SVG master.
 - `test/tracker_core.test.js`: Test harness for tracking behavior.
 - `test/strava.test.js`: Test harness for TCX/export/upload helpers.
+- `test/runtime_services.test.js`: Test harness for persistence, GPS lifecycle,
+  and Strava network orchestration.
 - `tools/generate_activity_icons.js`: Rebuilds the walking/running/cycling icon
   PNG resources without external dependencies.
 - `tools/generate_brand_assets.js`: Rebuilds the 25px Pebble menu icon and
