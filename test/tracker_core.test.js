@@ -105,6 +105,55 @@ run('cycling speed clamps to zero after a near-stationary GPS leg', function() {
   assert.strictEqual(metrics.currentSpeedCentiMps, 0);
 });
 
+run('walking GPS spikes above plausible speed are ignored', function() {
+  var clock = 0;
+  var tracker = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });
+
+  tracker.startActivity(START, 0);
+  clock = 1000;
+  assert.strictEqual(
+    tracker.recordPosition(pointAtMetersEast(START, 20, clock, 8)),
+    false
+  );
+
+  var activity = tracker.getActiveActivity();
+  assert.strictEqual(activity.points.length, 1);
+  assert.strictEqual(tracker.getMetrics().distanceM, 0);
+
+  clock = 6000;
+  assert.strictEqual(
+    tracker.recordPosition(pointAtMetersEast(START, 9, clock, 8)),
+    true
+  );
+  assertWithin(tracker.getMetrics().distanceM, 9, 1, 'walking distance');
+});
+
+run('stale GPS timestamps are ignored', function() {
+  var clock = 0;
+  var tracker = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });
+
+  tracker.startActivity(START, 1);
+  assert.strictEqual(
+    tracker.recordPosition(pointAtMetersEast(START, 10, 0, 8)),
+    false
+  );
+  assert.strictEqual(tracker.getActiveActivity().points.length, 1);
+});
+
+run('cycling keeps plausible short interval movement', function() {
+  var clock = 0;
+  var tracker = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });
+
+  tracker.startActivity(START, 2);
+  clock = 1000;
+  assert.strictEqual(
+    tracker.recordPosition(pointAtMetersEast(START, 12, clock, 8)),
+    true
+  );
+
+  assertWithin(tracker.getMetrics().distanceM, 12, 1, 'cycling distance');
+});
+
 run('pause and resume do not add GPS jump distance', function() {
   var clock = 0;
   var tracker = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });

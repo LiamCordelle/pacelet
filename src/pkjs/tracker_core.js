@@ -2,6 +2,9 @@ var LOCK_ACCURACY_M = 25;
 var TRACK_ACCURACY_M = 60;
 var MIN_POINT_INTERVAL_MS = 5000;
 var MIN_POINT_DISTANCE_M = 5;
+var MAX_WALKING_SPEED_MPS = 3.5;
+var MAX_RUNNING_SPEED_MPS = 8;
+var MAX_CYCLING_SPEED_MPS = 25;
 var SPEED_WINDOW_MS = 10000;
 var SPEED_EMA_ALPHA = 0.35;
 var SPEED_DECEL_EMA_ALPHA = 0.75;
@@ -44,6 +47,16 @@ function canStartFromPosition(position) {
   return !!position && position.accuracy <= LOCK_ACCURACY_M;
 }
 
+function maxReasonableSpeedMpsForActivity(activity) {
+  if (activity.type === 'cycling') {
+    return MAX_CYCLING_SPEED_MPS;
+  }
+  if (activity.type === 'walking') {
+    return MAX_WALKING_SPEED_MPS;
+  }
+  return MAX_RUNNING_SPEED_MPS;
+}
+
 function normalizePoint(point, nowFn) {
   return {
     lat: point.lat,
@@ -72,7 +85,16 @@ function shouldAcceptPoint(activity, point) {
   }
 
   var dt = point.timestamp - activity.lastPoint.t;
+  if (dt <= 0) {
+    return false;
+  }
+
   var distance = haversineMeters(activity.lastPoint, point);
+  var speedMps = distance / (dt / 1000);
+  if (speedMps > maxReasonableSpeedMpsForActivity(activity)) {
+    return false;
+  }
+
   return dt >= MIN_POINT_INTERVAL_MS || distance >= MIN_POINT_DISTANCE_M;
 }
 
@@ -413,6 +435,9 @@ module.exports = {
     TRACK_ACCURACY_M: TRACK_ACCURACY_M,
     MIN_POINT_INTERVAL_MS: MIN_POINT_INTERVAL_MS,
     MIN_POINT_DISTANCE_M: MIN_POINT_DISTANCE_M,
+    MAX_WALKING_SPEED_MPS: MAX_WALKING_SPEED_MPS,
+    MAX_RUNNING_SPEED_MPS: MAX_RUNNING_SPEED_MPS,
+    MAX_CYCLING_SPEED_MPS: MAX_CYCLING_SPEED_MPS,
     SPEED_WINDOW_MS: SPEED_WINDOW_MS,
     DEFAULT_HR_ZONE_THRESHOLDS: DEFAULT_HR_ZONE_THRESHOLDS,
     ACTIVITY_TYPES: ACTIVITY_TYPES
