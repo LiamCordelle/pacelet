@@ -279,6 +279,9 @@ Pebble.addEventListener('webviewclosed', function(event) {
 
   try {
     payload = ConfigPage.parseResponse(event.response);
+    if (!payload) {
+      return;
+    }
     handleConfigPayload(payload);
   } catch (err) {
     log('Config parse failed: ' + err);

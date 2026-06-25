@@ -7,6 +7,13 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-06-25
+
+### Fixed
+
+- Accepted full Pebble settings close URLs for TCX export and Strava retry
+  actions.
+
 ## [0.2.1] - 2026-06-19
 
 ### Added

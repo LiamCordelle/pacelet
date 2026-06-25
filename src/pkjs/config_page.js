@@ -300,7 +300,13 @@ function buildExportUrl(activity, tcx) {
 
 function parseResponse(response) {
   var value = String(response || '');
-  if (value.charAt(0) === '#') {
+  var closePrefix = 'pebblejs://close';
+  var hashIndex;
+
+  if (value.indexOf(closePrefix) === 0) {
+    hashIndex = value.indexOf('#');
+    value = hashIndex === -1 ? '' : value.slice(hashIndex + 1);
+  } else if (value.charAt(0) === '#') {
     value = value.slice(1);
   }
   try {
@@ -310,6 +316,9 @@ function parseResponse(response) {
   }
   if (value.charAt(0) === '#') {
     value = value.slice(1);
+  }
+  if (!value) {
+    return null;
   }
   return JSON.parse(value);
 }

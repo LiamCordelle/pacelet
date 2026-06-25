@@ -228,7 +228,12 @@ run('config close responses preserve activity actions', function() {
 
   assert.deepStrictEqual(ConfigPage.parseResponse(encoded), payload);
   assert.deepStrictEqual(ConfigPage.parseResponse('#' + encoded), payload);
+  assert.deepStrictEqual(
+    ConfigPage.parseResponse('pebblejs://close#' + encoded),
+    payload
+  );
   assert.deepStrictEqual(ConfigPage.parseResponse(JSON.stringify(payload)), payload);
+  assert.strictEqual(ConfigPage.parseResponse('pebblejs://close'), null);
 });
 
 run('TCX export opens a readable page with copy and file actions', function() {
