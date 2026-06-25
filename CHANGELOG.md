@@ -7,6 +7,19 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-25
+
+### Changed
+
+- Show activity step count on the walking screen instead of pace.
+- Use app-store-friendly `emery_` prefixes for default emulator screenshot
+  filenames.
+
+### Fixed
+
+- Filter implausible GPS spikes and non-forward timestamps before adding
+  distance, reducing over-counted walking tracks when phone GPS jitters.
+
 ## [0.2.2] - 2026-06-25
 
 ### Fixed
