@@ -34,6 +34,7 @@ void pacelet_model_reset_activity(bool preserve_hr) {
   g_pacelet.started_at = 0;
   g_pacelet.paused_at = 0;
   g_pacelet.total_paused_s = 0;
+  g_pacelet.total_paused_steps = 0;
   g_pacelet.finished_elapsed_s = 0;
   g_pacelet.last_hr_sent_elapsed_s = -1;
   if (!preserve_hr) {
@@ -44,6 +45,8 @@ void pacelet_model_reset_activity(bool preserve_hr) {
   g_pacelet.distance_m = 0;
   g_pacelet.current_pace_s_per_km = 0;
   g_pacelet.current_speed_centi_mps = 0;
+  g_pacelet.current_steps = 0;
+  g_pacelet.current_steps_available = false;
   g_pacelet.summary_distance_m = 0;
   g_pacelet.summary_moving_s = 0;
   g_pacelet.summary_points = 0;

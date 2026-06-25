@@ -49,11 +49,14 @@ typedef struct {
   time_t started_at;
   time_t paused_at;
   int32_t total_paused_s;
+  int32_t total_paused_steps;
   int32_t finished_elapsed_s;
 
   int32_t distance_m;
   int32_t current_pace_s_per_km;
   int32_t current_speed_centi_mps;
+  int32_t current_steps;
+  bool current_steps_available;
   int32_t gps_accuracy_m;
 
   int32_t last_hr_bpm;

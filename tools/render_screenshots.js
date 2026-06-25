@@ -115,8 +115,8 @@ var screens = [
     activity: 'WALKING',
     elapsed: '18:42',
     distance: '1.32 km',
-    metricLabel: 'PACE',
-    metricValue: '11:06/km',
+    metricLabel: 'STEPS',
+    metricValue: '2210',
     hrBpm: 112,
     hrZone: 1,
     gps: 'GPS 12 M'

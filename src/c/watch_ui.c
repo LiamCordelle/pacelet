@@ -831,6 +831,7 @@ static void draw_activity_screen(GContext *ctx, GRect bounds) {
   char distance_unit[8];
   char movement_value[16];
   char movement_unit[8];
+  const char *movement_label;
   char gps_text[32];
   bool paused = g_pacelet.activity_state == ActivityStatePaused;
 
@@ -845,12 +846,23 @@ static void draw_activity_screen(GContext *ctx, GRect bounds) {
       g_pacelet.distance_m,
       distance_value, sizeof(distance_value),
       distance_unit, sizeof(distance_unit));
-  if (pacelet_activity_uses_speed()) {
+  if (g_pacelet.activity_type == ActivityTypeWalking) {
+    movement_label = "STEPS";
+    if (g_pacelet.current_steps_available) {
+      snprintf(movement_value, sizeof(movement_value), "%ld",
+               (long)g_pacelet.current_steps);
+    } else {
+      snprintf(movement_value, sizeof(movement_value), "%s", "--");
+    }
+    movement_unit[0] = '\0';
+  } else if (pacelet_activity_uses_speed()) {
+    movement_label = "SPEED";
     format_speed_parts(
         g_pacelet.current_speed_centi_mps,
         movement_value, sizeof(movement_value),
         movement_unit, sizeof(movement_unit));
   } else {
+    movement_label = "PACE";
     format_pace_parts(
         g_pacelet.current_pace_s_per_km,
         movement_value, sizeof(movement_value),
@@ -862,8 +874,7 @@ static void draw_activity_screen(GContext *ctx, GRect bounds) {
       "DIST", distance_value, distance_unit);
   draw_metric_row(
       ctx, bounds, movement_y, row_h,
-      pacelet_activity_uses_speed() ? "SPEED" : "PACE",
-      movement_value, movement_unit);
+      movement_label, movement_value, movement_unit);
   draw_hr_row(
       ctx, bounds, hr_y, row_h, g_pacelet.last_hr_bpm);
 

@@ -16,6 +16,47 @@ static bool s_hr_sample_period_requested;
 
 static void update_hr(bool fresh_event);
 
+static int32_t step_count_between(time_t start, time_t end) {
+  if (start <= 0 || end <= start) {
+    return 0;
+  }
+
+#if defined(PBL_HEALTH)
+  HealthServiceAccessibilityMask steps_access =
+      health_service_metric_accessible(
+          HealthMetricStepCount, start, end);
+  if (!(steps_access & HealthServiceAccessibilityMaskAvailable)) {
+    return -1;
+  }
+
+  HealthValue steps =
+      health_service_sum(HealthMetricStepCount, start, end);
+  return steps > 0 ? (int32_t)steps : 0;
+#else
+  return -1;
+#endif
+}
+
+static void update_steps(void) {
+  if (g_pacelet.activity_state != ActivityStateActive &&
+      g_pacelet.activity_state != ActivityStatePaused) {
+    g_pacelet.current_steps_available = false;
+    return;
+  }
+
+  time_t end = g_pacelet.activity_state == ActivityStatePaused ?
+      g_pacelet.paused_at : time(NULL);
+  int32_t steps = step_count_between(g_pacelet.started_at, end);
+  if (steps < 0) {
+    g_pacelet.current_steps_available = false;
+    return;
+  }
+
+  steps -= g_pacelet.total_paused_steps;
+  g_pacelet.current_steps = steps > 0 ? steps : 0;
+  g_pacelet.current_steps_available = true;
+}
+
 static void set_activity_hr_sampling(bool enabled) {
 #if defined(PBL_HEALTH)
   if (enabled) {
@@ -156,6 +197,7 @@ static void start_activity_recording(void) {
   g_pacelet.activity_state = ActivityStateActive;
   set_activity_hr_sampling(true);
   update_hr(false);
+  update_steps();
   watch_services_send_command(MESSAGE_KEY_START_ACTIVITY);
   watch_ui_mark_dirty();
 }
@@ -205,6 +247,7 @@ static void pause_activity(void) {
   g_pacelet.finish_confirm_visible = false;
   g_pacelet.paused_at = time(NULL);
   g_pacelet.activity_state = ActivityStatePaused;
+  update_steps();
   watch_services_send_command(MESSAGE_KEY_PAUSE_ACTIVITY);
   vibes_short_pulse();
   watch_ui_mark_dirty();
@@ -216,12 +259,19 @@ static void resume_activity(void) {
     return;
   }
 
+  time_t now = time(NULL);
+  int32_t paused_steps = step_count_between(
+      g_pacelet.paused_at, now);
+  if (paused_steps > 0) {
+    g_pacelet.total_paused_steps += paused_steps;
+  }
   g_pacelet.total_paused_s +=
-      (int32_t)(time(NULL) - g_pacelet.paused_at);
+      (int32_t)(now - g_pacelet.paused_at);
   g_pacelet.paused_at = 0;
   g_pacelet.activity_state = ActivityStateActive;
   set_activity_hr_sampling(true);
   update_hr(false);
+  update_steps();
   watch_services_send_command(MESSAGE_KEY_RESUME_ACTIVITY);
   vibes_short_pulse();
   watch_ui_mark_dirty();
@@ -386,6 +436,7 @@ void activity_controller_handle_down(void) {
 void activity_controller_handle_tick(void) {
   g_pacelet.anim_tick++;
   update_hr(false);
+  update_steps();
   expire_stale_hr();
   maybe_send_hr_clear();
   maybe_send_periodic_hr();
@@ -397,6 +448,9 @@ void activity_controller_handle_health_event(HealthEventType event) {
     update_hr(true);
     maybe_send_hr_clear();
     send_hr_sample();
+  } else if (event == HealthEventMovementUpdate ||
+             event == HealthEventSignificantUpdate) {
+    update_steps();
   }
   watch_ui_mark_dirty();
 }

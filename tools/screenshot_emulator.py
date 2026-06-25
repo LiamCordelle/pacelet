@@ -79,11 +79,11 @@ def output_dir(args):
 def output_path(args):
     if args.output:
         return Path(args.output).expanduser()
-    return output_dir(args) / '{}-{}.png'.format(EMULATOR, args.screen)
+    return output_dir(args) / '{}_{}.png'.format(EMULATOR, args.screen)
 
 
 def all_output_path(args, screen, index):
-    return output_dir(args) / '{}-{}-{:02d}-{}.png'.format(
+    return output_dir(args) / '{}_{}_{:02d}_{}.png'.format(
         EMULATOR,
         args.activity,
         index,
