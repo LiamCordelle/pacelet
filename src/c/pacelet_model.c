@@ -34,6 +34,8 @@ void pacelet_model_reset_activity(bool preserve_hr) {
   g_pacelet.started_at = 0;
   g_pacelet.paused_at = 0;
   g_pacelet.total_paused_s = 0;
+  g_pacelet.activity_start_steps_today = -1;
+  g_pacelet.pause_start_steps_today = -1;
   g_pacelet.total_paused_steps = 0;
   g_pacelet.finished_elapsed_s = 0;
   g_pacelet.last_hr_sent_elapsed_s = -1;

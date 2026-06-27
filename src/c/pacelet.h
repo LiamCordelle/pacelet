@@ -49,6 +49,8 @@ typedef struct {
   time_t started_at;
   time_t paused_at;
   int32_t total_paused_s;
+  int32_t activity_start_steps_today;
+  int32_t pause_start_steps_today;
   int32_t total_paused_steps;
   int32_t finished_elapsed_s;
 

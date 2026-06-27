@@ -16,24 +16,37 @@ static bool s_hr_sample_period_requested;
 
 static void update_hr(bool fresh_event);
 
-static int32_t step_count_between(time_t start, time_t end) {
-  if (start <= 0 || end <= start) {
-    return 0;
+static bool read_today_steps(int32_t *steps_out) {
+#if defined(PBL_HEALTH)
+  time_t now = time(NULL);
+  struct tm *local_now = localtime(&now);
+  if (!local_now) {
+    return false;
   }
 
-#if defined(PBL_HEALTH)
+  struct tm day_start = *local_now;
+  day_start.tm_hour = 0;
+  day_start.tm_min = 0;
+  day_start.tm_sec = 0;
+  time_t day_start_time = mktime(&day_start);
+  if (day_start_time == (time_t)-1) {
+    return false;
+  }
+
   HealthServiceAccessibilityMask steps_access =
       health_service_metric_accessible(
-          HealthMetricStepCount, start, end);
-  if (!(steps_access & HealthServiceAccessibilityMaskAvailable)) {
-    return -1;
+          HealthMetricStepCount, day_start_time, now);
+  if (steps_access & (HealthServiceAccessibilityMaskNoPermission |
+                      HealthServiceAccessibilityMaskNotSupported)) {
+    return false;
   }
 
-  HealthValue steps =
-      health_service_sum(HealthMetricStepCount, start, end);
-  return steps > 0 ? (int32_t)steps : 0;
+  HealthValue steps = health_service_sum_today(HealthMetricStepCount);
+  *steps_out = steps > 0 ? (int32_t)steps : 0;
+  return true;
 #else
-  return -1;
+  (void)steps_out;
+  return false;
 #endif
 }
 
@@ -44,15 +57,25 @@ static void update_steps(void) {
     return;
   }
 
-  time_t end = g_pacelet.activity_state == ActivityStatePaused ?
-      g_pacelet.paused_at : time(NULL);
-  int32_t steps = step_count_between(g_pacelet.started_at, end);
-  if (steps < 0) {
+  if (g_pacelet.activity_state == ActivityStatePaused) {
+    return;
+  }
+
+  int32_t today_steps = 0;
+  if (!read_today_steps(&today_steps)) {
     g_pacelet.current_steps_available = false;
     return;
   }
 
-  steps -= g_pacelet.total_paused_steps;
+  if (g_pacelet.activity_start_steps_today < 0) {
+    g_pacelet.activity_start_steps_today = today_steps;
+  } else if (today_steps < g_pacelet.activity_start_steps_today) {
+    g_pacelet.activity_start_steps_today = today_steps;
+    g_pacelet.total_paused_steps = 0;
+  }
+
+  int32_t steps = today_steps - g_pacelet.activity_start_steps_today -
+      g_pacelet.total_paused_steps;
   g_pacelet.current_steps = steps > 0 ? steps : 0;
   g_pacelet.current_steps_available = true;
 }
@@ -245,9 +268,15 @@ static void pause_activity(void) {
 
   hide_split_summary();
   g_pacelet.finish_confirm_visible = false;
+  update_steps();
+  int32_t today_steps = 0;
+  if (read_today_steps(&today_steps)) {
+    g_pacelet.pause_start_steps_today = today_steps;
+  } else {
+    g_pacelet.pause_start_steps_today = -1;
+  }
   g_pacelet.paused_at = time(NULL);
   g_pacelet.activity_state = ActivityStatePaused;
-  update_steps();
   watch_services_send_command(MESSAGE_KEY_PAUSE_ACTIVITY);
   vibes_short_pulse();
   watch_ui_mark_dirty();
@@ -260,14 +289,18 @@ static void resume_activity(void) {
   }
 
   time_t now = time(NULL);
-  int32_t paused_steps = step_count_between(
-      g_pacelet.paused_at, now);
-  if (paused_steps > 0) {
-    g_pacelet.total_paused_steps += paused_steps;
+  int32_t today_steps = 0;
+  if (g_pacelet.pause_start_steps_today >= 0 &&
+      read_today_steps(&today_steps)) {
+    int32_t paused_steps = today_steps - g_pacelet.pause_start_steps_today;
+    if (paused_steps > 0) {
+      g_pacelet.total_paused_steps += paused_steps;
+    }
   }
   g_pacelet.total_paused_s +=
       (int32_t)(now - g_pacelet.paused_at);
   g_pacelet.paused_at = 0;
+  g_pacelet.pause_start_steps_today = -1;
   g_pacelet.activity_state = ActivityStateActive;
   set_activity_hr_sampling(true);
   update_hr(false);

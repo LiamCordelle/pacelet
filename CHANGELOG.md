@@ -7,6 +7,13 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-27
+
+### Fixed
+
+- Count walking activity steps from Pebble Health's live daily total instead of
+  a weighted time-range estimate, fixing severe under-counting on short walks.
+
 ## [0.3.0] - 2026-06-25
 
 ### Changed
