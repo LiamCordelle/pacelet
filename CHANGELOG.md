@@ -7,6 +7,13 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-04
+
+### Fixed
+
+- Made TCX export handoffs much smaller and more reliable by opening a compact
+  export page that generates the TCX file after it loads.
+
 ## [0.3.1] - 2026-06-27
 
 ### Fixed

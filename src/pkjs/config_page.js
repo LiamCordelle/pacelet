@@ -72,6 +72,72 @@ function formatHrSummary(activity) {
   return parts.join(' · ');
 }
 
+function numericValue(value, fallback) {
+  return typeof value === 'number' && isFinite(value) ? value : fallback;
+}
+
+function compactExportPoint(point) {
+  point = point || {};
+  return [
+    numericValue(point.t, numericValue(point.timestamp, 0)),
+    numericValue(point.lat, null),
+    numericValue(point.lon, null),
+    numericValue(point.alt, numericValue(point.altitude, null)),
+    numericValue(point.hr, null),
+    numericValue(point.distanceM, null)
+  ];
+}
+
+function compactExportPayload(activity) {
+  var points = activity && activity.points || [];
+  var payloadPoints = [];
+  var i;
+  var type = activity && activity.type;
+  var startedAt;
+
+  if (type !== 'walking' && type !== 'cycling') {
+    type = 'running';
+  }
+  for (i = 0; i < points.length; i += 1) {
+    payloadPoints.push(compactExportPoint(points[i]));
+  }
+  startedAt = numericValue(
+    activity && activity.startedAt,
+    payloadPoints.length ? payloadPoints[0][0] : 0
+  );
+  return {
+    t: type,
+    s: startedAt,
+    m: numericValue(activity && activity.movingTimeS, 0),
+    d: numericValue(
+      activity && activity.distanceM,
+      numericValue(activity && activity.summaryDistanceM, 0)
+    ),
+    p: payloadPoints
+  };
+}
+
+function encodeBase64Ascii(value) {
+  var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  var output = '';
+  var i;
+  var a;
+  var b;
+  var c;
+
+  for (i = 0; i < value.length; i += 3) {
+    a = value.charCodeAt(i) & 255;
+    b = i + 1 < value.length ? value.charCodeAt(i + 1) & 255 : NaN;
+    c = i + 2 < value.length ? value.charCodeAt(i + 2) & 255 : NaN;
+    output += chars.charAt(a >> 2);
+    output += chars.charAt(((a & 3) << 4) | (isNaN(b) ? 0 : (b >> 4)));
+    output += isNaN(b) ? '=' :
+      chars.charAt(((b & 15) << 2) | (isNaN(c) ? 0 : (c >> 6)));
+    output += isNaN(c) ? '=' : chars.charAt(c & 63);
+  }
+  return output;
+}
+
 function renderActivities(activities) {
   var output = [];
   var i;
@@ -92,10 +158,10 @@ function renderActivities(activities) {
     }
     output.push('<p>Strava: ' + escapeHtml(activityStatus(activities[i])) + '</p>');
     output.push('<div class="actions">');
-    output.push('<button type="button" data-action="export_tcx" data-id="' +
-        escapeHtml(activities[i].id) + '">Export TCX</button>');
+    output.push('<button type="button" data-action="export_tcx" data-working="Opening..." data-id="' +
+        escapeHtml(activities[i].id) + '">Open TCX Export</button>');
     output.push('<button type="button" data-action="retry_strava" data-id="' +
-        escapeHtml(activities[i].id) + '">Retry Strava</button>');
+        escapeHtml(activities[i].id) + '" data-working="Retrying...">Retry Strava</button>');
     output.push('</div>');
     output.push('</article>');
   }
@@ -183,7 +249,7 @@ function buildConfigHtml(settings, activities, notice) {
     '</form>',
     '<fieldset>',
     '<legend>Recent Activities</legend>',
-    '<p>Export and retry briefly close settings while PebbleKit JS performs the action. Pacelet will open the export or return here with status.</p>',
+    '<p>Export and retry close this settings screen while PebbleKit JS performs the action. TCX export opens a separate export page.</p>',
     renderActivities(activities),
     '</fieldset>',
     '</main>',
@@ -228,7 +294,7 @@ function buildConfigHtml(settings, activities, notice) {
     'e.preventDefault();',
     'e.stopPropagation();',
     'target.disabled=true;',
-    'target.textContent="Working...";',
+    'target.textContent=target.getAttribute("data-working")||"Working...";',
     'closeWith({action:action,activityId:target.getAttribute("data-id")});',
     '});',
     '</script>',
@@ -248,11 +314,12 @@ function exportFileName(activity) {
   return id + '.tcx';
 }
 
-function buildExportHtml(activity, tcx) {
+function buildExportHtml(activity) {
   var fileName = exportFileName(activity);
   var title = activityTitle(activity || {});
-  var dataUrl = 'data:application/vnd.garmin.tcx+xml;charset=utf-8,' +
-      encodeURIComponent(tcx);
+  var payload = encodeBase64Ascii(JSON.stringify(
+    compactExportPayload(activity || {})
+  ));
   return [
     '<!doctype html>',
     '<html><head>',
@@ -273,14 +340,25 @@ function buildExportHtml(activity, tcx) {
     '<h1>Export TCX</h1>',
     '<p>' + escapeHtml(title) + '</p>',
     '<p>Use Open TCX File to hand the file to your phone, or Copy TCX and paste it into a file or sharing app.</p>',
-    '<textarea id="tcx" readonly>' + escapeHtml(tcx) + '</textarea>',
+    '<textarea id="tcx" readonly>Preparing TCX...</textarea>',
     '<div class="actions">',
-    '<a class="button" download="' + escapeHtml(fileName) + '" href="' +
-      escapeHtml(dataUrl) + '">Open TCX File</a>',
+    '<a class="button" id="openFile" download="' +
+      escapeHtml(fileName) + '" href="#">Open TCX File</a>',
     '<button type="button" id="copy">Copy TCX</button>',
     '<a class="button secondary" href="pebblejs://close">Done</a>',
     '</div>',
     '<script>',
+    'var payload=JSON.parse(decodeBase64("' + payload + '"));',
+    'function decodeBase64(input){var chars="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";var out="";var i=0;var e1,e2,e3,e4,c1,c2,c3,ch3,ch4;input=String(input||"").replace(/[^A-Za-z0-9+/=]/g,"");while(i<input.length){e1=chars.indexOf(input.charAt(i++));e2=chars.indexOf(input.charAt(i++));ch3=input.charAt(i++);ch4=input.charAt(i++);e3=chars.indexOf(ch3);e4=chars.indexOf(ch4);c1=(e1<<2)|(e2>>4);c2=((e2&15)<<4)|(e3>>2);c3=((e3&3)<<6)|e4;out+=String.fromCharCode(c1);if(ch3&&ch3!=="="&&e3>=0){out+=String.fromCharCode(c2);}if(ch4&&ch4!=="="&&e4>=0){out+=String.fromCharCode(c3);}}return out;}',
+    'function esc(value){return String(value===null||typeof value==="undefined"?"":value).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&apos;");}',
+    'function iso(value){var date=new Date(value||0);return date.toISOString?date.toISOString():date.toUTCString();}',
+    'function sport(type){return type==="cycling"?"biking":(type==="walking"?"walking":"running");}',
+    'function hasPos(point){return typeof point[1]==="number"&&typeof point[2]==="number";}',
+    'function hav(a,b){if(!hasPos(a)||!hasPos(b)){return 0;}var earth=6371000;var dLat=(b[1]-a[1])*Math.PI/180;var dLon=(b[2]-a[2])*Math.PI/180;var rLat1=a[1]*Math.PI/180;var rLat2=b[1]*Math.PI/180;var h=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(rLat1)*Math.cos(rLat2)*Math.sin(dLon/2)*Math.sin(dLon/2);return earth*2*Math.atan2(Math.sqrt(h),Math.sqrt(1-h));}',
+    'function distances(points){var out=[];var total=0;var i;for(i=0;i<points.length;i+=1){if(i>0){total+=hav(points[i-1],points[i]);}out.push(total);}return out;}',
+    'function generateTcx(activity){var points=activity.p||[];var dists=distances(points);var lines=[];var i;var point;lines.push("<?xml version=\\"1.0\\" encoding=\\"UTF-8\\"?>");lines.push("<TrainingCenterDatabase xmlns=\\"http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2\\">");lines.push("  <Activities>");lines.push("    <Activity Sport=\\""+esc(sport(activity.t))+"\\">");lines.push("      <Id>"+esc(iso(activity.s))+"</Id>");lines.push("      <Lap StartTime=\\""+esc(iso(activity.s))+"\\">");lines.push("        <TotalTimeSeconds>"+esc(activity.m||0)+"</TotalTimeSeconds>");lines.push("        <DistanceMeters>"+esc(Math.round(activity.d||0))+"</DistanceMeters>");lines.push("        <Intensity>Active</Intensity>");lines.push("        <TriggerMethod>Manual</TriggerMethod>");lines.push("        <Track>");for(i=0;i<points.length;i+=1){point=points[i];lines.push("          <Trackpoint>");lines.push("            <Time>"+esc(iso(point[0]))+"</Time>");if(hasPos(point)){lines.push("            <Position>");lines.push("              <LatitudeDegrees>"+esc(point[1])+"</LatitudeDegrees>");lines.push("              <LongitudeDegrees>"+esc(point[2])+"</LongitudeDegrees>");lines.push("            </Position>");}if(typeof point[3]==="number"){lines.push("            <AltitudeMeters>"+esc(point[3])+"</AltitudeMeters>");}lines.push("            <DistanceMeters>"+esc(Math.round(typeof point[5]==="number"?point[5]:dists[i]))+"</DistanceMeters>");if(typeof point[4]==="number"){lines.push("            <HeartRateBpm>");lines.push("              <Value>"+esc(point[4])+"</Value>");lines.push("            </HeartRateBpm>");}lines.push("          </Trackpoint>");}lines.push("        </Track>");lines.push("      </Lap>");lines.push("    </Activity>");lines.push("  </Activities>");lines.push("</TrainingCenterDatabase>");return lines.join("\\n");}',
+    'function configureFile(tcx){var link=document.getElementById("openFile");var urlApi=window.URL||window.webkitURL;try{if(window.Blob&&urlApi&&urlApi.createObjectURL){link.href=urlApi.createObjectURL(new Blob([tcx],{type:"application/vnd.garmin.tcx+xml"}));return;}}catch(e){}link.href="data:application/vnd.garmin.tcx+xml;charset=utf-8,"+encodeURIComponent(tcx);}',
+    'function prepare(){var tcx=generateTcx(payload);document.getElementById("tcx").value=tcx;configureFile(tcx);}',
     'function selectTcx(){var el=document.getElementById("tcx");el.focus();el.select();if(el.setSelectionRange){el.setSelectionRange(0,el.value.length);}}',
     'document.getElementById("copy").addEventListener("click",function(){',
     'selectTcx();',
@@ -288,14 +366,15 @@ function buildExportHtml(activity, tcx) {
     'try{copied=document.execCommand("copy");}catch(e){}',
     'this.textContent=copied?"Copied":"Selected - use Copy";',
     '});',
+    'prepare();',
     '</script>',
     '</main></body></html>'
   ].join('');
 }
 
-function buildExportUrl(activity, tcx) {
+function buildExportUrl(activity) {
   return 'data:text/html;charset=utf-8,' +
-      encodeURIComponent(buildExportHtml(activity, tcx));
+      encodeURIComponent(buildExportHtml(activity));
 }
 
 function parseResponse(response) {

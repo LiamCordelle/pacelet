@@ -32,6 +32,79 @@ var activity = {
   ]
 };
 
+function longActivity(pointCount) {
+  var start = Date.UTC(2026, 5, 16, 13, 0, 0);
+  var points = [];
+  var i;
+
+  for (i = 0; i < pointCount; i += 1) {
+    points.push({
+      t: start + i * 5000,
+      lat: 51.5074,
+      lon: -0.1278 + i * 0.00005,
+      alt: 20 + (i % 7),
+      hr: 130 + (i % 20)
+    });
+  }
+  return {
+    id: 'pt-long',
+    type: 'running',
+    startedAt: start,
+    movingTimeS: pointCount * 5,
+    summaryDistanceM: pointCount * 6,
+    distanceM: pointCount * 6,
+    points: points
+  };
+}
+
+function renderExportPage(activity) {
+  var url = ConfigPage.buildExportUrl(activity);
+  var html = decodeURIComponent(url.replace('data:text/html;charset=utf-8,', ''));
+  var script = html.match(/<script>([\s\S]*)<\/script>/)[1];
+  var elements = {
+    tcx: {
+      value: '',
+      focus: function() {},
+      select: function() {},
+      setSelectionRange: function() {}
+    },
+    openFile: {
+      href: '',
+      download: ''
+    },
+    copy: {
+      addEventListener: function(name, listener) {
+        this.listener = listener;
+      }
+    }
+  };
+  var Blob = function() {};
+  var window = {
+    Blob: Blob,
+    URL: {
+      createObjectURL: function() {
+        return 'blob:tcx';
+      }
+    }
+  };
+  var document = {
+    getElementById: function(id) {
+      return elements[id];
+    },
+    execCommand: function() {
+      return true;
+    }
+  };
+
+  eval(script);
+  return {
+    url: url,
+    html: html,
+    tcx: elements.tcx.value,
+    fileHref: elements.openFile.href
+  };
+}
+
 run('settings normalize booleans and token expiry', function() {
   assert.strictEqual(Strava.copyDefaults({}).darkMode, false);
 
@@ -211,7 +284,7 @@ run('config page URL embeds settings, actions, OAuth guidance, and notices', fun
   assert.ok(html.indexOf('stravaAuthorizationCode') !== -1);
   assert.ok(html.indexOf('stravaScope') !== -1);
   assert.ok(html.indexOf('Recent Activities') !== -1);
-  assert.ok(html.indexOf('Export TCX') !== -1);
+  assert.ok(html.indexOf('Open TCX Export') !== -1);
   assert.ok(html.indexOf('Retry Strava') !== -1);
   assert.ok(html.indexOf('pt-123') !== -1);
   assert.ok(html.indexOf('short-lived') !== -1);
@@ -237,13 +310,19 @@ run('config close responses preserve activity actions', function() {
 });
 
 run('TCX export opens a readable page with copy and file actions', function() {
-  var tcx = Strava.generateTcx(activity);
-  var url = ConfigPage.buildExportUrl(activity, tcx);
-  var html = decodeURIComponent(url.replace('data:text/html;charset=utf-8,', ''));
+  var exportPage = renderExportPage(activity);
 
-  assert.ok(html.indexOf('Export TCX') !== -1);
-  assert.ok(html.indexOf('Open TCX File') !== -1);
-  assert.ok(html.indexOf('Copy TCX') !== -1);
-  assert.ok(html.indexOf('pt-123.tcx') !== -1);
-  assert.ok(html.indexOf('&lt;TrainingCenterDatabase') !== -1);
+  assert.ok(exportPage.html.indexOf('Export TCX') !== -1);
+  assert.ok(exportPage.html.indexOf('Open TCX File') !== -1);
+  assert.ok(exportPage.html.indexOf('Copy TCX') !== -1);
+  assert.ok(exportPage.html.indexOf('pt-123.tcx') !== -1);
+  assert.strictEqual(exportPage.fileHref, 'blob:tcx');
+  assert.strictEqual(exportPage.tcx, Strava.generateTcx(activity));
+});
+
+run('TCX export URL stays compact for realistic activity history', function() {
+  var exported = renderExportPage(longActivity(200));
+
+  assert.ok(exported.url.length < 30000, 'URL length was ' + exported.url.length);
+  assert.ok(exported.tcx.indexOf('<TrainingCenterDatabase') !== -1);
 });

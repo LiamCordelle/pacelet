@@ -5,6 +5,8 @@ var Strava = require('./strava');
 var StravaService = require('./strava_service');
 var TrackerCore = require('./tracker_core');
 
+var CONFIG_CLOSE_OPEN_DELAY_MS = 750;
+
 function log(message) {
   console.log(message);
 }
@@ -133,18 +135,18 @@ function openConfiguration(notice) {
 function openAfterConfigClose(url) {
   setTimeout(function() {
     Pebble.openURL(url);
-  }, 250);
+  }, CONFIG_CLOSE_OPEN_DELAY_MS);
 }
 
 function reopenConfiguration(notice) {
   setTimeout(function() {
     openConfiguration(notice);
-  }, 250);
+  }, CONFIG_CLOSE_OPEN_DELAY_MS);
 }
 
 function exportActivityTcx(activityId) {
   var activity = store.getActivity(activityId);
-  var tcx;
+  var exportUrl;
   if (!activity) {
     log('TCX export failed: activity not found');
     return {
@@ -153,8 +155,9 @@ function exportActivityTcx(activityId) {
     };
   }
 
-  tcx = Strava.generateTcx(activity);
-  openAfterConfigClose(ConfigPage.buildExportUrl(activity, tcx));
+  exportUrl = ConfigPage.buildExportUrl(activity);
+  log('Opening TCX export page (' + exportUrl.length + ' chars)');
+  openAfterConfigClose(exportUrl);
   return {
     ok: true,
     message: 'TCX export opened.'
