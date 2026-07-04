@@ -7,6 +7,13 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-04
+
+### Fixed
+
+- Fixed a watch crash when opening Activity History by replacing the watch-side
+  saved-activity parser's libc integer parsing with a small bounded parser.
+
 ## [0.4.0] - 2026-07-04
 
 ### Added

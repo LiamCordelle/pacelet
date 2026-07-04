@@ -4,7 +4,6 @@
 #include "pacelet_model.h"
 #include "watch_ui.h"
 
-#include <stdlib.h>
 #include <string.h>
 
 #define SETTINGS_KEY 1
@@ -105,9 +104,43 @@ void watch_services_request_history(void) {
   watch_services_send_command(MESSAGE_KEY_REQUEST_HISTORY);
 }
 
+static bool parse_history_number(const char **cursor, int32_t *value_out,
+                                 char separator) {
+  const char *p = *cursor;
+  int32_t value = 0;
+
+  if (!p || *p < '0' || *p > '9') {
+    return false;
+  }
+
+  while (*p >= '0' && *p <= '9') {
+    int digit = *p - '0';
+    if (value > 214748364 ||
+        (value == 214748364 && digit > 7)) {
+      value = 2147483647;
+    } else {
+      value = value * 10 + digit;
+    }
+    p++;
+  }
+
+  if (separator) {
+    if (*p != separator) {
+      return false;
+    }
+    p++;
+  } else if (*p != '\0' && *p != ';') {
+    return false;
+  }
+
+  *cursor = p;
+  *value_out = value;
+  return true;
+}
+
 static void parse_history_items(const char *items_text) {
   char buffer[320];
-  char *cursor;
+  const char *cursor;
   int32_t parsed = 0;
 
   if (!items_text) {
@@ -118,27 +151,21 @@ static void parse_history_items(const char *items_text) {
   cursor = buffer;
 
   while (*cursor && parsed < PACELET_HISTORY_MAX) {
-    char *end;
-    long type_value = strtol(cursor, &end, 10);
-    if (end == cursor || *end != ',') {
+    int32_t type_value;
+    int32_t distance_value;
+    int32_t moving_value;
+    int32_t status_value;
+
+    if (!parse_history_number(&cursor, &type_value, ',')) {
       break;
     }
-    cursor = end + 1;
-
-    long distance_value = strtol(cursor, &end, 10);
-    if (end == cursor || *end != ',') {
+    if (!parse_history_number(&cursor, &distance_value, ',')) {
       break;
     }
-    cursor = end + 1;
-
-    long moving_value = strtol(cursor, &end, 10);
-    if (end == cursor || *end != ',') {
+    if (!parse_history_number(&cursor, &moving_value, ',')) {
       break;
     }
-    cursor = end + 1;
-
-    long status_value = strtol(cursor, &end, 10);
-    if (end == cursor) {
+    if (!parse_history_number(&cursor, &status_value, '\0')) {
       break;
     }
 
@@ -152,8 +179,8 @@ static void parse_history_items(const char *items_text) {
                           HistoryStravaSkipped);
     parsed++;
 
-    if (*end == ';') {
-      cursor = end + 1;
+    if (*cursor == ';') {
+      cursor++;
     } else {
       break;
     }
@@ -263,7 +290,11 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
 
   Tuple *history_items = dict_find(iter, MESSAGE_KEY_HISTORY_ITEMS);
   if (history_items) {
+    APP_LOG(APP_LOG_LEVEL_INFO, "History items received: %s",
+            history_items->value->cstring);
     parse_history_items(history_items->value->cstring);
+    APP_LOG(APP_LOG_LEVEL_INFO, "Parsed %ld history items",
+            (long)g_pacelet.history_count);
     g_pacelet.history_loading = false;
   }
 
