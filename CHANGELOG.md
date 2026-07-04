@@ -7,6 +7,13 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-07-04
+
+### Added
+
+- Show distance, moving time, and average pace or speed on Activity History
+  list and detail screens.
+
 ## [0.4.1] - 2026-07-04
 
 ### Fixed

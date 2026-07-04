@@ -88,18 +88,18 @@ var screens = [
     message: 'History refreshed.',
     items: [
       {
-        title: '1  RUNNING',
-        detail: '4.62 km  UPLOADED',
+        title: '1 RUN  23:14',
+        detail: '4.62km  5:02/km  OK',
         statusColor: THEME.accent
       },
       {
-        title: '2  RUNNING',
-        detail: '3.18 km  FAILED',
+        title: '2 RUN  18:56',
+        detail: '3.18km  5:57/km  FAIL',
         statusColor: THEME.bad
       },
       {
-        title: '3  CYCLING',
-        detail: '18.74 km  PROCESSING',
+        title: '3 RIDE  41:08',
+        detail: '18.74km  27.3km/h  PROC',
         statusColor: THEME.warning
       }
     ]
@@ -111,6 +111,8 @@ var screens = [
     index: '2/3',
     distance: '3.18 km',
     elapsed: '18:56',
+    movementLabel: 'PACE',
+    movement: '5:57/km',
     status: 'FAILED',
     statusColor: THEME.bad,
     message: 'HTTP 403 - Forbidden'
@@ -1008,19 +1010,20 @@ function renderHistoryDetail(screen) {
       esc(screen.activity + ' ' + screen.index) + '</text>',
     '<text x="8" y="70" class="status" fill="' + THEME.onAccent + '">' +
       esc(screen.distance) + '</text>',
-    metricRow(76, 38, 'TIME', screen.elapsed),
-    dottedSeparator(114, THEME.muted),
-    '<text x="8" y="136" class="status" fill="' + THEME.muted +
+    metricRow(76, 29, 'TIME', screen.elapsed),
+    metricRow(105, 29, 'DIST', screen.distance),
+    metricRow(134, 29, screen.movementLabel, screen.movement),
+    dottedSeparator(163, THEME.muted),
+    '<text x="8" y="185" class="status" fill="' + THEME.muted +
       '">STRAVA</text>',
-    '<text x="' + (RIGHT - 8) + '" y="139" class="menu" fill="' +
+    '<text x="' + (RIGHT - 8) + '" y="188" class="menu" fill="' +
       screen.statusColor + '" text-anchor="end">' + esc(screen.status) +
       '</text>',
-    '<text x="8" y="164" class="status" fill="' + THEME.text +
-      '">Export TCX</text>',
-    '<text x="8" y="184" class="status" fill="' + THEME.text +
-      '">Retry Strava</text>',
+    '<text x="' + Math.round(RIGHT / 2) + '" y="205" class="footer" ' +
+      'fill="' + THEME.text +
+      '" text-anchor="middle">UP TCX  SEL STRAVA</text>',
     '<text x="' + Math.round(RIGHT / 2) +
-      '" y="214" class="footer" text-anchor="middle">' +
+      '" y="224" class="footer" text-anchor="middle">' +
       esc(screen.message) + '</text>',
     actionRail('file', 'refresh', 'close')
   ].join('\n'));
@@ -1335,14 +1338,16 @@ function pixelHistoryDetail(canvas, screen) {
   pixelTextFit(canvas, screen.activity + ' ' + screen.index, 8, 37,
                RIGHT - 16, 2, THEME.onAccent, 'left', true);
   canvas.text(screen.distance, 8, 58, 1, THEME.onAccent, 'left', true);
-  pixelMetricRow(canvas, 76, 38, 'TIME', screen.elapsed);
-  pixelDottedSeparator(canvas, 114, THEME.muted);
-  canvas.text('STRAVA', 8, 126, 1, THEME.muted, 'left', true);
-  pixelTextFit(canvas, screen.status, RIGHT - 8, 123, RIGHT - 72, 2,
+  pixelMetricRow(canvas, 76, 29, 'TIME', screen.elapsed);
+  pixelMetricRow(canvas, 105, 29, 'DIST', screen.distance);
+  pixelMetricRow(canvas, 134, 29, screen.movementLabel, screen.movement);
+  pixelDottedSeparator(canvas, 163, THEME.muted);
+  canvas.text('STRAVA', 8, 175, 1, THEME.muted, 'left', true);
+  pixelTextFit(canvas, screen.status, RIGHT - 8, 172, RIGHT - 72, 2,
                screen.statusColor, 'right', true);
-  canvas.text('Export TCX', 8, 156, 1, THEME.text, 'left', true);
-  canvas.text('Retry Strava', 8, 176, 1, THEME.text, 'left', true);
-  canvas.text(screen.message, Math.round(RIGHT / 2), 207, 1, THEME.muted,
+  canvas.text('UP TCX  SEL STRAVA', Math.round(RIGHT / 2), 197, 1,
+              THEME.text, 'center', false);
+  canvas.text(screen.message, Math.round(RIGHT / 2), 215, 1, THEME.muted,
               'center', false);
   pixelActionRail(canvas, 'file', 'refresh', 'close');
 }

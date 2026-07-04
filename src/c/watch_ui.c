@@ -1110,12 +1110,76 @@ static void format_history_distance(int32_t meters, char *buffer,
   }
 }
 
+static void format_history_compact_distance(int32_t meters, char *buffer,
+                                            size_t buffer_size) {
+  if (meters >= 1000) {
+    snprintf(buffer, buffer_size, "%ld.%02ldkm",
+             (long)(meters / 1000), (long)((meters % 1000) / 10));
+  } else {
+    snprintf(buffer, buffer_size, "%ldm", (long)meters);
+  }
+}
+
+static const char *history_status_short_label(HistoryStravaStatus status) {
+  switch (status) {
+    case HistoryStravaNotUploaded:
+      return "NEW";
+    case HistoryStravaUploading:
+      return "UP";
+    case HistoryStravaProcessing:
+      return "PROC";
+    case HistoryStravaUploaded:
+      return "OK";
+    case HistoryStravaFailed:
+      return "FAIL";
+    case HistoryStravaSkipped:
+      return "SKIP";
+    case HistoryStravaUnknown:
+    default:
+      return "--";
+  }
+}
+
+static void format_history_movement(ActivityType type, int32_t distance_m,
+                                    int32_t moving_s, char *value,
+                                    size_t value_size, char *unit,
+                                    size_t unit_size) {
+  if (distance_m <= 0 || moving_s <= 0) {
+    snprintf(value, value_size, "--");
+    snprintf(unit, unit_size, type == ActivityTypeCycling ? "km/h" : "/km");
+    return;
+  }
+
+  if (type == ActivityTypeCycling) {
+    int32_t centi_mps = distance_m * 100 / moving_s;
+    format_speed_parts(centi_mps, value, value_size, unit, unit_size);
+  } else {
+    int32_t pace_s_per_km = moving_s * 1000 / distance_m;
+    format_pace_parts(pace_s_per_km, value, value_size, unit, unit_size);
+  }
+}
+
+static void format_history_compact_movement(ActivityType type,
+                                            int32_t distance_m,
+                                            int32_t moving_s,
+                                            char *buffer,
+                                            size_t buffer_size) {
+  char value[16];
+  char unit[8];
+
+  format_history_movement(type, distance_m, moving_s, value, sizeof(value),
+                          unit, sizeof(unit));
+  snprintf(buffer, buffer_size, "%s%s", value, unit);
+}
+
 static void draw_history_list_row(GContext *ctx, GRect bounds, int row_index,
                                   int y, int height, bool selected) {
   int right = content_right(bounds);
   char title[32];
   char detail[48];
   char distance_text[16];
+  char elapsed_text[16];
+  char movement_text[24];
   HistoryItem *item = &g_pacelet.history_items[row_index];
   GColor title_color = selected ? color_on_accent() : color_text();
   GColor detail_color = selected ? color_on_accent() :
@@ -1128,13 +1192,18 @@ static void draw_history_list_row(GContext *ctx, GRect bounds, int row_index,
     draw_dotted_separator(ctx, right, y + height - 1, color_muted());
   }
 
-  format_history_distance(item->distance_m, distance_text,
-                          sizeof(distance_text));
-  snprintf(title, sizeof(title), "%ld  %s",
+  format_elapsed(item->moving_s, elapsed_text, sizeof(elapsed_text));
+  format_history_compact_distance(item->distance_m, distance_text,
+                                  sizeof(distance_text));
+  format_history_compact_movement(item->activity_type, item->distance_m,
+                                  item->moving_s, movement_text,
+                                  sizeof(movement_text));
+  snprintf(title, sizeof(title), "%ld %s  %s",
            (long)(row_index + 1),
-           pacelet_activity_label(item->activity_type));
-  snprintf(detail, sizeof(detail), "%s  %s", distance_text,
-           pacelet_history_status_label(item->strava_status));
+           pacelet_activity_short_label(item->activity_type),
+           elapsed_text);
+  snprintf(detail, sizeof(detail), "%s  %s  %s", distance_text,
+           movement_text, history_status_short_label(item->strava_status));
 
   graphics_context_set_text_color(ctx, title_color);
   graphics_draw_text(ctx, title, font_metric_label(),
@@ -1237,12 +1306,20 @@ static void draw_history_detail_screen(GContext *ctx, GRect bounds) {
   char title[32];
   char elapsed_text[16];
   char distance_text[16];
+  char movement_value[16];
+  char movement_unit[8];
+  const char *movement_label =
+      item->activity_type == ActivityTypeCycling ? "SPEED" : "PACE";
 
   draw_top_bar(ctx, bounds);
 
   format_elapsed(item->moving_s, elapsed_text, sizeof(elapsed_text));
   format_history_distance(item->distance_m, distance_text,
                           sizeof(distance_text));
+  format_history_movement(item->activity_type, item->distance_m,
+                          item->moving_s, movement_value,
+                          sizeof(movement_value), movement_unit,
+                          sizeof(movement_unit));
   snprintf(title, sizeof(title), "%s %ld/%ld",
            pacelet_activity_label(item->activity_type),
            (long)(index + 1), (long)g_pacelet.history_count);
@@ -1259,35 +1336,34 @@ static void draw_history_detail_screen(GContext *ctx, GRect bounds) {
                      GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentLeft, NULL);
 
-  draw_metric_row(ctx, bounds, 76, 38, "TIME", elapsed_text, "");
+  draw_metric_row(ctx, bounds, 76, 29, "TIME", elapsed_text, "");
+  draw_metric_row(ctx, bounds, 105, 29, "DIST", distance_text, "");
+  draw_metric_row(ctx, bounds, 134, 29, movement_label, movement_value,
+                  movement_unit);
 
-  draw_dotted_separator(ctx, right, 114, color_muted());
+  draw_dotted_separator(ctx, right, 163, color_muted());
   graphics_context_set_text_color(ctx, color_muted());
   graphics_draw_text(ctx, "STRAVA", font_metric_label(),
-                     GRect(8, 122, 56, 18),
+                     GRect(8, 171, 56, 18),
                      GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentLeft, NULL);
   graphics_context_set_text_color(ctx, history_status_color(
       item->strava_status));
   graphics_draw_text(ctx, pacelet_history_status_label(item->strava_status),
-                     font_menu(), GRect(66, 119, right - 72, 24),
+                     font_menu(), GRect(66, 168, right - 72, 24),
                      GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentRight, NULL);
 
   graphics_context_set_text_color(ctx, color_text());
-  graphics_draw_text(ctx, "Export TCX", font_metric_label(),
-                     GRect(8, 151, right - 16, 18),
+  graphics_draw_text(ctx, "UP TCX  SEL STRAVA", font_label(),
+                     GRect(8, 193, right - 16, 18),
                      GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, "Retry Strava", font_metric_label(),
-                     GRect(8, 171, right - 16, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
+                     GTextAlignmentCenter, NULL);
 
   if (g_pacelet.history_message[0] != '\0') {
     graphics_context_set_text_color(ctx, color_muted());
     graphics_draw_text(ctx, g_pacelet.history_message, font_label(),
-                       GRect(8, 196, right - 16, 28),
+                       GRect(8, 211, right - 16, 16),
                        GTextOverflowModeTrailingEllipsis,
                        GTextAlignmentCenter, NULL);
   }
