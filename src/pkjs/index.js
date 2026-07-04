@@ -1,11 +1,10 @@
 var ActivityStore = require('./activity_store');
 var ConfigPage = require('./config_page');
 var GpsService = require('./gps_service');
+var HistoryMessages = require('./history_messages');
 var Strava = require('./strava');
 var StravaService = require('./strava_service');
 var TrackerCore = require('./tracker_core');
-
-var CONFIG_CLOSE_OPEN_DELAY_MS = 750;
 
 function log(message) {
   console.log(message);
@@ -62,7 +61,11 @@ var gps = GpsService.createGpsService({
 var strava = StravaService.createStravaService({
   store: store,
   request: StravaService.createHttpRequest(XMLHttpRequest),
-  log: log
+  log: log,
+  onActivityUpdate: function(activityId) {
+    log('Strava activity updated: ' + activityId);
+    sendHistoryToWatch();
+  }
 });
 
 function sendSettingsToWatch() {
@@ -124,28 +127,30 @@ function finishActivity() {
   gps.stopIfIdle();
 }
 
+function sendHistoryToWatch(notice) {
+  var payload = HistoryMessages.buildHistoryPayload(
+    store.getActivities(), notice
+  );
+  log('Sending history to watch: ' + payload.count + ' items' +
+      (payload.message ? ' - ' + payload.message : ''));
+  sendMessage({
+    HISTORY_COUNT: payload.count,
+    HISTORY_ITEMS: payload.items,
+    HISTORY_MESSAGE: payload.message
+  }, null, 'History send failed');
+}
+
 function openConfiguration(notice) {
-  Pebble.openURL(ConfigPage.buildConfigUrl(
+  var url = ConfigPage.buildConfigUrl(
     store.getSettings(),
     store.activitySummaries(),
     notice || ''
-  ));
+  );
+  log('Opening Pacelet config page (' + url.length + ' chars)');
+  Pebble.openURL(url);
 }
 
-function openAfterConfigClose(url) {
-  setTimeout(function() {
-    Pebble.openURL(url);
-  }, CONFIG_CLOSE_OPEN_DELAY_MS);
-}
-
-function reopenConfiguration(notice) {
-  setTimeout(function() {
-    openConfiguration(notice);
-  }, CONFIG_CLOSE_OPEN_DELAY_MS);
-}
-
-function exportActivityTcx(activityId) {
-  var activity = store.getActivity(activityId);
+function openActivityTcx(activity, source) {
   var exportUrl;
   if (!activity) {
     log('TCX export failed: activity not found');
@@ -156,21 +161,47 @@ function exportActivityTcx(activityId) {
   }
 
   exportUrl = ConfigPage.buildExportUrl(activity);
-  log('Opening TCX export page (' + exportUrl.length + ' chars)');
-  openAfterConfigClose(exportUrl);
+  log('Opening TCX export page from ' + source +
+      ' (' + exportUrl.length + ' chars)');
+  Pebble.openURL(exportUrl);
   return {
     ok: true,
     message: 'TCX export opened.'
   };
 }
 
+function exportActivityTcx(activityId) {
+  return openActivityTcx(store.getActivity(activityId), 'config');
+}
+
+function exportHistoryTcx(index) {
+  var activity = HistoryMessages.selectedActivity(store.getActivities(), index);
+  var result = openActivityTcx(activity, 'watch history index ' + index);
+  sendHistoryToWatch(result.message);
+}
+
 function retryStravaUpload(activityId) {
   var activity = store.getActivity(activityId);
   var result = strava.retryActivity(activity);
-  if (!activity) {
-    log(result.message);
-  }
+  log(result.message);
   return result;
+}
+
+function retryHistoryStrava(index) {
+  var activity = HistoryMessages.selectedActivity(store.getActivities(), index);
+  var result;
+  if (!activity) {
+    log('Watch history Strava retry failed: activity index ' + index +
+        ' not found');
+    sendHistoryToWatch('Activity not found.');
+    return;
+  }
+
+  log('Watch requested Strava retry for history index ' + index +
+      ' (' + activity.id + ')');
+  result = strava.retryActivity(activity);
+  log(result.message);
+  sendHistoryToWatch(result.message);
 }
 
 function hasSettingsPayload(payload) {
@@ -195,17 +226,14 @@ function saveConfiguration(payload) {
     if (authErr) {
       log(authErr.message);
       if (hadAuthorizationCode) {
-        reopenConfiguration(
+        log(
           authErr.message +
           '. Authorization codes are short-lived and single-use; generate a fresh code and try again.'
         );
       }
     } else if (hadAuthorizationCode &&
         currentSettings.stravaRefreshToken) {
-      log('Strava authorization ready');
-      reopenConfiguration(
-        'Strava connected. The refresh token was saved and the one-time authorization code was cleared.'
-      );
+      log('Strava connected. The refresh token was saved and the one-time authorization code was cleared.');
     }
   });
 }
@@ -213,26 +241,27 @@ function saveConfiguration(payload) {
 function handleConfigPayload(payload) {
   var actionResult;
 
+  log('Config action received: ' + (payload.action || 'save_settings'));
   if (payload.action === 'export_tcx') {
     actionResult = exportActivityTcx(payload.activityId);
     if (!actionResult.ok) {
-      reopenConfiguration(actionResult.message);
+      log(actionResult.message);
     }
     return;
   }
   if (payload.action === 'retry_strava') {
     actionResult = retryStravaUpload(payload.activityId);
-    reopenConfiguration(actionResult.message);
+    log(actionResult.message);
     return;
   }
   if (payload.action && payload.action !== 'save_settings') {
-    reopenConfiguration(
+    log(
       'Unknown configuration action: ' + payload.action
     );
     return;
   }
   if (!hasSettingsPayload(payload)) {
-    reopenConfiguration(
+    log(
       'No settings or activity action was received.'
     );
     return;
@@ -248,6 +277,10 @@ function handleAppMessage(payload) {
   if (payload.REQUEST_SETTINGS) {
     sendSettingsToWatch();
   }
+  if (payload.REQUEST_HISTORY) {
+    log('Watch requested activity history');
+    sendHistoryToWatch('History refreshed.');
+  }
   if (payload.START_ACTIVITY) {
     startActivity(payload.ACTIVITY_TYPE);
   }
@@ -259,6 +292,12 @@ function handleAppMessage(payload) {
   }
   if (payload.FINISH_ACTIVITY) {
     finishActivity();
+  }
+  if (payload.EXPORT_HISTORY_TCX) {
+    exportHistoryTcx(payload.HISTORY_SELECTED_INDEX);
+  }
+  if (payload.RETRY_HISTORY_STRAVA) {
+    retryHistoryStrava(payload.HISTORY_SELECTED_INDEX);
   }
   if (typeof payload.HR_BPM !== 'undefined') {
     tracker.recordHr(payload.HR_BPM);

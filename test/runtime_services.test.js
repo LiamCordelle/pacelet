@@ -1,6 +1,7 @@
 var assert = require('assert');
 var ActivityStore = require('../src/pkjs/activity_store');
 var GpsService = require('../src/pkjs/gps_service');
+var HistoryMessages = require('../src/pkjs/history_messages');
 var Strava = require('../src/pkjs/strava');
 var StravaService = require('../src/pkjs/strava_service');
 
@@ -97,6 +98,43 @@ run('activity store updates upload state without replacing activity data',
   assert.strictEqual(store.getActivity('stored').distanceM, 200);
   assert.strictEqual(store.getActivity('stored').stravaStatus, 'uploaded');
   assert.strictEqual(store.getActivity('stored').stravaActivityId, 123);
+});
+
+run('history messages compact saved activities for the watch', function() {
+  var activities = [
+    {
+      id: 'uploaded',
+      type: 'walking',
+      distanceM: 1234,
+      movingTimeS: 654,
+      stravaActivityId: 9001
+    },
+    {
+      id: 'failed',
+      type: 'cycling',
+      distanceM: 4321,
+      movingTimeS: 765,
+      stravaStatus: 'failed',
+      stravaError: 'Forbidden'
+    }
+  ];
+  var payload = HistoryMessages.buildHistoryPayload(activities);
+
+  assert.strictEqual(payload.count, 2);
+  assert.strictEqual(
+    payload.items,
+    '0,1234,654,' + HistoryMessages.STATUS_UPLOADED +
+        ';2,4321,765,' + HistoryMessages.STATUS_FAILED
+  );
+  assert.strictEqual(payload.message, 'Strava uploaded #9001');
+  assert.strictEqual(
+    HistoryMessages.selectedActivity(activities, 1).id,
+    'failed'
+  );
+  assert.strictEqual(
+    HistoryMessages.selectedActivity(activities, 10),
+    null
+  );
 });
 
 run('GPS service owns watch, polling, position, and metric messages',
@@ -212,6 +250,7 @@ run('Strava service exchanges authorization codes and persists tokens',
 run('Strava service uploads and polls activity status', function() {
   var store = createStore(createMemoryStorage());
   var requests = [];
+  var updates = [];
   var activity = sampleActivity('upload-me');
 
   store.setSettings({
@@ -247,6 +286,12 @@ run('Strava service uploads and polls activity status', function() {
     },
     setTimeoutFn: function(callback) {
       callback();
+    },
+    onActivityUpdate: function(activityId, patch) {
+      updates.push({
+        activityId: activityId,
+        patch: patch
+      });
     }
   });
 
@@ -263,5 +308,58 @@ run('Strava service uploads and polls activity status', function() {
     store.getActivity(activity.id).stravaActivityId,
     9001
   );
+  assert.deepStrictEqual(updates.map(function(update) {
+    return update.activityId;
+  }), ['upload-me', 'upload-me', 'upload-me']);
+  assert.strictEqual(updates[0].patch.stravaStatus, 'uploading');
+  assert.strictEqual(updates[2].patch.stravaStatus, 'uploaded');
 });
 
+run('Strava service logs upload HTTP failures', function() {
+  var store = createStore(createMemoryStorage());
+  var logs = [];
+  var updates = [];
+  var activity = sampleActivity('upload-403');
+
+  store.setSettings({
+    stravaEnabled: true,
+    stravaClientId: '123',
+    stravaClientSecret: 'secret',
+    stravaAccessToken: 'access',
+    stravaRefreshToken: 'refresh',
+    stravaExpiresAt: 9999999999,
+    stravaScope: 'read activity:write'
+  });
+  store.saveActivity(activity);
+  activity = store.getActivity(activity.id);
+
+  var service = StravaService.createStravaService({
+    store: store,
+    request: function(options, callback) {
+      callback(null, {
+        status: 403,
+        text: JSON.stringify({ message: 'Forbidden' })
+      });
+    },
+    log: function(message) {
+      logs.push(message);
+    },
+    onActivityUpdate: function(activityId, patch) {
+      updates.push({
+        activityId: activityId,
+        patch: patch
+      });
+    }
+  });
+
+  service.uploadActivity(activity);
+
+  assert.strictEqual(
+    store.getActivity(activity.id).stravaError,
+    'Strava upload failed: HTTP 403 - Forbidden'
+  );
+  assert.strictEqual(logs[0], 'Strava upload failed: HTTP 403 - Forbidden');
+  assert.strictEqual(updates.length, 2);
+  assert.strictEqual(updates[1].activityId, 'upload-403');
+  assert.strictEqual(updates[1].patch.stravaStatus, 'failed');
+});

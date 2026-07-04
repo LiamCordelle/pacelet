@@ -249,7 +249,7 @@ run('upload request builds a multipart TCX upload', function() {
   assert.ok(upload.body.indexOf('<TrainingCenterDatabase') !== -1);
 });
 
-run('config page URL embeds settings, actions, OAuth guidance, and notices', function() {
+run('config page URL embeds settings, history status, OAuth guidance, and notices', function() {
   var url = ConfigPage.buildConfigUrl({
     darkMode: true,
     stravaEnabled: true,
@@ -284,8 +284,9 @@ run('config page URL embeds settings, actions, OAuth guidance, and notices', fun
   assert.ok(html.indexOf('stravaAuthorizationCode') !== -1);
   assert.ok(html.indexOf('stravaScope') !== -1);
   assert.ok(html.indexOf('Recent Activities') !== -1);
-  assert.ok(html.indexOf('Open TCX Export') !== -1);
-  assert.ok(html.indexOf('Retry Strava') !== -1);
+  assert.ok(html.indexOf('Activity History on the watch') !== -1);
+  assert.strictEqual(html.indexOf('Open TCX Export'), -1);
+  assert.strictEqual(html.indexOf('data-action'), -1);
   assert.ok(html.indexOf('pt-123') !== -1);
   assert.ok(html.indexOf('short-lived') !== -1);
   assert.ok(html.indexOf('Strava retry started.') !== -1);
@@ -315,6 +316,7 @@ run('TCX export opens a readable page with copy and file actions', function() {
   assert.ok(exportPage.html.indexOf('Export TCX') !== -1);
   assert.ok(exportPage.html.indexOf('Open TCX File') !== -1);
   assert.ok(exportPage.html.indexOf('Copy TCX') !== -1);
+  assert.ok(exportPage.html.indexOf('Downloads') !== -1);
   assert.ok(exportPage.html.indexOf('pt-123.tcx') !== -1);
   assert.strictEqual(exportPage.fileHref, 'blob:tcx');
   assert.strictEqual(exportPage.tcx, Strava.generateTcx(activity));

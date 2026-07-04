@@ -4,6 +4,9 @@
 #include "pacelet_model.h"
 #include "watch_ui.h"
 
+#include <stdlib.h>
+#include <string.h>
+
 #define SETTINGS_KEY 1
 #define SETTINGS_VERSION 2
 
@@ -70,6 +73,20 @@ void watch_services_send_command(uint32_t command_key) {
   app_message_outbox_send();
 }
 
+void watch_services_send_history_action(uint32_t command_key,
+                                        int32_t history_index) {
+  DictionaryIterator *iter;
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK) {
+    return;
+  }
+
+  dict_write_uint8(iter, command_key, 1);
+  dict_write_int32(iter, MESSAGE_KEY_HISTORY_SELECTED_INDEX, history_index);
+  APP_LOG(APP_LOG_LEVEL_INFO, "History action %lu for index %ld",
+          (unsigned long)command_key, (long)history_index);
+  app_message_outbox_send();
+}
+
 bool watch_services_send_hr_bpm(int32_t bpm) {
   DictionaryIterator *iter;
   if (app_message_outbox_begin(&iter) != APP_MSG_OK) {
@@ -82,6 +99,70 @@ bool watch_services_send_hr_bpm(int32_t bpm) {
 
 void watch_services_request_settings(void) {
   watch_services_send_command(MESSAGE_KEY_REQUEST_SETTINGS);
+}
+
+void watch_services_request_history(void) {
+  watch_services_send_command(MESSAGE_KEY_REQUEST_HISTORY);
+}
+
+static void parse_history_items(const char *items_text) {
+  char buffer[320];
+  char *cursor;
+  int32_t parsed = 0;
+
+  if (!items_text) {
+    return;
+  }
+
+  snprintf(buffer, sizeof(buffer), "%s", items_text);
+  cursor = buffer;
+
+  while (*cursor && parsed < PACELET_HISTORY_MAX) {
+    char *end;
+    long type_value = strtol(cursor, &end, 10);
+    if (end == cursor || *end != ',') {
+      break;
+    }
+    cursor = end + 1;
+
+    long distance_value = strtol(cursor, &end, 10);
+    if (end == cursor || *end != ',') {
+      break;
+    }
+    cursor = end + 1;
+
+    long moving_value = strtol(cursor, &end, 10);
+    if (end == cursor || *end != ',') {
+      break;
+    }
+    cursor = end + 1;
+
+    long status_value = strtol(cursor, &end, 10);
+    if (end == cursor) {
+      break;
+    }
+
+    g_pacelet.history_items[parsed].activity_type = (ActivityType)
+        pacelet_clamp_i32(type_value, ActivityTypeWalking,
+                          ActivityTypeCycling);
+    g_pacelet.history_items[parsed].distance_m = (int32_t)distance_value;
+    g_pacelet.history_items[parsed].moving_s = (int32_t)moving_value;
+    g_pacelet.history_items[parsed].strava_status = (HistoryStravaStatus)
+        pacelet_clamp_i32(status_value, HistoryStravaUnknown,
+                          HistoryStravaSkipped);
+    parsed++;
+
+    if (*end == ';') {
+      cursor = end + 1;
+    } else {
+      break;
+    }
+  }
+
+  g_pacelet.history_count = parsed;
+  if (g_pacelet.history_selected_index > parsed) {
+    g_pacelet.history_selected_index = parsed;
+  }
 }
 
 static void inbox_received_callback(DictionaryIterator *iter, void *context) {
@@ -173,6 +254,35 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     settings_changed = true;
   }
 
+  Tuple *history_count = dict_find(iter, MESSAGE_KEY_HISTORY_COUNT);
+  if (history_count) {
+    g_pacelet.history_count = pacelet_clamp_i32(
+        history_count->value->int32, 0, PACELET_HISTORY_MAX);
+    g_pacelet.history_loading = false;
+  }
+
+  Tuple *history_items = dict_find(iter, MESSAGE_KEY_HISTORY_ITEMS);
+  if (history_items) {
+    parse_history_items(history_items->value->cstring);
+    g_pacelet.history_loading = false;
+  }
+
+  Tuple *history_selected =
+      dict_find(iter, MESSAGE_KEY_HISTORY_SELECTED_INDEX);
+  if (history_selected) {
+    g_pacelet.history_selected_index = pacelet_clamp_i32(
+        history_selected->value->int32, 0,
+        g_pacelet.history_count);
+  }
+
+  Tuple *history_message = dict_find(iter, MESSAGE_KEY_HISTORY_MESSAGE);
+  if (history_message) {
+    snprintf(g_pacelet.history_message,
+             sizeof(g_pacelet.history_message), "%s",
+             history_message->value->cstring);
+    g_pacelet.history_loading = false;
+  }
+
   if (settings_changed) {
     pacelet_normalize_hr_zone_thresholds();
     save_settings();
@@ -195,7 +305,7 @@ void watch_services_init(void) {
   app_message_register_inbox_received(inbox_received_callback);
   app_message_register_inbox_dropped(inbox_dropped_callback);
   app_message_register_outbox_failed(outbox_failed_callback);
-  app_message_open(512, 128);
+  app_message_open(768, 128);
 }
 
 void watch_services_deinit(void) {

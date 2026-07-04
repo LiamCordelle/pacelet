@@ -6,6 +6,7 @@
 #define PACELET_DEFAULT_HR_ZONE_1_BPM 100
 #define PACELET_DEFAULT_HR_ZONE_2_BPM 130
 #define PACELET_DEFAULT_HR_ZONE_3_BPM 160
+#define PACELET_HISTORY_MAX 10
 
 typedef enum {
   ActivityStateChoose = 0,
@@ -14,7 +15,9 @@ typedef enum {
   ActivityStateCountdown = 3,
   ActivityStateActive = 4,
   ActivityStatePaused = 5,
-  ActivityStateFinished = 6
+  ActivityStateFinished = 6,
+  ActivityStateHistoryList = 7,
+  ActivityStateHistoryDetail = 8
 } ActivityState;
 
 typedef enum {
@@ -37,12 +40,30 @@ typedef enum {
   HrZoneThree = 3
 } HrZone;
 
+typedef enum {
+  HistoryStravaUnknown = 0,
+  HistoryStravaNotUploaded = 1,
+  HistoryStravaUploading = 2,
+  HistoryStravaProcessing = 3,
+  HistoryStravaUploaded = 4,
+  HistoryStravaFailed = 5,
+  HistoryStravaSkipped = 6
+} HistoryStravaStatus;
+
+typedef struct {
+  ActivityType activity_type;
+  int32_t distance_m;
+  int32_t moving_s;
+  HistoryStravaStatus strava_status;
+} HistoryItem;
+
 typedef struct {
   bool dark_mode;
 
   ActivityState activity_state;
   GpsState gps_state;
   ActivityType activity_type;
+  int32_t choose_index;
   int countdown_value;
   int anim_tick;
 
@@ -72,6 +93,12 @@ typedef struct {
   int32_t summary_distance_m;
   int32_t summary_moving_s;
   int32_t summary_points;
+
+  bool history_loading;
+  int32_t history_count;
+  int32_t history_selected_index;
+  HistoryItem history_items[PACELET_HISTORY_MAX];
+  char history_message[64];
 
   int32_t next_split_km;
   int32_t last_split_elapsed_s;

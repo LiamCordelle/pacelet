@@ -68,6 +68,15 @@ function createStravaService(options) {
   var request = options.request;
   var setTimeoutFn = options.setTimeoutFn || setTimeout;
   var log = options.log || function() {};
+  var onActivityUpdate = options.onActivityUpdate || function() {};
+
+  function updateActivity(activityId, patch) {
+    var updated = store.updateActivity(activityId, patch);
+    if (updated) {
+      onActivityUpdate(activityId, patch);
+    }
+    return updated;
+  }
 
   function refreshToken(callback) {
     var settings = store.getSettings();
@@ -152,10 +161,11 @@ function createStravaService(options) {
 
   function pollUpload(activityId, uploadId, attempt) {
     if (attempt > 10) {
-      store.updateActivity(activityId, {
+      updateActivity(activityId, {
         stravaStatus: 'processing',
         stravaUploadStatus: 'Timed out waiting for Strava'
       });
+      log('Strava upload poll timed out');
       return;
     }
 
@@ -169,32 +179,39 @@ function createStravaService(options) {
         }
       }, function(err, response) {
         var json;
+        var errorMessage;
         if (err) {
-          store.updateActivity(activityId, {
+          updateActivity(activityId, {
             stravaStatus: 'processing',
             stravaUploadStatus: err.message
           });
+          log('Strava upload poll error: ' + err.message);
           return;
         }
 
         json = parseJson(response.text, {});
         if (response.status < 200 || response.status >= 300) {
-          store.updateActivity(activityId, {
+          errorMessage = stravaHttpError(
+            'Strava upload poll failed', response, json
+          );
+          updateActivity(activityId, {
             stravaStatus: 'processing',
-            stravaUploadStatus: 'Poll HTTP ' + response.status
+            stravaUploadStatus: errorMessage
           });
+          log(errorMessage);
           return;
         }
         if (json.error) {
-          store.updateActivity(activityId, {
+          updateActivity(activityId, {
             stravaStatus: 'failed',
             stravaError: json.error,
             stravaUploadStatus: json.status || ''
           });
+          log('Strava upload failed: ' + json.error);
           return;
         }
         if (json.activity_id) {
-          store.updateActivity(activityId, {
+          updateActivity(activityId, {
             stravaStatus: 'uploaded',
             stravaActivityId: json.activity_id,
             stravaUploadStatus: json.status || ''
@@ -203,7 +220,7 @@ function createStravaService(options) {
           return;
         }
 
-        store.updateActivity(activityId, {
+        updateActivity(activityId, {
           stravaStatus: 'processing',
           stravaUploadStatus: json.status || 'Processing'
         });
@@ -215,7 +232,7 @@ function createStravaService(options) {
   function uploadActivity(activity) {
     var settings = store.getSettings();
     if (!Strava.hasActivityWrite(settings)) {
-      store.updateActivity(activity.id, {
+      updateActivity(activity.id, {
         stravaStatus: 'failed',
         stravaError: 'Missing Strava activity:write scope'
       });
@@ -223,7 +240,7 @@ function createStravaService(options) {
       return;
     }
 
-    store.updateActivity(activity.id, {
+    updateActivity(activity.id, {
       stravaStatus: 'uploading',
       stravaError: ''
     });
@@ -232,7 +249,7 @@ function createStravaService(options) {
       var upload;
       if (tokenErr) {
         log('Strava token error: ' + tokenErr.message);
-        store.updateActivity(activity.id, {
+        updateActivity(activity.id, {
           stravaStatus: 'failed',
           stravaError: tokenErr.message
         });
@@ -248,10 +265,11 @@ function createStravaService(options) {
         body: upload.body
       }, function(uploadErr, response) {
         var json;
+        var errorMessage;
         var uploadId;
         if (uploadErr) {
           log('Strava upload error: ' + uploadErr.message);
-          store.updateActivity(activity.id, {
+          updateActivity(activity.id, {
             stravaStatus: 'failed',
             stravaError: uploadErr.message
           });
@@ -260,17 +278,19 @@ function createStravaService(options) {
 
         json = parseJson(response.text, {});
         if (response.status < 200 || response.status >= 300) {
-          store.updateActivity(activity.id, {
+          errorMessage = stravaHttpError(
+            'Strava upload failed', response, json
+          );
+          updateActivity(activity.id, {
             stravaStatus: 'failed',
-            stravaError: stravaHttpError(
-              'Strava upload failed', response, json
-            )
+            stravaError: errorMessage
           });
+          log(errorMessage);
           return;
         }
 
         uploadId = json.id || json.id_str || '';
-        store.updateActivity(activity.id, {
+        updateActivity(activity.id, {
           stravaStatus: 'processing',
           stravaUploadId: uploadId,
           stravaUploadStatus: json.status || ''
@@ -290,7 +310,7 @@ function createStravaService(options) {
     }
     if (!Strava.isConfigured(settings)) {
       log('Strava auto-upload skipped: not configured');
-      store.updateActivity(activity.id, {
+      updateActivity(activity.id, {
         stravaStatus: 'skipped',
         stravaError: 'Strava not configured'
       });
@@ -350,4 +370,3 @@ module.exports = {
   parseJson: parseJson,
   stravaHttpError: stravaHttpError
 };
-

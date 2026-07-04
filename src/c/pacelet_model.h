@@ -16,4 +16,4 @@ const char *pacelet_hr_zone_label(HrZone zone);
 
 const char *pacelet_activity_label(ActivityType type);
 const char *pacelet_activity_short_label(ActivityType type);
-
+const char *pacelet_history_status_label(HistoryStravaStatus status);

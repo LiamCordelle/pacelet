@@ -9,6 +9,7 @@
 #define HR_READING_STALE_S 60
 #define SPLIT_DISTANCE_M 1000
 #define SPLIT_SUMMARY_MS 6000
+#define CHOOSE_ITEM_COUNT 4
 
 static AppTimer *s_countdown_timer;
 static AppTimer *s_split_timer;
@@ -207,6 +208,67 @@ static void return_to_choose(void) {
   watch_ui_mark_dirty();
 }
 
+static void open_history_list(void) {
+  cancel_countdown();
+  g_pacelet.activity_state = ActivityStateHistoryList;
+  g_pacelet.history_loading = true;
+  g_pacelet.history_count = 0;
+  g_pacelet.history_selected_index = 0;
+  snprintf(g_pacelet.history_message, sizeof(g_pacelet.history_message),
+           "Loading history");
+  watch_services_request_history();
+  watch_ui_mark_dirty();
+}
+
+static void select_history_item(void) {
+  if (g_pacelet.activity_state != ActivityStateHistoryList) {
+    return;
+  }
+
+  if (g_pacelet.history_selected_index >= g_pacelet.history_count) {
+    return_to_choose();
+    return;
+  }
+
+  g_pacelet.activity_state = ActivityStateHistoryDetail;
+  vibes_short_pulse();
+  watch_ui_mark_dirty();
+}
+
+static bool selected_history_activity_available(void) {
+  return g_pacelet.history_count > 0 &&
+      g_pacelet.history_selected_index >= 0 &&
+      g_pacelet.history_selected_index < g_pacelet.history_count;
+}
+
+static void request_selected_history_export(void) {
+  if (!selected_history_activity_available()) {
+    return;
+  }
+  snprintf(g_pacelet.history_message, sizeof(g_pacelet.history_message),
+           "Opening TCX on phone");
+  APP_LOG(APP_LOG_LEVEL_INFO, "Requesting TCX export for history index %ld",
+          (long)g_pacelet.history_selected_index);
+  watch_services_send_history_action(
+      MESSAGE_KEY_EXPORT_HISTORY_TCX, g_pacelet.history_selected_index);
+  vibes_short_pulse();
+  watch_ui_mark_dirty();
+}
+
+static void request_selected_history_retry(void) {
+  if (!selected_history_activity_available()) {
+    return;
+  }
+  snprintf(g_pacelet.history_message, sizeof(g_pacelet.history_message),
+           "Retrying Strava");
+  APP_LOG(APP_LOG_LEVEL_INFO, "Requesting Strava retry for history index %ld",
+          (long)g_pacelet.history_selected_index);
+  watch_services_send_history_action(
+      MESSAGE_KEY_RETRY_HISTORY_STRAVA, g_pacelet.history_selected_index);
+  vibes_short_pulse();
+  watch_ui_mark_dirty();
+}
+
 static void start_activity_recording(void) {
   cancel_countdown();
 
@@ -356,6 +418,33 @@ static void cycle_activity_type(int direction) {
 
   g_pacelet.activity_type = (ActivityType)(
       ((int)g_pacelet.activity_type + direction + 3) % 3);
+  g_pacelet.choose_index = g_pacelet.activity_type;
+  watch_ui_mark_dirty();
+}
+
+static void cycle_choose_index(int direction) {
+  if (g_pacelet.activity_state != ActivityStateChoose) {
+    return;
+  }
+
+  g_pacelet.choose_index =
+      (g_pacelet.choose_index + direction + CHOOSE_ITEM_COUNT) %
+      CHOOSE_ITEM_COUNT;
+  if (g_pacelet.choose_index <= ActivityTypeCycling) {
+    g_pacelet.activity_type = (ActivityType)g_pacelet.choose_index;
+  }
+  watch_ui_mark_dirty();
+}
+
+static void cycle_history_index(int direction) {
+  if (g_pacelet.activity_state != ActivityStateHistoryList) {
+    return;
+  }
+
+  int32_t item_count = g_pacelet.history_count + 1;
+  g_pacelet.history_selected_index =
+      (g_pacelet.history_selected_index + direction + item_count) %
+      item_count;
   watch_ui_mark_dirty();
 }
 
@@ -417,7 +506,14 @@ void activity_controller_handle_select(void) {
 
   switch (g_pacelet.activity_state) {
     case ActivityStateChoose:
-      request_gps();
+      if (g_pacelet.choose_index == ActivityTypeWalking ||
+          g_pacelet.choose_index == ActivityTypeRunning ||
+          g_pacelet.choose_index == ActivityTypeCycling) {
+        g_pacelet.activity_type = (ActivityType)g_pacelet.choose_index;
+        request_gps();
+      } else {
+        open_history_list();
+      }
       break;
     case ActivityStateGps:
       if (g_pacelet.gps_state == GpsStateLocked) {
@@ -432,6 +528,12 @@ void activity_controller_handle_select(void) {
     case ActivityStatePaused:
       show_finish_confirmation();
       break;
+    case ActivityStateHistoryList:
+      select_history_item();
+      break;
+    case ActivityStateHistoryDetail:
+      request_selected_history_retry();
+      break;
     case ActivityStateCountdown:
     case ActivityStateActive:
     case ActivityStateFinished:
@@ -444,11 +546,15 @@ void activity_controller_handle_up(void) {
   if (g_pacelet.finish_confirm_visible) {
     finish_activity();
   } else if (g_pacelet.activity_state == ActivityStateChoose) {
-    cycle_activity_type(-1);
+    cycle_choose_index(-1);
   } else if (g_pacelet.activity_state == ActivityStateActive) {
     pause_activity();
   } else if (g_pacelet.activity_state == ActivityStatePaused) {
     resume_activity();
+  } else if (g_pacelet.activity_state == ActivityStateHistoryList) {
+    cycle_history_index(-1);
+  } else if (g_pacelet.activity_state == ActivityStateHistoryDetail) {
+    request_selected_history_export();
   } else if (g_pacelet.activity_state == ActivityStateGps ||
              g_pacelet.activity_state == ActivityStateReady ||
              g_pacelet.activity_state == ActivityStateFinished) {
@@ -461,6 +567,13 @@ void activity_controller_handle_down(void) {
     hide_finish_confirmation();
   } else if (g_pacelet.activity_state == ActivityStateFinished) {
     return_to_choose();
+  } else if (g_pacelet.activity_state == ActivityStateChoose) {
+    cycle_choose_index(1);
+  } else if (g_pacelet.activity_state == ActivityStateHistoryList) {
+    cycle_history_index(1);
+  } else if (g_pacelet.activity_state == ActivityStateHistoryDetail) {
+    g_pacelet.activity_state = ActivityStateHistoryList;
+    watch_ui_mark_dirty();
   } else {
     cycle_activity_type(1);
   }

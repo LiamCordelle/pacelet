@@ -17,7 +17,9 @@ typedef enum {
   ActionIconStop,
   ActionIconCheck,
   ActionIconClose,
-  ActionIconType
+  ActionIconType,
+  ActionIconHistory,
+  ActionIconFile
 } ActionIcon;
 
 static Window *s_window;
@@ -240,6 +242,9 @@ static const char *state_short_label(void) {
       return "PAUSE";
     case ActivityStateFinished:
       return "SAVED";
+    case ActivityStateHistoryList:
+    case ActivityStateHistoryDetail:
+      return "HIST";
     default:
       return "";
   }
@@ -262,6 +267,10 @@ static GColor state_color(void) {
   }
   if (g_pacelet.gps_state == GpsStateError) {
     return color_bad();
+  }
+  if (g_pacelet.activity_state == ActivityStateHistoryList ||
+      g_pacelet.activity_state == ActivityStateHistoryDetail) {
+    return color_accent();
   }
   return color_muted();
 }
@@ -293,7 +302,7 @@ static int rail_icon_y(GRect bounds, int index) {
 }
 
 static int choose_row_y(int index) {
-  return 38 + index * 54;
+  return 32 + index * 43;
 }
 
 static void draw_dotted_separator(GContext *ctx, int right, int y,
@@ -455,6 +464,10 @@ static void draw_top_bar(GContext *ctx, GRect bounds) {
   int right = content_right(bounds);
   int third = right / 3;
   char clock_text[8];
+  const char *left_label =
+      (g_pacelet.activity_state == ActivityStateHistoryList ||
+       g_pacelet.activity_state == ActivityStateHistoryDetail) ?
+          "HIST" : pacelet_activity_short_label(g_pacelet.activity_type);
 
   graphics_context_set_fill_color(ctx, state_color());
   graphics_fill_rect(ctx, GRect(0, 0, right, 2), 0, GCornerNone);
@@ -463,8 +476,7 @@ static void draw_top_bar(GContext *ctx, GRect bounds) {
 
   graphics_context_set_text_color(ctx, color_muted());
   graphics_draw_text(
-      ctx, pacelet_activity_short_label(g_pacelet.activity_type),
-      font_status(), GRect(8, 5, third - 8, 18),
+      ctx, left_label, font_status(), GRect(8, 5, third - 8, 18),
       GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
   graphics_context_set_text_color(ctx, color_text());
@@ -552,6 +564,17 @@ static void draw_action_icon(GContext *ctx, GPoint center, ActionIcon icon,
       graphics_fill_circle(ctx, GPoint(x + 6, y), 1);
       graphics_fill_circle(ctx, GPoint(x + 6, y + 5), 1);
       break;
+    case ActionIconHistory:
+      graphics_draw_circle(ctx, center, 7);
+      graphics_draw_line(ctx, center, GPoint(x, y - 5));
+      graphics_draw_line(ctx, center, GPoint(x + 4, y));
+      break;
+    case ActionIconFile:
+      graphics_draw_rect(ctx, GRect(x - 5, y - 7, 10, 14));
+      graphics_draw_line(ctx, GPoint(x + 1, y - 7), GPoint(x + 5, y - 3));
+      graphics_draw_line(ctx, GPoint(x - 2, y + 1), GPoint(x + 3, y + 1));
+      graphics_draw_line(ctx, GPoint(x - 2, y + 5), GPoint(x + 3, y + 5));
+      break;
     case ActionIconNone:
     default:
       break;
@@ -604,10 +627,10 @@ static void draw_activity_icon_for_type(GContext *ctx, ActivityType type,
 
 static void draw_choose_menu_item(GContext *ctx, GRect bounds,
                                   ActivityType type, int y) {
-  bool selected = g_pacelet.activity_type == type;
+  bool selected = g_pacelet.choose_index == type;
   int right = content_right(bounds);
-  int row_h = 48;
-  int icon_size = 34;
+  int row_h = 39;
+  int icon_size = 30;
   GRect row_bounds = GRect(0, y, right, row_h);
   GColor item_text = selected ? color_on_accent() : color_text();
   GColor item_icon = selected ? color_on_accent() : color_text();
@@ -627,6 +650,32 @@ static void draw_choose_menu_item(GContext *ctx, GRect bounds,
 
   graphics_context_set_text_color(ctx, item_text);
   graphics_draw_text(ctx, pacelet_activity_label(type), font_menu(),
+                     GRect(52, y + (row_h - 24) / 2, right - 56, 24),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+}
+
+static void draw_choose_history_item(GContext *ctx, GRect bounds, int y) {
+  bool selected = g_pacelet.choose_index == 3;
+  int right = content_right(bounds);
+  int row_h = 39;
+  GRect row_bounds = GRect(0, y, right, row_h);
+  GColor item_text = selected ? color_on_accent() : color_text();
+
+  if (selected) {
+    graphics_context_set_fill_color(ctx, color_accent());
+    graphics_fill_rect(ctx, row_bounds, 0, GCornerNone);
+  } else {
+    graphics_context_set_stroke_color(ctx, color_muted());
+    for (int x = 8; x < right - 4; x += 4) {
+      graphics_draw_pixel(ctx, GPoint(x, y + row_h - 1));
+    }
+  }
+
+  draw_action_icon(ctx, GPoint(29, y + row_h / 2),
+                   ActionIconHistory, item_text);
+  graphics_context_set_text_color(ctx, item_text);
+  graphics_draw_text(ctx, "Activity History", font_menu(),
                      GRect(52, y + (row_h - 24) / 2, right - 56, 24),
                      GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentLeft, NULL);
@@ -666,8 +715,11 @@ static void draw_choose_screen(GContext *ctx, GRect bounds) {
       ctx, bounds, ActivityTypeRunning, choose_row_y(1));
   draw_choose_menu_item(
       ctx, bounds, ActivityTypeCycling, choose_row_y(2));
+  draw_choose_history_item(ctx, bounds, choose_row_y(3));
   draw_action_rail(
-      ctx, bounds, ActionIconUp, ActionIconGps, ActionIconDown);
+      ctx, bounds, ActionIconUp,
+      g_pacelet.choose_index == 3 ? ActionIconHistory : ActionIconGps,
+      ActionIconDown);
 }
 
 static void draw_gps_screen(GContext *ctx, GRect bounds) {
@@ -1031,6 +1083,219 @@ static void draw_finished_screen(GContext *ctx, GRect bounds) {
       ctx, bounds, ActionIconPlay, ActionIconNone, ActionIconType);
 }
 
+static GColor history_status_color(HistoryStravaStatus status) {
+  switch (status) {
+    case HistoryStravaUploaded:
+      return color_accent();
+    case HistoryStravaUploading:
+    case HistoryStravaProcessing:
+      return color_warning();
+    case HistoryStravaFailed:
+      return color_bad();
+    case HistoryStravaSkipped:
+    case HistoryStravaNotUploaded:
+    case HistoryStravaUnknown:
+    default:
+      return color_muted();
+  }
+}
+
+static void format_history_distance(int32_t meters, char *buffer,
+                                    size_t buffer_size) {
+  if (meters >= 1000) {
+    snprintf(buffer, buffer_size, "%ld.%02ld km",
+             (long)(meters / 1000), (long)((meters % 1000) / 10));
+  } else {
+    snprintf(buffer, buffer_size, "%ld m", (long)meters);
+  }
+}
+
+static void draw_history_list_row(GContext *ctx, GRect bounds, int row_index,
+                                  int y, int height, bool selected) {
+  int right = content_right(bounds);
+  char title[32];
+  char detail[48];
+  char distance_text[16];
+  HistoryItem *item = &g_pacelet.history_items[row_index];
+  GColor title_color = selected ? color_on_accent() : color_text();
+  GColor detail_color = selected ? color_on_accent() :
+      history_status_color(item->strava_status);
+
+  graphics_context_set_fill_color(ctx, selected ? color_accent() : color_bg());
+  graphics_fill_rect(ctx, GRect(0, y, right, height), 0, GCornerNone);
+
+  if (!selected) {
+    draw_dotted_separator(ctx, right, y + height - 1, color_muted());
+  }
+
+  format_history_distance(item->distance_m, distance_text,
+                          sizeof(distance_text));
+  snprintf(title, sizeof(title), "%ld  %s",
+           (long)(row_index + 1),
+           pacelet_activity_label(item->activity_type));
+  snprintf(detail, sizeof(detail), "%s  %s", distance_text,
+           pacelet_history_status_label(item->strava_status));
+
+  graphics_context_set_text_color(ctx, title_color);
+  graphics_draw_text(ctx, title, font_metric_label(),
+                     GRect(8, y + 1, right - 16, 16),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+
+  graphics_context_set_text_color(ctx, detail_color);
+  graphics_draw_text(ctx, detail, font_label(),
+                     GRect(8, y + 15, right - 16, 16),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+}
+
+static void draw_history_back_row(GContext *ctx, GRect bounds, int y,
+                                  int height, bool selected) {
+  int right = content_right(bounds);
+  GColor ink = selected ? color_on_accent() : color_text();
+
+  graphics_context_set_fill_color(ctx, selected ? color_accent() : color_bg());
+  graphics_fill_rect(ctx, GRect(0, y, right, height), 0, GCornerNone);
+
+  graphics_context_set_text_color(ctx, ink);
+  graphics_draw_text(ctx, "Back", font_menu(),
+                     GRect(8, y + (height - 24) / 2, right - 16, 24),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+}
+
+static void draw_history_list_screen(GContext *ctx, GRect bounds) {
+  int right = content_right(bounds);
+  int title_y = 28;
+  int row_y = 55;
+  int row_h = 31;
+  int visible_rows = 5;
+  int total_rows = g_pacelet.history_count + 1;
+  int selected = (int)pacelet_clamp_i32(
+      g_pacelet.history_selected_index, 0, total_rows - 1);
+  int start = selected - 2;
+  int max_start = total_rows > visible_rows ? total_rows - visible_rows : 0;
+
+  if (start < 0) {
+    start = 0;
+  } else if (start > max_start) {
+    start = max_start;
+  }
+
+  draw_top_bar(ctx, bounds);
+
+  graphics_context_set_text_color(ctx, color_text());
+  graphics_draw_text(ctx, "Activity History", font_menu(),
+                     GRect(8, title_y, right - 16, 24),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+
+  if (g_pacelet.history_loading) {
+    graphics_context_set_text_color(ctx, color_muted());
+    graphics_draw_text(ctx, "Loading from phone", font_label(),
+                       GRect(8, 93, right - 16, 18),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
+  } else if (g_pacelet.history_count == 0) {
+    graphics_context_set_text_color(ctx, color_muted());
+    graphics_draw_text(ctx, "No saved activities", font_label(),
+                       GRect(8, 83, right - 16, 18),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
+    if (g_pacelet.history_message[0] != '\0') {
+      graphics_draw_text(ctx, g_pacelet.history_message, font_label(),
+                         GRect(8, 104, right - 16, 34),
+                         GTextOverflowModeTrailingEllipsis,
+                         GTextAlignmentCenter, NULL);
+    }
+  }
+
+  if (!g_pacelet.history_loading) {
+    for (int row = 0; row < visible_rows && start + row < total_rows; row++) {
+      int index = start + row;
+      bool row_selected = index == selected;
+      if (index < g_pacelet.history_count) {
+        draw_history_list_row(ctx, bounds, index, row_y + row * row_h,
+                              row_h, row_selected);
+      } else {
+        draw_history_back_row(ctx, bounds, row_y + row * row_h,
+                              row_h, row_selected);
+      }
+    }
+  }
+
+  draw_action_rail(ctx, bounds, ActionIconUp, ActionIconCheck,
+                   ActionIconDown);
+}
+
+static void draw_history_detail_screen(GContext *ctx, GRect bounds) {
+  int right = content_right(bounds);
+  int index = (int)pacelet_clamp_i32(
+      g_pacelet.history_selected_index, 0,
+      g_pacelet.history_count > 0 ? g_pacelet.history_count - 1 : 0);
+  HistoryItem *item = &g_pacelet.history_items[index];
+  char title[32];
+  char elapsed_text[16];
+  char distance_text[16];
+
+  draw_top_bar(ctx, bounds);
+
+  format_elapsed(item->moving_s, elapsed_text, sizeof(elapsed_text));
+  format_history_distance(item->distance_m, distance_text,
+                          sizeof(distance_text));
+  snprintf(title, sizeof(title), "%s %ld/%ld",
+           pacelet_activity_label(item->activity_type),
+           (long)(index + 1), (long)g_pacelet.history_count);
+
+  graphics_context_set_fill_color(ctx, color_accent());
+  graphics_fill_rect(ctx, GRect(0, 27, right, 48), 0, GCornerNone);
+  graphics_context_set_text_color(ctx, color_on_accent());
+  graphics_draw_text(ctx, title, font_menu(),
+                     GRect(8, 31, right - 16, 24),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, distance_text, font_metric_label(),
+                     GRect(8, 53, right - 16, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+
+  draw_metric_row(ctx, bounds, 76, 38, "TIME", elapsed_text, "");
+
+  draw_dotted_separator(ctx, right, 114, color_muted());
+  graphics_context_set_text_color(ctx, color_muted());
+  graphics_draw_text(ctx, "STRAVA", font_metric_label(),
+                     GRect(8, 122, 56, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+  graphics_context_set_text_color(ctx, history_status_color(
+      item->strava_status));
+  graphics_draw_text(ctx, pacelet_history_status_label(item->strava_status),
+                     font_menu(), GRect(66, 119, right - 72, 24),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentRight, NULL);
+
+  graphics_context_set_text_color(ctx, color_text());
+  graphics_draw_text(ctx, "Export TCX", font_metric_label(),
+                     GRect(8, 151, right - 16, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, "Retry Strava", font_metric_label(),
+                     GRect(8, 171, right - 16, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentLeft, NULL);
+
+  if (g_pacelet.history_message[0] != '\0') {
+    graphics_context_set_text_color(ctx, color_muted());
+    graphics_draw_text(ctx, g_pacelet.history_message, font_label(),
+                       GRect(8, 196, right - 16, 28),
+                       GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentCenter, NULL);
+  }
+
+  draw_action_rail(ctx, bounds, ActionIconFile, ActionIconRefresh,
+                   ActionIconClose);
+}
+
 static void canvas_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
 
@@ -1057,6 +1322,12 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       break;
     case ActivityStateFinished:
       draw_finished_screen(ctx, bounds);
+      break;
+    case ActivityStateHistoryList:
+      draw_history_list_screen(ctx, bounds);
+      break;
+    case ActivityStateHistoryDetail:
+      draw_history_detail_screen(ctx, bounds);
       break;
     case ActivityStatePaused:
     default:

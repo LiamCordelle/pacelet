@@ -26,6 +26,8 @@ workflows that cross module boundaries:
 - Starting, pausing, resuming, and finishing an activity
 - Sending completed summaries back to the watch
 - Opening and handling the configuration page
+- Sending compact saved-activity history to the watch
+- Routing watch history TCX export and Strava retry actions
 - Routing incoming watch commands and HR samples
 
 It should not implement storage, geolocation, HTTP, or activity calculations.
@@ -81,13 +83,20 @@ Owns Strava network workflows:
 - Activity upload
 - Upload-status polling
 - Auto-upload and retry decisions
+- Activity update notifications for live watch-history refreshes
 
 HTTP, timers, storage, and logging are injected for deterministic tests.
 
 ### `config_page.js`
 
-Generates the embedded settings and TCX export pages and parses configuration
-responses.
+Generates the embedded settings/status page and TCX export page, then parses
+configuration responses. Saved-activity actions are watch initiated; the
+settings page only displays recent activity status.
+
+### `history_messages.js`
+
+Builds the compact saved-activity payload sent to the watch and maps stored
+Strava upload states to the watch-side status enum.
 
 ## Change Guide
 
@@ -97,6 +106,7 @@ responses.
 - Change OAuth/TCX/multipart data: `strava.js`
 - Change token, upload, or polling behavior: `strava_service.js`
 - Change settings UI or TCX export UI: `config_page.js`
+- Change watch history payload shape or status mapping: `history_messages.js`
 - Add a watch command or cross-service workflow: `index.js`
 
 New watch-phone message keys must be declared in `package.json` before use.

@@ -14,6 +14,16 @@ static const char *ACTIVITY_SHORT_LABELS[] = {
   "RIDE"
 };
 
+static const char *HISTORY_STATUS_LABELS[] = {
+  "UNKNOWN",
+  "NOT SENT",
+  "UPLOADING",
+  "PROCESSING",
+  "UPLOADED",
+  "FAILED",
+  "SKIPPED"
+};
+
 PaceletModel g_pacelet;
 
 void pacelet_model_init(void) {
@@ -21,11 +31,17 @@ void pacelet_model_init(void) {
   g_pacelet.activity_state = ActivityStateChoose;
   g_pacelet.gps_state = GpsStateIdle;
   g_pacelet.activity_type = ActivityTypeRunning;
+  g_pacelet.choose_index = ActivityTypeRunning;
   g_pacelet.gps_accuracy_m = -1;
   g_pacelet.last_hr_sent_elapsed_s = -1;
   g_pacelet.hr_zone_1_bpm = PACELET_DEFAULT_HR_ZONE_1_BPM;
   g_pacelet.hr_zone_2_bpm = PACELET_DEFAULT_HR_ZONE_2_BPM;
   g_pacelet.hr_zone_3_bpm = PACELET_DEFAULT_HR_ZONE_3_BPM;
+  g_pacelet.history_selected_index = 0;
+  for (int i = 0; i < PACELET_HISTORY_MAX; i++) {
+    g_pacelet.history_items[i].activity_type = ActivityTypeRunning;
+    g_pacelet.history_items[i].strava_status = HistoryStravaUnknown;
+  }
   g_pacelet.next_split_km = 1;
 }
 
@@ -136,4 +152,9 @@ const char *pacelet_activity_label(ActivityType type) {
 const char *pacelet_activity_short_label(ActivityType type) {
   return ACTIVITY_SHORT_LABELS[pacelet_clamp_i32(
       type, ActivityTypeWalking, ActivityTypeCycling)];
+}
+
+const char *pacelet_history_status_label(HistoryStravaStatus status) {
+  return HISTORY_STATUS_LABELS[pacelet_clamp_i32(
+      status, HistoryStravaUnknown, HistoryStravaSkipped)];
 }

@@ -157,12 +157,6 @@ function renderActivities(activities) {
       output.push('<p>' + escapeHtml(formatHrSummary(activities[i])) + '</p>');
     }
     output.push('<p>Strava: ' + escapeHtml(activityStatus(activities[i])) + '</p>');
-    output.push('<div class="actions">');
-    output.push('<button type="button" data-action="export_tcx" data-working="Opening..." data-id="' +
-        escapeHtml(activities[i].id) + '">Open TCX Export</button>');
-    output.push('<button type="button" data-action="retry_strava" data-id="' +
-        escapeHtml(activities[i].id) + '" data-working="Retrying...">Retry Strava</button>');
-    output.push('</div>');
     output.push('</article>');
   }
 
@@ -196,11 +190,9 @@ function buildConfigHtml(settings, activities, notice) {
     '.activity:first-child{border-top:0;}',
     '.activity h3{font-size:15px;margin:0 0 6px;}',
     '.activity p{margin:5px 0;}',
-    '.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;}',
     '.notice{background:#173b35;border:1px solid #00d084;border-radius:7px;color:#f5fbf8;padding:10px;}',
     'p{color:#a9b5ad;font-size:13px;line-height:1.4;}',
     'button{width:100%;border:0;border-radius:7px;background:#00d084;color:#061014;font-size:17px;font-weight:800;padding:12px;margin-top:10px;}',
-    '.actions button{font-size:14px;margin-top:4px;padding:9px;}',
     '</style>',
     '</head>',
     '<body>',
@@ -249,7 +241,7 @@ function buildConfigHtml(settings, activities, notice) {
     '</form>',
     '<fieldset>',
     '<legend>Recent Activities</legend>',
-    '<p>Export and retry close this settings screen while PebbleKit JS performs the action. TCX export opens a separate export page.</p>',
+    '<p>Use Activity History on the watch to export TCX files or retry Strava uploads. TCX export opens a phone page with a file download/share action.</p>',
     renderActivities(activities),
     '</fieldset>',
     '</main>',
@@ -285,17 +277,6 @@ function buildConfigHtml(settings, activities, notice) {
     'if(!clientId){alert("Enter your Strava Client ID first.");return;}',
     'var query="client_id="+encodeURIComponent(clientId)+"&redirect_uri="+encodeURIComponent("http://localhost")+"&response_type=code&approval_prompt=force&scope="+encodeURIComponent("read,activity:write");',
     'document.location="https://www.strava.com/oauth/authorize?"+query;',
-    '});',
-    'document.addEventListener("click",function(e){',
-    'var target=e.target;',
-    'if(!target || !target.getAttribute){return;}',
-    'var action=target.getAttribute("data-action");',
-    'if(!action){return;}',
-    'e.preventDefault();',
-    'e.stopPropagation();',
-    'target.disabled=true;',
-    'target.textContent=target.getAttribute("data-working")||"Working...";',
-    'closeWith({action:action,activityId:target.getAttribute("data-id")});',
     '});',
     '</script>',
     '</body>',
@@ -339,7 +320,7 @@ function buildExportHtml(activity) {
     '</head><body><main>',
     '<h1>Export TCX</h1>',
     '<p>' + escapeHtml(title) + '</p>',
-    '<p>Use Open TCX File to hand the file to your phone, or Copy TCX and paste it into a file or sharing app.</p>',
+    '<p>Use Open TCX File to hand the file to your phone browser. Android commonly saves this to Downloads; iOS may offer Files or sharing. Copy TCX is the fallback.</p>',
     '<textarea id="tcx" readonly>Preparing TCX...</textarea>',
     '<div class="actions">',
     '<a class="button" id="openFile" download="' +

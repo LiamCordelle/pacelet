@@ -49,6 +49,7 @@ Owns user actions and time-based behavior:
 
 - GPS request and countdown
 - Start, pause, resume, finish, and return-to-picker transitions
+- Activity History list/detail navigation and history actions
 - Split timers and kilometre summary state
 - Pebble Health sampling, stale-reading expiry, and HR messages
 
@@ -60,6 +61,7 @@ Owns external watch services:
 
 - AppMessage serialization and parsing
 - GPS/live metric updates received from the phone
+- Saved-activity history responses received from the phone
 - Watch settings persistence and migration
 
 New watch-phone fields must first be declared in `package.json`.
@@ -77,6 +79,8 @@ would create many tiny modules without reducing shared drawing context.
 
 ```text
 Choose -> GPS -> Ready -> Countdown -> Active <-> Paused -> Finished
+   |
+   +-> History List -> History Detail
 ```
 
 The finish confirmation and kilometre split are temporary overlays represented

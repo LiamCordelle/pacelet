@@ -31,7 +31,7 @@ function railIconY(index) {
 }
 
 function chooseRowY(index) {
-  return 38 + index * 54;
+  return 32 + index * 43;
 }
 
 function gpsIconY() {
@@ -81,6 +81,40 @@ function splitRowHeight() {
 
 var screens = [
   { name: 'choose-running', kind: 'choose', activity: 'RUNNING' },
+  {
+    name: 'history-list',
+    kind: 'history-list',
+    selected: 1,
+    message: 'History refreshed.',
+    items: [
+      {
+        title: '1  RUNNING',
+        detail: '4.62 km  UPLOADED',
+        statusColor: THEME.accent
+      },
+      {
+        title: '2  RUNNING',
+        detail: '3.18 km  FAILED',
+        statusColor: THEME.bad
+      },
+      {
+        title: '3  CYCLING',
+        detail: '18.74 km  PROCESSING',
+        statusColor: THEME.warning
+      }
+    ]
+  },
+  {
+    name: 'history-detail',
+    kind: 'history-detail',
+    activity: 'RUNNING',
+    index: '2/3',
+    distance: '3.18 km',
+    elapsed: '18:56',
+    status: 'FAILED',
+    statusColor: THEME.bad,
+    message: 'HTTP 403 - Forbidden'
+  },
   {
     name: 'gps-search',
     kind: 'gps',
@@ -206,6 +240,9 @@ function esc(value) {
 }
 
 function shortActivity(activity) {
+  if (activity === 'HIST') {
+    return 'HIST';
+  }
   if (activity === 'WALKING') {
     return 'WALK';
   }
@@ -567,6 +604,32 @@ function actionIcon(type, cx, cy, color) {
     ].join('\n');
   }
 
+  if (type === 'file') {
+    return [
+      '<g fill="none" stroke="' + color + '" stroke-width="2">',
+      '<path d="M' + (cx - 5) + ' ' + (cy - 7) + ' L' + (cx + 3) +
+        ' ' + (cy - 7) + ' L' + (cx + 6) + ' ' + (cy - 4) +
+        ' L' + (cx + 6) + ' ' + (cy + 7) + ' L' + (cx - 5) +
+        ' ' + (cy + 7) + ' Z"/>',
+      '<path d="M' + (cx + 3) + ' ' + (cy - 7) + ' L' + (cx + 3) +
+        ' ' + (cy - 4) + ' L' + (cx + 6) + ' ' + (cy - 4) + '"/>',
+      '</g>'
+    ].join('\n');
+  }
+
+  if (type === 'history') {
+    return [
+      '<g fill="none" stroke="' + color + '" stroke-width="2">',
+      '<circle cx="' + cx + '" cy="' + cy + '" r="6"/>',
+      '<path d="M' + cx + ' ' + (cy - 4) + ' L' + cx + ' ' + cy +
+        ' L' + (cx + 4) + ' ' + (cy + 2) + '"/>',
+      '<path d="M' + (cx - 8) + ' ' + (cy - 2) + ' L' +
+        (cx - 5) + ' ' + (cy - 5) + ' M' + (cx - 8) + ' ' +
+        (cy - 2) + ' L' + (cx - 5) + ' ' + (cy + 1) + '"/>',
+      '</g>'
+    ].join('\n');
+  }
+
   if (type === 'refresh') {
     return [
       '<g fill="none" stroke="' + color + '" stroke-width="2">',
@@ -675,8 +738,8 @@ function activityIcon(activity, cx, cy, size, color) {
 }
 
 function menuItem(activity, selected, y) {
-  var rowH = 48;
-  var iconSize = 34;
+  var rowH = 39;
+  var iconSize = 30;
   var labelColor = selected ? THEME.onAccent : THEME.text;
   var iconColor = selected ? THEME.onAccent : THEME.text;
   var background = selected ?
@@ -691,9 +754,30 @@ function menuItem(activity, selected, y) {
   return [
     background,
     activityIcon(activity, 29, y + rowH / 2, iconSize, iconColor),
-    '<text x="52" y="' + (y + rowH / 2 + 6) +
+    '<text x="52" y="' + (y + rowH / 2 + 5) +
       '" class="menu" fill="' + labelColor +
       '">' + esc(activity) + '</text>'
+  ].join('\n');
+}
+
+function historyMenuItem(selected, y) {
+  var rowH = 39;
+  var labelColor = selected ? THEME.onAccent : THEME.text;
+  var background = selected ?
+    '<rect x="0" y="' + y + '" width="' + RIGHT +
+      '" height="' + rowH + '" fill="' +
+      THEME.accent + '"/>' :
+    '<line x1="8" y1="' + (y + rowH - 1) + '" x2="' + (RIGHT - 4) +
+      '" y2="' + (y + rowH - 1) +
+      '" stroke="' + THEME.muted +
+      '" stroke-width="1" stroke-dasharray="1 3" opacity="0.65"/>';
+
+  return [
+    background,
+    actionIcon('history', 29, y + rowH / 2, labelColor),
+    '<text x="52" y="' + (y + rowH / 2 + 5) +
+      '" class="menu" fill="' + labelColor +
+      '">Activity History</text>'
   ].join('\n');
 }
 
@@ -859,7 +943,86 @@ function renderChoose(screen) {
     menuItem('WALKING', screen.activity === 'WALKING', chooseRowY(0)),
     menuItem('RUNNING', screen.activity === 'RUNNING', chooseRowY(1)),
     menuItem('CYCLING', screen.activity === 'CYCLING', chooseRowY(2)),
+    historyMenuItem(false, chooseRowY(3)),
     actionRail('up', 'gps', 'down')
+  ].join('\n'));
+}
+
+function historyRow(item, index, selected, y) {
+  var rowH = 31;
+  var titleColor = selected ? THEME.onAccent : THEME.text;
+  var detailColor = selected ? THEME.onAccent : item.statusColor;
+  var background = selected ?
+    '<rect x="0" y="' + y + '" width="' + RIGHT +
+      '" height="' + rowH + '" fill="' + THEME.accent + '"/>' :
+    dottedSeparator(y + rowH - 1, THEME.muted);
+
+  return [
+    background,
+    '<text x="8" y="' + (y + 14) +
+      '" class="status" fill="' + titleColor + '">' +
+      esc(item.title) + '</text>',
+    '<text x="8" y="' + (y + 28) +
+      '" class="footer" fill="' + detailColor + '">' +
+      esc(item.detail) + '</text>'
+  ].join('\n');
+}
+
+function historyBackRow(selected, y) {
+  var rowH = 31;
+  return [
+    selected ? '<rect x="0" y="' + y + '" width="' + RIGHT +
+      '" height="' + rowH + '" fill="' + THEME.accent + '"/>' : '',
+    '<text x="' + Math.round(RIGHT / 2) + '" y="' + (y + 22) +
+      '" class="menu" fill="' + (selected ? THEME.onAccent : THEME.text) +
+      '" text-anchor="middle">Back</text>'
+  ].join('\n');
+}
+
+function renderHistoryList(screen) {
+  var rowY = 55;
+  var rowH = 31;
+  var rows = [
+    topBar('HIST', 'HIST', THEME.accent),
+    '<text x="' + Math.round(RIGHT / 2) + '" y="47" class="menu" fill="' +
+      THEME.text + '" text-anchor="middle">Activity History</text>'
+  ];
+  screen.items.forEach(function(item, index) {
+    rows.push(historyRow(item, index, screen.selected === index,
+                         rowY + index * rowH));
+  });
+  rows.push(historyBackRow(screen.selected === screen.items.length,
+                           rowY + screen.items.length * rowH));
+  rows.push('<text x="' + Math.round(RIGHT / 2) + '" y="214" class="footer" ' +
+    'text-anchor="middle">' + esc(screen.message) + '</text>');
+  rows.push(actionRail('up', 'check', 'down'));
+  return base(rows.join('\n'));
+}
+
+function renderHistoryDetail(screen) {
+  return base([
+    topBar('HIST', 'HIST', THEME.accent),
+    '<rect x="0" y="27" width="' + RIGHT +
+      '" height="48" fill="' + THEME.accent + '"/>',
+    '<text x="8" y="53" class="menu" fill="' + THEME.onAccent + '">' +
+      esc(screen.activity + ' ' + screen.index) + '</text>',
+    '<text x="8" y="70" class="status" fill="' + THEME.onAccent + '">' +
+      esc(screen.distance) + '</text>',
+    metricRow(76, 38, 'TIME', screen.elapsed),
+    dottedSeparator(114, THEME.muted),
+    '<text x="8" y="136" class="status" fill="' + THEME.muted +
+      '">STRAVA</text>',
+    '<text x="' + (RIGHT - 8) + '" y="139" class="menu" fill="' +
+      screen.statusColor + '" text-anchor="end">' + esc(screen.status) +
+      '</text>',
+    '<text x="8" y="164" class="status" fill="' + THEME.text +
+      '">Export TCX</text>',
+    '<text x="8" y="184" class="status" fill="' + THEME.text +
+      '">Retry Strava</text>',
+    '<text x="' + Math.round(RIGHT / 2) +
+      '" y="214" class="footer" text-anchor="middle">' +
+      esc(screen.message) + '</text>',
+    actionRail('file', 'refresh', 'close')
   ].join('\n'));
 }
 
@@ -1031,6 +1194,12 @@ function render(screen) {
   if (screen.kind === 'countdown') {
     return renderCountdown(screen);
   }
+  if (screen.kind === 'history-list') {
+    return renderHistoryList(screen);
+  }
+  if (screen.kind === 'history-detail') {
+    return renderHistoryDetail(screen);
+  }
   if (screen.kind === 'paused') {
     return renderPaused(screen);
   }
@@ -1093,6 +1262,16 @@ function pixelActionIcon(canvas, type, cx, cy, color) {
   } else if (type === 'new') {
     canvas.line(cx, cy - 6, cx, cy + 6, color, 2);
     canvas.line(cx - 6, cy, cx + 6, cy, color, 2);
+  } else if (type === 'history') {
+    pixelHistoryIcon(canvas, cx, cy, color);
+  } else if (type === 'file') {
+    canvas.line(cx - 5, cy - 7, cx + 3, cy - 7, color, 2);
+    canvas.line(cx + 3, cy - 7, cx + 6, cy - 4, color, 2);
+    canvas.line(cx + 6, cy - 4, cx + 6, cy + 7, color, 2);
+    canvas.line(cx + 6, cy + 7, cx - 5, cy + 7, color, 2);
+    canvas.line(cx - 5, cy + 7, cx - 5, cy - 7, color, 2);
+    canvas.line(cx + 3, cy - 7, cx + 3, cy - 4, color, 2);
+    canvas.line(cx + 3, cy - 4, cx + 6, cy - 4, color, 2);
   }
 }
 
@@ -1107,6 +1286,65 @@ function pixelActionRail(canvas, up, select, down,
   pixelActionIcon(canvas, up, iconX, railIconY(0), iconColor);
   pixelActionIcon(canvas, select, iconX, railIconY(1), iconColor);
   pixelActionIcon(canvas, down, iconX, railIconY(2), iconColor);
+}
+
+function pixelHistoryRow(canvas, item, selected, y) {
+  var rowH = 31;
+  if (selected) {
+    canvas.fillRect(0, y, RIGHT, rowH, THEME.accent);
+  } else {
+    pixelDottedSeparator(canvas, y + rowH - 1, THEME.muted);
+  }
+  pixelTextFit(canvas, item.title, 8, y + 2, RIGHT - 16, 1,
+               selected ? THEME.onAccent : THEME.text, 'left', true);
+  pixelTextFit(canvas, item.detail, 8, y + 17, RIGHT - 16, 1,
+               selected ? THEME.onAccent : item.statusColor,
+               'left', false);
+}
+
+function pixelHistoryBackRow(canvas, selected, y) {
+  var rowH = 31;
+  if (selected) {
+    canvas.fillRect(0, y, RIGHT, rowH, THEME.accent);
+  }
+  pixelTextFit(canvas, 'Back', Math.round(RIGHT / 2), y + 8,
+               RIGHT - 16, 2, selected ? THEME.onAccent : THEME.text,
+               'center', false);
+}
+
+function pixelHistoryList(canvas, screen) {
+  var rowY = 55;
+  var rowH = 31;
+  pixelTopBar(canvas, 'HIST', 'HIST', THEME.accent);
+  pixelTextFit(canvas, 'Activity History', Math.round(RIGHT / 2), 34,
+               RIGHT - 16, 2, THEME.text, 'center', true);
+  screen.items.forEach(function(item, index) {
+    pixelHistoryRow(canvas, item, screen.selected === index,
+                    rowY + index * rowH);
+  });
+  pixelHistoryBackRow(canvas, screen.selected === screen.items.length,
+                      rowY + screen.items.length * rowH);
+  canvas.text(screen.message, Math.round(RIGHT / 2), 207, 1, THEME.muted,
+              'center', false);
+  pixelActionRail(canvas, 'up', 'check', 'down');
+}
+
+function pixelHistoryDetail(canvas, screen) {
+  pixelTopBar(canvas, 'HIST', 'HIST', THEME.accent);
+  canvas.fillRect(0, 27, RIGHT, 48, THEME.accent);
+  pixelTextFit(canvas, screen.activity + ' ' + screen.index, 8, 37,
+               RIGHT - 16, 2, THEME.onAccent, 'left', true);
+  canvas.text(screen.distance, 8, 58, 1, THEME.onAccent, 'left', true);
+  pixelMetricRow(canvas, 76, 38, 'TIME', screen.elapsed);
+  pixelDottedSeparator(canvas, 114, THEME.muted);
+  canvas.text('STRAVA', 8, 126, 1, THEME.muted, 'left', true);
+  pixelTextFit(canvas, screen.status, RIGHT - 8, 123, RIGHT - 72, 2,
+               screen.statusColor, 'right', true);
+  canvas.text('Export TCX', 8, 156, 1, THEME.text, 'left', true);
+  canvas.text('Retry Strava', 8, 176, 1, THEME.text, 'left', true);
+  canvas.text(screen.message, Math.round(RIGHT / 2), 207, 1, THEME.muted,
+              'center', false);
+  pixelActionRail(canvas, 'file', 'refresh', 'close');
 }
 
 function pixelActivityIcon(canvas, activity, cx, cy, size, color) {
@@ -1147,8 +1385,8 @@ function pixelTextFit(canvas, text, x, y, maxWidth, scale, color, align, bold) {
 }
 
 function pixelMenuItem(canvas, activity, selected, y) {
-  var rowH = 48;
-  var iconSize = 34;
+  var rowH = 39;
+  var iconSize = 30;
   var labelColor = selected ? THEME.onAccent : THEME.text;
   var iconColor = selected ? THEME.onAccent : THEME.text;
 
@@ -1163,6 +1401,33 @@ function pixelMenuItem(canvas, activity, selected, y) {
   pixelActivityIcon(canvas, activity, 29, y + Math.round(rowH / 2),
                     iconSize, iconColor);
   pixelTextFit(canvas, activity, 52, y + Math.round((rowH - 16) / 2),
+               RIGHT - 56, 2, labelColor,
+               'left', true);
+}
+
+function pixelHistoryIcon(canvas, cx, cy, color) {
+  canvas.circle(cx, cy, 8, color, 2);
+  canvas.line(cx, cy - 5, cx, cy, color, 2);
+  canvas.line(cx, cy, cx + 5, cy + 3, color, 2);
+  canvas.line(cx - 11, cy - 3, cx - 7, cy - 7, color, 2);
+  canvas.line(cx - 11, cy - 3, cx - 7, cy + 1, color, 2);
+}
+
+function pixelHistoryMenuItem(canvas, selected, y) {
+  var rowH = 39;
+  var labelColor = selected ? THEME.onAccent : THEME.text;
+
+  if (selected) {
+    canvas.fillRect(0, y, RIGHT, rowH, THEME.accent);
+  } else {
+    for (var x = 8; x < RIGHT - 4; x += 4) {
+      canvas.fillRect(x, y + rowH - 1, 1, 1, THEME.muted);
+    }
+  }
+
+  pixelHistoryIcon(canvas, 29, y + Math.round(rowH / 2), labelColor);
+  pixelTextFit(canvas, 'Activity History', 52,
+               y + Math.round((rowH - 16) / 2),
                RIGHT - 56, 2, labelColor,
                'left', true);
 }
@@ -1273,7 +1538,12 @@ function renderPixel(screen) {
                   chooseRowY(1));
     pixelMenuItem(canvas, 'CYCLING', screen.activity === 'CYCLING',
                   chooseRowY(2));
+    pixelHistoryMenuItem(canvas, false, chooseRowY(3));
     pixelActionRail(canvas, 'up', 'gps', 'down');
+  } else if (screen.kind === 'history-list') {
+    pixelHistoryList(canvas, screen);
+  } else if (screen.kind === 'history-detail') {
+    pixelHistoryDetail(canvas, screen);
   } else if (screen.kind === 'gps') {
     pixelTopBar(canvas, screen.activity, screen.state, screen.color);
     pixelGpsIcon(canvas, centerX, gpsIconY(), screen.color, screen.locked);

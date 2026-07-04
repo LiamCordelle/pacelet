@@ -7,6 +7,21 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-04
+
+### Added
+
+- Added watch-side Activity History with saved-activity list/detail screens,
+  TCX export, Strava retry, and status refresh messages from the phone.
+- Added compact watch-history AppMessage payloads and mock screenshots for the
+  new history screens.
+
+### Changed
+
+- Made the configuration page show recent activity status only; export and
+  retry actions now live on the watch to avoid fragile config-page close/reopen
+  behavior.
+
 ## [0.3.2] - 2026-07-04
 
 ### Fixed

@@ -32,14 +32,15 @@ display.
   heart-rate samples in Pebble JavaScript `localStorage`.
 - Optional personal Strava upload using credentials entered in the Pebble
   configuration page.
+- Watch-side Activity History menu for recent activity status, TCX export, and
+  Strava retry actions.
 - Light/dark watch display mode, defaulting to light mode.
-- Recent saved activities in the configuration page with TCX export and Strava
-  retry actions.
 - Deterministic Node test harness for the core tracking logic.
 
 ## Watch Controls
 
-- Choose: `UP` and `DOWN` change activity type; `SELECT` requests GPS.
+- Choose: `UP` and `DOWN` change activity type or Activity History; `SELECT`
+  opens the selected flow.
 - GPS/Ready: `UP` refreshes GPS, `DOWN` changes activity type, and `SELECT`
   starts the countdown once GPS is locked.
 - Active: `UP` pauses the activity.
@@ -47,6 +48,9 @@ display.
 - Finish confirmation: `UP` saves the activity and `DOWN` cancels.
 - Saved: `UP` starts another activity of the same type and `DOWN` returns to
   the activity picker.
+- Activity History: `UP` and `DOWN` choose a saved activity or Back; `SELECT`
+  opens the detail screen. In detail, `UP` opens TCX export on the phone,
+  `SELECT` retries Strava, and `DOWN` returns to the list.
 
 Startup flow:
 
@@ -77,6 +81,8 @@ Choose Activity -> GPS lock status -> 3,2,1 countdown -> Activity started
   and tests.
 - `src/pkjs/strava.js`: Pure Strava settings, OAuth request, TCX, multipart,
   and upload-status helpers.
+- `src/pkjs/history_messages.js`: Compact saved-activity history payloads for
+  the watch.
 - `src/pkjs/config_page.js`: Embedded Pebble configuration page for personal
   Strava credentials.
 - `docs/phone-architecture.md`: Phone-side module boundaries and change guide.
@@ -138,14 +144,18 @@ Activities are saved on the paired phone in PebbleKit JS `localStorage` under:
 pebbleTrackerActivities
 ```
 
-Open the app settings from the Pebble/Rebble phone app to see recent saved
-activity summaries. Each entry has:
+Open Activity History from the watch activity picker to see recent saved
+activity summaries. Each activity detail has:
 
-- `Export TCX`: opens a generated TCX data URL for that activity.
+- `Export TCX`: opens a generated TCX page on the phone. Its file action uses
+  the phone browser's download/share flow, which commonly saves to Downloads on
+  Android and offers Files/sharing choices on iOS.
 - `Retry Strava`: retries the Strava upload using the current credentials.
 
-The configuration page also has an Appearance section with a dark-mode toggle
-for the watch app.
+The Pebble/Rebble configuration page still shows recent activity status, but
+history actions live on the watch because configuration applets close when they
+return a response. The configuration page also has an Appearance section with a
+dark-mode toggle for the watch app.
 
 Important caveat: this is a personal-credentials integration rather than a
 managed OAuth service. Pacelet has no shared backend, so each user needs their
@@ -210,6 +220,8 @@ Current mockup examples are emitted as both `.svg` and `.png` files for each
 screen. The SVG paths are:
 
 - `screenshots/choose-running.svg`
+- `screenshots/history-list.svg`
+- `screenshots/history-detail.svg`
 - `screenshots/gps-search.svg`
 - `screenshots/gps-ready.svg`
 - `screenshots/countdown.svg`
@@ -230,7 +242,8 @@ npm test
 The test harness covers activity type mapping, GPS lock gating, smoothed
 Walking/Running pace, Cycling speed, pause/resume distance handling,
 heart-rate samples, finish summaries, TCX generation, token refresh payloads,
-multipart Strava upload bodies, activity export controls, and the config page.
+multipart Strava upload bodies, watch history payloads, activity export pages,
+and the config page.
 
 ## Manual Emulator GPS Harness
 
