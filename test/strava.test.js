@@ -322,8 +322,8 @@ run('TCX export opens a readable page with copy and file actions', function() {
   assert.strictEqual(exportPage.tcx, Strava.generateTcx(activity));
 });
 
-run('TCX export URL stays compact for realistic activity history', function() {
-  var exported = renderExportPage(longActivity(200));
+run('TCX export URL stays compact for long activity history', function() {
+  var exported = renderExportPage(longActivity(1500));
 
   assert.ok(exported.url.length < 30000, 'URL length was ' + exported.url.length);
   assert.ok(exported.tcx.indexOf('<TrainingCenterDatabase') !== -1);

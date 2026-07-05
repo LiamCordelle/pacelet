@@ -76,66 +76,132 @@ function numericValue(value, fallback) {
   return typeof value === 'number' && isFinite(value) ? value : fallback;
 }
 
-function compactExportPoint(point) {
+function compactTypeCode(type) {
+  if (type === 'walking') {
+    return 'w';
+  }
+  if (type === 'cycling') {
+    return 'c';
+  }
+  return 'r';
+}
+
+function numericPointValue(point, primary, secondary, fallback) {
   point = point || {};
-  return [
-    numericValue(point.t, numericValue(point.timestamp, 0)),
-    numericValue(point.lat, null),
-    numericValue(point.lon, null),
-    numericValue(point.alt, numericValue(point.altitude, null)),
-    numericValue(point.hr, null),
-    numericValue(point.distanceM, null)
-  ];
+  return numericValue(point[primary], numericValue(point[secondary], fallback));
+}
+
+function compactField(value) {
+  var rounded;
+  if (typeof value !== 'number' || !isFinite(value)) {
+    return '';
+  }
+  rounded = Math.round(value);
+  if (rounded < 0) {
+    return '-' + (-rounded).toString(36);
+  }
+  return rounded.toString(36);
+}
+
+function scaledCoordinate(value) {
+  return typeof value === 'number' && isFinite(value) ?
+    Math.round(value * 100000) : null;
+}
+
+function compactBaseCoordinates(points) {
+  var lat;
+  var lon;
+  var i;
+
+  points = points || [];
+  for (i = 0; i < points.length; i += 1) {
+    lat = scaledCoordinate(numericValue(points[i] && points[i].lat, null));
+    lon = scaledCoordinate(numericValue(points[i] && points[i].lon, null));
+    if (lat !== null && lon !== null) {
+      return {
+        lat: lat,
+        lon: lon
+      };
+    }
+  }
+  return {
+    lat: 0,
+    lon: 0
+  };
+}
+
+function compactPointRows(points, startedAt, baseLat, baseLon) {
+  var rows = [];
+  var prevLat = baseLat;
+  var prevLon = baseLon;
+  var point;
+  var timestamp;
+  var lat;
+  var lon;
+  var fields;
+  var i;
+
+  for (i = 0; i < points.length; i += 1) {
+    point = points[i] || {};
+    timestamp = numericPointValue(point, 't', 'timestamp', startedAt);
+    lat = scaledCoordinate(numericValue(point.lat, null));
+    lon = scaledCoordinate(numericValue(point.lon, null));
+    fields = [
+      compactField(Math.max(0, Math.round((timestamp - startedAt) / 1000))),
+      '',
+      '',
+      compactField(numericPointValue(point, 'alt', 'altitude', null)),
+      compactField(numericValue(point.hr, null)),
+      compactField(numericValue(point.distanceM, null))
+    ];
+
+    if (lat !== null && lon !== null) {
+      fields[1] = compactField(lat - prevLat);
+      fields[2] = compactField(lon - prevLon);
+      prevLat = lat;
+      prevLon = lon;
+    }
+    while (fields.length && fields[fields.length - 1] === '') {
+      fields.pop();
+    }
+    rows.push(fields.join(','));
+  }
+  return rows.join(';');
 }
 
 function compactExportPayload(activity) {
   var points = activity && activity.points || [];
-  var payloadPoints = [];
-  var i;
-  var type = activity && activity.type;
+  var base = compactBaseCoordinates(points);
   var startedAt;
 
-  if (type !== 'walking' && type !== 'cycling') {
-    type = 'running';
-  }
-  for (i = 0; i < points.length; i += 1) {
-    payloadPoints.push(compactExportPoint(points[i]));
-  }
   startedAt = numericValue(
     activity && activity.startedAt,
-    payloadPoints.length ? payloadPoints[0][0] : 0
+    points.length ? numericPointValue(points[0], 't', 'timestamp', 0) : 0
   );
   return {
-    t: type,
+    t: compactTypeCode(activity && activity.type),
     s: startedAt,
     m: numericValue(activity && activity.movingTimeS, 0),
     d: numericValue(
       activity && activity.distanceM,
       numericValue(activity && activity.summaryDistanceM, 0)
     ),
-    p: payloadPoints
+    a: base.lat,
+    o: base.lon,
+    p: compactPointRows(points, startedAt, base.lat, base.lon)
   };
 }
 
-function encodeBase64Ascii(value) {
-  var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  var output = '';
-  var i;
-  var a;
-  var b;
-  var c;
+function escapeJsString(value) {
+  return String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r');
+}
 
-  for (i = 0; i < value.length; i += 3) {
-    a = value.charCodeAt(i) & 255;
-    b = i + 1 < value.length ? value.charCodeAt(i + 1) & 255 : NaN;
-    c = i + 2 < value.length ? value.charCodeAt(i + 2) & 255 : NaN;
-    output += chars.charAt(a >> 2);
-    output += chars.charAt(((a & 3) << 4) | (isNaN(b) ? 0 : (b >> 4)));
-    output += isNaN(b) ? '=' :
-      chars.charAt(((b & 15) << 2) | (isNaN(c) ? 0 : (c >> 6)));
-    output += isNaN(c) ? '=' : chars.charAt(c & 63);
-  }
-  return output;
+function encodeDataHtml(html) {
+  return encodeURI(html).replace(/#/g, '%23');
 }
 
 function renderActivities(activities) {
@@ -286,7 +352,7 @@ function buildConfigHtml(settings, activities, notice) {
 
 function buildConfigUrl(settings, activities, notice) {
   return 'data:text/html;charset=utf-8,' +
-      encodeURIComponent(buildConfigHtml(settings, activities, notice));
+      encodeDataHtml(buildConfigHtml(settings, activities, notice));
 }
 
 function exportFileName(activity) {
@@ -298,9 +364,7 @@ function exportFileName(activity) {
 function buildExportHtml(activity) {
   var fileName = exportFileName(activity);
   var title = activityTitle(activity || {});
-  var payload = encodeBase64Ascii(JSON.stringify(
-    compactExportPayload(activity || {})
-  ));
+  var payload = compactExportPayload(activity || {});
   return [
     '<!doctype html>',
     '<html><head>',
@@ -329,17 +393,21 @@ function buildExportHtml(activity) {
     '<a class="button secondary" href="pebblejs://close">Done</a>',
     '</div>',
     '<script>',
-    'var payload=JSON.parse(decodeBase64("' + payload + '"));',
-    'function decodeBase64(input){var chars="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";var out="";var i=0;var e1,e2,e3,e4,c1,c2,c3,ch3,ch4;input=String(input||"").replace(/[^A-Za-z0-9+/=]/g,"");while(i<input.length){e1=chars.indexOf(input.charAt(i++));e2=chars.indexOf(input.charAt(i++));ch3=input.charAt(i++);ch4=input.charAt(i++);e3=chars.indexOf(ch3);e4=chars.indexOf(ch4);c1=(e1<<2)|(e2>>4);c2=((e2&15)<<4)|(e3>>2);c3=((e3&3)<<6)|e4;out+=String.fromCharCode(c1);if(ch3&&ch3!=="="&&e3>=0){out+=String.fromCharCode(c2);}if(ch4&&ch4!=="="&&e4>=0){out+=String.fromCharCode(c3);}}return out;}',
+    'var payload={t:"' + escapeJsString(payload.t) + '",s:' +
+      payload.s + ',m:' + payload.m + ',d:' + payload.d +
+      ',a:' + payload.a + ',o:' + payload.o + ',p:"' +
+      escapeJsString(payload.p) + '"};',
     'function esc(value){return String(value===null||typeof value==="undefined"?"":value).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/\'/g,"&apos;");}',
     'function iso(value){var date=new Date(value||0);return date.toISOString?date.toISOString():date.toUTCString();}',
-    'function sport(type){return type==="cycling"?"biking":(type==="walking"?"walking":"running");}',
+    'function sport(type){return type==="c"||type==="cycling"?"biking":(type==="w"||type==="walking"?"walking":"running");}',
+    'function num(value){var sign=1;var parsed;value=String(value||"");if(!value){return null;}if(value.charAt(0)==="-"){sign=-1;value=value.slice(1);}parsed=parseInt(value,36);return isNaN(parsed)?null:sign*parsed;}',
+    'function decodePoints(activity){var rows=String(activity.p||"").split(";");var points=[];var lat=activity.a||0;var lon=activity.o||0;var i;var fields;var point;var dLat;var dLon;for(i=0;i<rows.length;i+=1){if(!rows[i]){continue;}fields=rows[i].split(",");point=[];point[0]=(activity.s||0)+(num(fields[0])||0)*1000;dLat=num(fields[1]);dLon=num(fields[2]);if(dLat!==null&&dLon!==null){lat+=dLat;lon+=dLon;point[1]=lat/100000;point[2]=lon/100000;}point[3]=num(fields[3]);point[4]=num(fields[4]);point[5]=num(fields[5]);points.push(point);}return points;}',
     'function hasPos(point){return typeof point[1]==="number"&&typeof point[2]==="number";}',
     'function hav(a,b){if(!hasPos(a)||!hasPos(b)){return 0;}var earth=6371000;var dLat=(b[1]-a[1])*Math.PI/180;var dLon=(b[2]-a[2])*Math.PI/180;var rLat1=a[1]*Math.PI/180;var rLat2=b[1]*Math.PI/180;var h=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(rLat1)*Math.cos(rLat2)*Math.sin(dLon/2)*Math.sin(dLon/2);return earth*2*Math.atan2(Math.sqrt(h),Math.sqrt(1-h));}',
     'function distances(points){var out=[];var total=0;var i;for(i=0;i<points.length;i+=1){if(i>0){total+=hav(points[i-1],points[i]);}out.push(total);}return out;}',
     'function generateTcx(activity){var points=activity.p||[];var dists=distances(points);var lines=[];var i;var point;lines.push("<?xml version=\\"1.0\\" encoding=\\"UTF-8\\"?>");lines.push("<TrainingCenterDatabase xmlns=\\"http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2\\">");lines.push("  <Activities>");lines.push("    <Activity Sport=\\""+esc(sport(activity.t))+"\\">");lines.push("      <Id>"+esc(iso(activity.s))+"</Id>");lines.push("      <Lap StartTime=\\""+esc(iso(activity.s))+"\\">");lines.push("        <TotalTimeSeconds>"+esc(activity.m||0)+"</TotalTimeSeconds>");lines.push("        <DistanceMeters>"+esc(Math.round(activity.d||0))+"</DistanceMeters>");lines.push("        <Intensity>Active</Intensity>");lines.push("        <TriggerMethod>Manual</TriggerMethod>");lines.push("        <Track>");for(i=0;i<points.length;i+=1){point=points[i];lines.push("          <Trackpoint>");lines.push("            <Time>"+esc(iso(point[0]))+"</Time>");if(hasPos(point)){lines.push("            <Position>");lines.push("              <LatitudeDegrees>"+esc(point[1])+"</LatitudeDegrees>");lines.push("              <LongitudeDegrees>"+esc(point[2])+"</LongitudeDegrees>");lines.push("            </Position>");}if(typeof point[3]==="number"){lines.push("            <AltitudeMeters>"+esc(point[3])+"</AltitudeMeters>");}lines.push("            <DistanceMeters>"+esc(Math.round(typeof point[5]==="number"?point[5]:dists[i]))+"</DistanceMeters>");if(typeof point[4]==="number"){lines.push("            <HeartRateBpm>");lines.push("              <Value>"+esc(point[4])+"</Value>");lines.push("            </HeartRateBpm>");}lines.push("          </Trackpoint>");}lines.push("        </Track>");lines.push("      </Lap>");lines.push("    </Activity>");lines.push("  </Activities>");lines.push("</TrainingCenterDatabase>");return lines.join("\\n");}',
     'function configureFile(tcx){var link=document.getElementById("openFile");var urlApi=window.URL||window.webkitURL;try{if(window.Blob&&urlApi&&urlApi.createObjectURL){link.href=urlApi.createObjectURL(new Blob([tcx],{type:"application/vnd.garmin.tcx+xml"}));return;}}catch(e){}link.href="data:application/vnd.garmin.tcx+xml;charset=utf-8,"+encodeURIComponent(tcx);}',
-    'function prepare(){var tcx=generateTcx(payload);document.getElementById("tcx").value=tcx;configureFile(tcx);}',
+    'function prepare(){payload.p=decodePoints(payload);var tcx=generateTcx(payload);document.getElementById("tcx").value=tcx;configureFile(tcx);}',
     'function selectTcx(){var el=document.getElementById("tcx");el.focus();el.select();if(el.setSelectionRange){el.setSelectionRange(0,el.value.length);}}',
     'document.getElementById("copy").addEventListener("click",function(){',
     'selectTcx();',
@@ -355,7 +423,7 @@ function buildExportHtml(activity) {
 
 function buildExportUrl(activity) {
   return 'data:text/html;charset=utf-8,' +
-      encodeURIComponent(buildExportHtml(activity));
+      encodeDataHtml(buildExportHtml(activity));
 }
 
 function parseResponse(response) {

@@ -7,6 +7,15 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-07-05
+
+### Fixed
+
+- Made watch-side TCX export handoffs much smaller for long saved activities,
+  avoiding silent phone-side drops when opening restored activity history.
+- Added Strava upload-stage logging and HTTP response snippets to make retry
+  failures such as 403 Forbidden easier to diagnose from phone logs.
+
 ## [0.4.2] - 2026-07-04
 
 ### Added

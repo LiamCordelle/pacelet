@@ -356,9 +356,20 @@ run('Strava service logs upload HTTP failures', function() {
 
   assert.strictEqual(
     store.getActivity(activity.id).stravaError,
-    'Strava upload failed: HTTP 403 - Forbidden'
+    'Strava upload failed: HTTP 403 - Forbidden - Strava rejected the upload despite stored activity:write scope; reauthorize if this persists.'
   );
-  assert.strictEqual(logs[0], 'Strava upload failed: HTTP 403 - Forbidden');
+  assert.strictEqual(
+    logs[0],
+    'Strava upload starting for upload-403: 1 points, scope=read activity:write'
+  );
+  assert.ok(
+    logs[1].indexOf('Strava upload request ready for upload-403: POST ') === 0
+  );
+  assert.strictEqual(logs[2], 'Strava upload response: {"message":"Forbidden"}');
+  assert.strictEqual(
+    logs[3],
+    'Strava upload failed: HTTP 403 - Forbidden - Strava rejected the upload despite stored activity:write scope; reauthorize if this persists.'
+  );
   assert.strictEqual(updates.length, 2);
   assert.strictEqual(updates[1].activityId, 'upload-403');
   assert.strictEqual(updates[1].patch.stravaStatus, 'failed');

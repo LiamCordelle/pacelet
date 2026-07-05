@@ -36,6 +36,25 @@ function stravaHttpError(prefix, response, json) {
       (detail ? ' - ' + detail : '');
 }
 
+function responseSnippet(text) {
+  text = String(text || '').replace(/\s+/g, ' ');
+  if (text.length > 180) {
+    return text.slice(0, 177) + '...';
+  }
+  return text;
+}
+
+function activityPointCount(activity) {
+  return activity && activity.points ? activity.points.length : 0;
+}
+
+function uploadForbiddenHint(settings) {
+  if (!settings || !settings.stravaScope) {
+    return 'Stored Strava scope is unknown; reauthorize with activity:write.';
+  }
+  return 'Strava rejected the upload despite stored activity:write scope; reauthorize if this persists.';
+}
+
 function createHttpRequest(XMLHttpRequestConstructor) {
   return function request(options, callback) {
     var xhr = new XMLHttpRequestConstructor();
@@ -100,6 +119,8 @@ function createStravaService(options) {
       }
       json = parseJson(response.text, {});
       if (response.status < 200 || response.status >= 300) {
+        log('Strava token refresh response: ' +
+            responseSnippet(response.text));
         callback(new Error(stravaHttpError(
           'Strava token refresh failed', response, json)));
         return;
@@ -137,6 +158,8 @@ function createStravaService(options) {
       }
       json = parseJson(response.text, {});
       if (response.status < 200 || response.status >= 300) {
+        log('Strava authorization response: ' +
+            responseSnippet(response.text));
         callback(new Error(stravaHttpError(
           'Strava authorization failed', response, json)));
         return;
@@ -244,6 +267,9 @@ function createStravaService(options) {
       stravaStatus: 'uploading',
       stravaError: ''
     });
+    log('Strava upload starting for ' + activity.id + ': ' +
+        activityPointCount(activity) + ' points, scope=' +
+        (settings.stravaScope || 'unknown'));
 
     getAccessToken(function(tokenErr) {
       var upload;
@@ -258,6 +284,8 @@ function createStravaService(options) {
 
       settings = store.getSettings();
       upload = Strava.uploadRequest(activity, settings);
+      log('Strava upload request ready for ' + activity.id + ': POST ' +
+          upload.url + ', multipart body ' + upload.body.length + ' chars');
       request({
         method: 'POST',
         url: upload.url,
@@ -281,6 +309,10 @@ function createStravaService(options) {
           errorMessage = stravaHttpError(
             'Strava upload failed', response, json
           );
+          if (response.status === 403) {
+            errorMessage += ' - ' + uploadForbiddenHint(settings);
+          }
+          log('Strava upload response: ' + responseSnippet(response.text));
           updateActivity(activity.id, {
             stravaStatus: 'failed',
             stravaError: errorMessage
