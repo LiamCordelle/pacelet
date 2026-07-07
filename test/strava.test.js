@@ -279,7 +279,8 @@ run('config page URL embeds settings, history status, OAuth guidance, and notice
   assert.ok(html.indexOf('145 bpm avg') !== -1);
   assert.ok(html.indexOf('Z2 0:06') !== -1);
   assert.ok(html.indexOf('stravaClientId') !== -1);
-  assert.ok(html.indexOf('Open Strava Authorization') !== -1);
+  assert.strictEqual(html.indexOf('Open Strava Authorization'), -1);
+  assert.ok(html.indexOf('Desktop auth URL format') !== -1);
   assert.ok(html.indexOf('activity:write') !== -1);
   assert.ok(html.indexOf('stravaAuthorizationCode') !== -1);
   assert.ok(html.indexOf('stravaScope') !== -1);

@@ -7,6 +7,13 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-07-07
+
+### Changed
+
+- Removed the unreliable in-phone Strava authorization launcher and documented
+  the desktop manual OAuth flow in settings.
+
 ## [0.4.4] - 2026-07-07
 
 ### Changed
