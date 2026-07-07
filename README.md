@@ -122,8 +122,9 @@ Open the app settings from the Pebble/Rebble phone app and enter:
 - Optional current access token and expiry
 - Whether to auto-upload after saving an activity
 
-Use `Open Strava Authorization` in the settings page to request a code with
-`read,activity:write` scope. A read-only token cannot upload activities.
+Generate Strava authorization in a desktop browser with callback domain
+`localhost` and `read,activity:write` scope, then paste the one-time `code`
+into settings. A read-only token cannot upload activities.
 
 When an activity is saved, PebbleKit JS refreshes the access token if needed,
 generates a TCX file with GPS and heart-rate trackpoints, uploads it to Strava,
@@ -135,6 +136,10 @@ The authorization code is short-lived and can only be exchanged once. It is
 tied to the Strava API client, not to a particular Pebble watch or installation.
 If reinstalling Pacelet loses the locally stored refresh token, generate a fresh
 authorization code instead of reusing the previous one.
+
+Strava API apps may need active developer API access from Strava's dashboard.
+If every API call fails with `Application Status Inactive`, check the app's
+dashboard/subscription state rather than reauthorizing the same inactive app.
 
 ## Saved Activities And Export
 

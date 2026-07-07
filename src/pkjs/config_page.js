@@ -47,11 +47,15 @@ function activityStatus(activity) {
   if (activity.stravaActivityId) {
     return status + ' #' + activity.stravaActivityId;
   }
-  if (activity.stravaError) {
+  if ((status === 'failed' || status === 'skipped') &&
+      activity.stravaError) {
     return status + ': ' + activity.stravaError;
   }
   if (activity.stravaUploadStatus) {
     return status + ': ' + activity.stravaUploadStatus;
+  }
+  if (activity.stravaError) {
+    return status + ': ' + activity.stravaError;
   }
   return status;
 }

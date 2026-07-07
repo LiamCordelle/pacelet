@@ -7,6 +7,18 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-07-07
+
+### Fixed
+
+- Cleared stale Strava failure text while retries are uploading, processing, or
+  uploaded so successful retries no longer keep showing old 403 errors.
+
+### Changed
+
+- Updated Strava setup docs for the desktop authorization flow and inactive API
+  app/subscription failures.
+
 ## [0.4.5] - 2026-07-07
 
 ### Changed

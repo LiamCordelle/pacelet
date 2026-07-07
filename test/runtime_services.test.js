@@ -150,6 +150,22 @@ run('history messages compact saved activities for the watch', function() {
     HistoryMessages.selectedActivity(activities, 10),
     null
   );
+  assert.strictEqual(
+    HistoryMessages.activityStatusMessage({
+      stravaStatus: 'processing',
+      stravaError: 'Strava upload failed: HTTP 403 - Forbidden',
+      stravaUploadStatus: 'Your activity is still being processed.'
+    }),
+    'Your activity is still being processed.'
+  );
+  assert.strictEqual(
+    HistoryMessages.activityStatusMessage({
+      stravaStatus: 'failed',
+      stravaError: 'Strava upload failed: HTTP 403 - Forbidden',
+      stravaUploadStatus: 'Your activity is still being processed.'
+    }),
+    'Strava upload failed: HTTP 403 - Forbidden'
+  );
 });
 
 run('GPS service owns watch, polling, position, and metric messages',
@@ -278,6 +294,13 @@ run('Strava service uploads and polls activity status', function() {
     stravaScope: 'read activity:write'
   });
   store.saveActivity(activity);
+  store.updateActivity(activity.id, {
+    stravaStatus: 'failed',
+    stravaError: 'Strava upload failed: HTTP 403 - Forbidden',
+    stravaUploadStatus: 'Forbidden',
+    stravaUploadId: 'old-upload',
+    stravaActivityId: 1234
+  });
   activity = store.getActivity(activity.id);
 
   var service = StravaService.createStravaService({
@@ -323,11 +346,21 @@ run('Strava service uploads and polls activity status', function() {
     store.getActivity(activity.id).stravaActivityId,
     9001
   );
+  assert.strictEqual(store.getActivity(activity.id).stravaError, '');
+  assert.strictEqual(
+    HistoryMessages.activityStatusMessage(store.getActivity(activity.id)),
+    'Strava uploaded #9001'
+  );
   assert.deepStrictEqual(updates.map(function(update) {
     return update.activityId;
   }), ['upload-me', 'upload-me', 'upload-me']);
   assert.strictEqual(updates[0].patch.stravaStatus, 'uploading');
+  assert.strictEqual(updates[0].patch.stravaError, '');
+  assert.strictEqual(updates[0].patch.stravaUploadStatus, '');
+  assert.strictEqual(updates[1].patch.stravaStatus, 'processing');
+  assert.strictEqual(updates[1].patch.stravaError, '');
   assert.strictEqual(updates[2].patch.stravaStatus, 'uploaded');
+  assert.strictEqual(updates[2].patch.stravaError, '');
 });
 
 run('Strava service logs upload HTTP failures', function() {
@@ -353,7 +386,14 @@ run('Strava service logs upload HTTP failures', function() {
     request: function(options, callback) {
       callback(null, {
         status: 403,
-        text: JSON.stringify({ message: 'Forbidden' })
+        text: JSON.stringify({
+          message: 'Forbidden',
+          errors: [{
+            resource: 'Application',
+            field: 'Status',
+            code: 'Inactive'
+          }]
+        })
       });
     },
     log: function(message) {
@@ -371,7 +411,7 @@ run('Strava service logs upload HTTP failures', function() {
 
   assert.strictEqual(
     store.getActivity(activity.id).stravaError,
-    'Strava upload failed: HTTP 403 - Forbidden - Strava rejected the upload despite stored activity:write scope; reauthorize if this persists.'
+    'Strava upload failed: HTTP 403 - Forbidden - Strava API app inactive; check Strava API dashboard/subscription.'
   );
   assert.strictEqual(
     logs[0],
@@ -380,10 +420,13 @@ run('Strava service logs upload HTTP failures', function() {
   assert.ok(
     logs[1].indexOf('Strava upload request ready for upload-403: POST ') === 0
   );
-  assert.strictEqual(logs[2], 'Strava upload response: {"message":"Forbidden"}');
+  assert.strictEqual(
+    logs[2],
+    'Strava upload response: {"message":"Forbidden","errors":[{"resource":"Application","field":"Status","code":"Inactive"}]}'
+  );
   assert.strictEqual(
     logs[3],
-    'Strava upload failed: HTTP 403 - Forbidden - Strava rejected the upload despite stored activity:write scope; reauthorize if this persists.'
+    'Strava upload failed: HTTP 403 - Forbidden - Strava API app inactive; check Strava API dashboard/subscription.'
   );
   assert.strictEqual(updates.length, 2);
   assert.strictEqual(updates[1].activityId, 'upload-403');

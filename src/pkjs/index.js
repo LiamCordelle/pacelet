@@ -63,8 +63,9 @@ var strava = StravaService.createStravaService({
   request: StravaService.createHttpRequest(XMLHttpRequest),
   log: log,
   onActivityUpdate: function(activityId) {
+    var activity = store.getActivity(activityId);
     log('Strava activity updated: ' + activityId);
-    sendHistoryToWatch();
+    sendHistoryToWatch(HistoryMessages.activityStatusMessage(activity));
   }
 });
 

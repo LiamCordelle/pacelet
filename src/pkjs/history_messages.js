@@ -64,31 +64,45 @@ function boundedHistoryValue(value, maxValue) {
 }
 
 function activityStatusMessage(activity) {
+  var status;
   if (!activity) {
     return 'No saved activities';
   }
+  status = activity.stravaStatus || 'not_uploaded';
   if (activity.stravaActivityId) {
     return 'Strava uploaded #' + activity.stravaActivityId;
   }
-  if (activity.stravaError) {
-    return shortMessage(activity.stravaError);
-  }
-  if (activity.stravaUploadStatus) {
-    return shortMessage(activity.stravaUploadStatus);
-  }
-  switch (activity.stravaStatus) {
+  switch (status) {
     case 'uploading':
+      if (activity.stravaUploadStatus) {
+        return shortMessage(activity.stravaUploadStatus);
+      }
       return 'Strava upload started';
     case 'processing':
+      if (activity.stravaUploadStatus) {
+        return shortMessage(activity.stravaUploadStatus);
+      }
       return 'Strava is processing';
     case 'failed':
+      if (activity.stravaError) {
+        return shortMessage(activity.stravaError);
+      }
       return 'Strava upload failed';
     case 'skipped':
+      if (activity.stravaError) {
+        return shortMessage(activity.stravaError);
+      }
       return 'Strava upload skipped';
     case 'uploaded':
       return 'Strava uploaded';
     case 'not_uploaded':
     default:
+      if (activity.stravaError) {
+        return shortMessage(activity.stravaError);
+      }
+      if (activity.stravaUploadStatus) {
+        return shortMessage(activity.stravaUploadStatus);
+      }
       return 'Not uploaded to Strava';
   }
 }
