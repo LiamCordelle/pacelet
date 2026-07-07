@@ -141,7 +141,24 @@ function sendHistoryToWatch(notice) {
 }
 
 function openConfiguration(notice) {
-  var url = ConfigPage.buildConfigUrl(
+  var pendingExport = store.getPendingTcxExportActivity();
+  var url;
+  var pendingId = store.getPendingTcxExportActivityId();
+
+  if (pendingExport) {
+    url = ConfigPage.buildExportUrl(pendingExport);
+    log('Opening pending TCX export page for ' + pendingExport.id +
+        ' from configuration (' + url.length + ' chars)');
+    Pebble.openURL(url);
+    return;
+  }
+  if (pendingId) {
+    log('Clearing stale pending TCX export for missing activity ' + pendingId);
+    store.clearPendingTcxExport();
+    notice = notice || 'Pending TCX export was not found.';
+  }
+
+  url = ConfigPage.buildConfigUrl(
     store.getSettings(),
     store.activitySummaries(),
     notice || ''
@@ -150,8 +167,7 @@ function openConfiguration(notice) {
   Pebble.openURL(url);
 }
 
-function openActivityTcx(activity, source) {
-  var exportUrl;
+function prepareActivityTcx(activity, source) {
   if (!activity) {
     log('TCX export failed: activity not found');
     return {
@@ -160,23 +176,21 @@ function openActivityTcx(activity, source) {
     };
   }
 
-  exportUrl = ConfigPage.buildExportUrl(activity);
-  log('Opening TCX export page from ' + source +
-      ' (' + exportUrl.length + ' chars)');
-  Pebble.openURL(exportUrl);
+  store.setPendingTcxExport(activity.id);
+  log('Prepared TCX export from ' + source + ' (' + activity.id + ')');
   return {
     ok: true,
-    message: 'TCX export opened.'
+    message: 'TCX ready. Open settings on phone.'
   };
 }
 
 function exportActivityTcx(activityId) {
-  return openActivityTcx(store.getActivity(activityId), 'config');
+  return prepareActivityTcx(store.getActivity(activityId), 'config');
 }
 
 function exportHistoryTcx(index) {
   var activity = HistoryMessages.selectedActivity(store.getActivities(), index);
-  var result = openActivityTcx(activity, 'watch history index ' + index);
+  var result = prepareActivityTcx(activity, 'watch history index ' + index);
   sendHistoryToWatch(result.message);
 }
 
@@ -252,6 +266,11 @@ function handleConfigPayload(payload) {
   if (payload.action === 'retry_strava') {
     actionResult = retryStravaUpload(payload.activityId);
     log(actionResult.message);
+    return;
+  }
+  if (payload.action === 'clear_pending_tcx_export') {
+    store.clearPendingTcxExport();
+    log('Pending TCX export cleared.');
     return;
   }
   if (payload.action && payload.action !== 'save_settings') {

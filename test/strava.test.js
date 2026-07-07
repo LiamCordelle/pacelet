@@ -285,6 +285,7 @@ run('config page URL embeds settings, history status, OAuth guidance, and notice
   assert.ok(html.indexOf('stravaScope') !== -1);
   assert.ok(html.indexOf('Recent Activities') !== -1);
   assert.ok(html.indexOf('Activity History on the watch') !== -1);
+  assert.ok(html.indexOf('open Pacelet settings from the phone app') !== -1);
   assert.strictEqual(html.indexOf('Open TCX Export'), -1);
   assert.strictEqual(html.indexOf('data-action'), -1);
   assert.ok(html.indexOf('pt-123') !== -1);
@@ -318,6 +319,7 @@ run('TCX export opens a readable page with copy and file actions', function() {
   assert.ok(exportPage.html.indexOf('Copy TCX') !== -1);
   assert.ok(exportPage.html.indexOf('Downloads') !== -1);
   assert.ok(exportPage.html.indexOf('pt-123.tcx') !== -1);
+  assert.ok(exportPage.html.indexOf('clear_pending_tcx_export') !== -1);
   assert.strictEqual(exportPage.fileHref, 'blob:tcx');
   assert.strictEqual(exportPage.tcx, Strava.generateTcx(activity));
 });

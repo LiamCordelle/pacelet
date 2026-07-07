@@ -7,6 +7,14 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-07-07
+
+### Changed
+
+- Changed watch-side TCX export to prepare the selected activity and prompt the
+  user to open Pacelet settings on the phone, avoiding unreliable background
+  attempts to foreground generated export pages.
+
 ## [0.4.3] - 2026-07-05
 
 ### Fixed

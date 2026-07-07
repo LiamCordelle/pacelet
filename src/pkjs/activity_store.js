@@ -1,5 +1,6 @@
 var SETTINGS_KEY = 'pebbleTrackerSettings';
 var ACTIVITIES_KEY = 'pebbleTrackerActivities';
+var PENDING_TCX_EXPORT_KEY = 'pebbleTrackerPendingTcxExport';
 var MAX_STORED_ACTIVITIES = 10;
 
 function createActivityStore(options) {
@@ -29,6 +30,20 @@ function createActivityStore(options) {
       return true;
     } catch (e) {
       log(label + ' write failed: ' + e);
+      return false;
+    }
+  }
+
+  function removeKey(key, label) {
+    try {
+      if (storage.removeItem) {
+        storage.removeItem(key);
+      } else {
+        storage.setItem(key, '');
+      }
+      return true;
+    } catch (e) {
+      log(label + ' clear failed: ' + e);
       return false;
     }
   }
@@ -130,6 +145,29 @@ function createActivityStore(options) {
     return false;
   }
 
+  function setPendingTcxExport(activityId) {
+    return writeJson(
+      PENDING_TCX_EXPORT_KEY,
+      { activityId: activityId || '' },
+      'Pending TCX export'
+    );
+  }
+
+  function getPendingTcxExportActivityId() {
+    var pending = readJson(
+      PENDING_TCX_EXPORT_KEY, null, 'Pending TCX export'
+    );
+    return pending && pending.activityId || '';
+  }
+
+  function getPendingTcxExportActivity() {
+    return getActivity(getPendingTcxExportActivityId());
+  }
+
+  function clearPendingTcxExport() {
+    return removeKey(PENDING_TCX_EXPORT_KEY, 'Pending TCX export');
+  }
+
   return {
     getSettings: getSettings,
     setSettings: setSettings,
@@ -137,14 +175,18 @@ function createActivityStore(options) {
     getActivity: getActivity,
     activitySummaries: activitySummaries,
     saveActivity: saveActivity,
-    updateActivity: updateActivity
+    updateActivity: updateActivity,
+    setPendingTcxExport: setPendingTcxExport,
+    getPendingTcxExportActivityId: getPendingTcxExportActivityId,
+    getPendingTcxExportActivity: getPendingTcxExportActivity,
+    clearPendingTcxExport: clearPendingTcxExport
   };
 }
 
 module.exports = {
   SETTINGS_KEY: SETTINGS_KEY,
   ACTIVITIES_KEY: ACTIVITIES_KEY,
+  PENDING_TCX_EXPORT_KEY: PENDING_TCX_EXPORT_KEY,
   MAX_STORED_ACTIVITIES: MAX_STORED_ACTIVITIES,
   createActivityStore: createActivityStore
 };
-

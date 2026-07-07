@@ -204,6 +204,10 @@ function encodeDataHtml(html) {
   return encodeURI(html).replace(/#/g, '%23');
 }
 
+function closeUrl(payload) {
+  return 'pebblejs://close#' + encodeURIComponent(JSON.stringify(payload));
+}
+
 function renderActivities(activities) {
   var output = [];
   var i;
@@ -307,7 +311,7 @@ function buildConfigHtml(settings, activities, notice) {
     '</form>',
     '<fieldset>',
     '<legend>Recent Activities</legend>',
-    '<p>Use Activity History on the watch to export TCX files or retry Strava uploads. TCX export opens a phone page with a file download/share action.</p>',
+    '<p>Use Activity History on the watch to prepare a TCX export, then open Pacelet settings from the phone app to collect the file.</p>',
     renderActivities(activities),
     '</fieldset>',
     '</main>',
@@ -365,6 +369,7 @@ function buildExportHtml(activity) {
   var fileName = exportFileName(activity);
   var title = activityTitle(activity || {});
   var payload = compactExportPayload(activity || {});
+  var doneUrl = closeUrl({ action: 'clear_pending_tcx_export' });
   return [
     '<!doctype html>',
     '<html><head>',
@@ -390,7 +395,7 @@ function buildExportHtml(activity) {
     '<a class="button" id="openFile" download="' +
       escapeHtml(fileName) + '" href="#">Open TCX File</a>',
     '<button type="button" id="copy">Copy TCX</button>',
-    '<a class="button secondary" href="pebblejs://close">Done</a>',
+    '<a class="button secondary" href="' + escapeHtml(doneUrl) + '">Done</a>',
     '</div>',
     '<script>',
     'var payload={t:"' + escapeJsString(payload.t) + '",s:' +

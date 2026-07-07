@@ -18,6 +18,9 @@ function createMemoryStorage() {
     },
     setItem: function(key, value) {
       values[key] = String(value);
+    },
+    removeItem: function(key) {
+      delete values[key];
     }
   };
 }
@@ -98,6 +101,18 @@ run('activity store updates upload state without replacing activity data',
   assert.strictEqual(store.getActivity('stored').distanceM, 200);
   assert.strictEqual(store.getActivity('stored').stravaStatus, 'uploaded');
   assert.strictEqual(store.getActivity('stored').stravaActivityId, 123);
+});
+
+run('activity store tracks pending TCX export activity', function() {
+  var store = createStore(createMemoryStorage());
+  store.saveActivity(sampleActivity('export-me'));
+
+  assert.strictEqual(store.getPendingTcxExportActivity(), null);
+  assert.strictEqual(store.setPendingTcxExport('export-me'), true);
+  assert.strictEqual(store.getPendingTcxExportActivityId(), 'export-me');
+  assert.strictEqual(store.getPendingTcxExportActivity().id, 'export-me');
+  assert.strictEqual(store.clearPendingTcxExport(), true);
+  assert.strictEqual(store.getPendingTcxExportActivityId(), '');
 });
 
 run('history messages compact saved activities for the watch', function() {
