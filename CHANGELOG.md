@@ -7,6 +7,13 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-07-08
+
+### Changed
+
+- Changed the TCX export page's file action to try phone share/download APIs
+  with visible fallback status instead of relying on a silent download link.
+
 ## [0.4.6] - 2026-07-07
 
 ### Fixed

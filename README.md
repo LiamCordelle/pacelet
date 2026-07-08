@@ -153,8 +153,9 @@ Open Activity History from the watch activity picker to see recent saved
 activity summaries. Each activity detail has:
 
 - `Export TCX`: opens a generated TCX page on the phone. Its file action uses
-  the phone browser's download/share flow, which commonly saves to Downloads on
-  Android and offers Files/sharing choices on iOS.
+  the phone browser's share/download flow when available. Some Pebble config
+  browsers block file handoff, so the page also exposes the raw XML and a
+  `Copy TCX` fallback.
 - `Retry Strava`: retries the Strava upload using the current credentials.
 
 The Pebble/Rebble configuration page still shows recent activity status, but
