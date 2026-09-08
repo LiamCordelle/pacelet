@@ -281,3 +281,69 @@ run('finish returns a saved activity summary and clears active state', function(
   assert.strictEqual(finished.movingTimeS, 10);
   assert.strictEqual(tracker.getActiveActivity(), null);
 });
+
+run('starting cannot overwrite an activity already in progress', function() {
+  var clock = 1000;
+  var tracker = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });
+  var first = tracker.startActivity(START, 1);
+
+  clock = 2000;
+  assert.strictEqual(tracker.startActivity(START, 2), null);
+  assert.strictEqual(tracker.getActiveActivity().id, first.id);
+  assert.strictEqual(tracker.getActiveActivity().type, 'running');
+});
+
+run('restored activity excludes downtime and starts a new GPS segment', function() {
+  var clock = 1000000;
+  var tracker = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });
+  tracker.startActivity(START, 1);
+  clock += 10000;
+  tracker.recordPosition(pointAtMetersEast(START, 30, clock, 8));
+
+  var snapshot = JSON.parse(JSON.stringify(tracker.getActiveActivity()));
+  var checkpointedAt = clock + 5000;
+  clock += 65000;
+
+  var restored = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });
+  assert.ok(restored.restoreActivity(snapshot, checkpointedAt));
+  assert.strictEqual(restored.getActiveActivity().paused, true);
+  assert.strictEqual(restored.getMetrics().movingS, 15);
+
+  assert.strictEqual(
+    restored.resumeActivity(pointAtMetersEast(START, 1000, clock, 8)),
+    true
+  );
+  assertWithin(restored.getMetrics().distanceM, 30, 2,
+               'distance before recovered segment');
+
+  clock += 5000;
+  restored.recordPosition(pointAtMetersEast(START, 1015, clock, 8));
+  assertWithin(restored.getMetrics().distanceM, 45, 2,
+               'distance after recovered segment');
+  assert.strictEqual(restored.finishActivity().movingTimeS, 20);
+});
+
+run('restoring an activity that was paused preserves its original pause', function() {
+  var clock = 2000000;
+  var tracker = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });
+  tracker.startActivity(START, 0);
+  clock += 10000;
+  tracker.pauseActivity();
+
+  var snapshot = JSON.parse(JSON.stringify(tracker.getActiveActivity()));
+  clock += 90000;
+  var restored = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });
+
+  assert.ok(restored.restoreActivity(snapshot, snapshot.pausedAt + 10000));
+  assert.strictEqual(restored.getMetrics().movingS, 10);
+});
+
+run('discard requires the matching active activity id', function() {
+  var tracker = TrackerCore.createTrackerCore({ nowMs: function() { return 3000000; } });
+  var activity = tracker.startActivity(START, 1);
+
+  assert.strictEqual(tracker.discardActivity('another-session'), false);
+  assert.ok(tracker.getActiveActivity());
+  assert.strictEqual(tracker.discardActivity(activity.id), true);
+  assert.strictEqual(tracker.getActiveActivity(), null);
+});

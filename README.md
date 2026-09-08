@@ -28,6 +28,8 @@ display.
 - Heart rate is read from Pebble Health when supported by the device.
 - Activities can be started, paused, resumed, finished, and saved from the
   watch.
+- Interrupted activities are checkpointed on both sides and offered for
+  resume, finish, or confirmed discard after the app or phone restarts.
 - Phone-side recorder stores recent activity summaries, GPS points, and
   heart-rate samples in Pebble JavaScript `localStorage`.
 - Optional personal Strava upload using credentials entered in the Pebble
@@ -46,6 +48,10 @@ display.
 - Active: `UP` pauses the activity.
 - Paused: `UP` resumes and `SELECT` opens the finish confirmation.
 - Finish confirmation: `UP` saves the activity and `DOWN` cancels.
+- Partial activity recovery: `UP` waits for fresh GPS and resumes, `SELECT`
+  finishes the checkpointed activity, and `DOWN` opens discard confirmation.
+- Discard confirmation: `UP` permanently discards the matching draft and
+  `DOWN` cancels.
 - Saved: `UP` starts another activity of the same type and `DOWN` returns to
   the activity picker.
 - Activity History: `UP` and `DOWN` choose a saved activity or Back; `SELECT`
@@ -73,6 +79,8 @@ Choose Activity -> GPS lock status -> 3,2,1 countdown -> Activity started
   guide to where changes belong.
 - `src/pkjs/index.js`: PebbleKit JS entry point and event coordination.
 - `src/pkjs/activity_store.js`: Settings and saved-activity persistence.
+- `src/pkjs/activity_recovery.js`: Draft checkpoint, restore, and
+  session-matching coordination.
 - `src/pkjs/gps_service.js`: Phone geolocation watch, polling, and live watch
   updates.
 - `src/pkjs/strava_service.js`: Strava token exchange, upload, and polling
@@ -149,13 +157,21 @@ Activities are saved on the paired phone in PebbleKit JS `localStorage` under:
 pebbleTrackerActivities
 ```
 
+While recording, the current activity is also checkpointed about every 15
+seconds under `pebbleTrackerActiveActivity`. The watch persists compact
+recovery metadata about every 30 seconds and whenever its app closes or the
+activity changes state. On the next launch, Pacelet reconciles both sides and
+offers the phone draft for resume, finish, or confirmed discard. Resume waits
+for a fresh GPS lock and begins a new GPS segment, so time spent powered off and
+the straight-line jump to the new fix are not counted. At most the work since
+the phone's most recent checkpoint can be lost in a sudden interruption.
+
 Open Activity History from the watch activity picker to see recent saved
 activity summaries. Each activity detail has:
 
-- `Export TCX`: opens a generated TCX page on the phone. Its file action uses
-  the phone browser's share/download flow when available. Some Pebble config
-  browsers block file handoff, so the page also exposes the raw XML and a
-  `Copy TCX` fallback.
+- `Export TCX`: opens a generated TCX page on the phone. The Pebble config
+  browser can block direct file sharing and downloads, so the export page shows
+  the raw XML with a `Copy TCX` action.
 - `Retry Strava`: retries the Strava upload using the current credentials.
 
 The Pebble/Rebble configuration page still shows recent activity status, but
@@ -211,8 +227,10 @@ The emulator screenshot harness builds and installs the PBW, drives the app to a
 selected screen or the main app flow, and saves real captures under
 `screenshots/emulator/`. The all-screens mode captures choose, GPS searching,
 GPS ready, countdown, activity, kilometre split, and paused states with ordered
-filenames. It starts from a fresh install for each screen so previous capture
-state does not leak into the next screenshot.
+filenames. Unless `--reuse-emulator` is supplied, the harness wipes the
+disposable emulator state before installing; all-screens mode does this for
+every capture so previous watch persistence and phone localStorage cannot leak
+into the next screenshot.
 Useful variants:
 
 ```sh
@@ -220,6 +238,8 @@ npm run screenshots:emulator -- --all-screens --activity cycling
 npm run screenshots:emulator -- --screen gps-ready
 npm run screenshots:emulator -- --screen activity --activity cycling
 npm run screenshots:emulator -- --screen paused --reuse-emulator
+npm run screenshots:emulator -- --screen recovery
+npm run screenshots:emulator -- --screen recovery-discard
 ```
 
 Current mockup examples are emitted as both `.svg` and `.png` files for each
@@ -236,6 +256,8 @@ screen. The SVG paths are:
 - `screenshots/split-running.svg`
 - `screenshots/paused.svg`
 - `screenshots/cycling.svg`
+- `screenshots/recovery.svg`
+- `screenshots/recovery-discard.svg`
 
 ## Tests
 
@@ -247,9 +269,10 @@ npm test
 
 The test harness covers activity type mapping, GPS lock gating, smoothed
 Walking/Running pace, Cycling speed, pause/resume distance handling,
-heart-rate samples, finish summaries, TCX generation, token refresh payloads,
-multipart Strava upload bodies, watch history payloads, activity export pages,
-and the config page.
+heart-rate samples, finish summaries, interrupted-runtime restoration,
+checkpoint corruption, session-safe recovery actions, idempotent completion,
+TCX generation, token refresh payloads, multipart Strava upload bodies, watch
+history payloads, activity export pages, and the config page.
 
 ## Manual Emulator GPS Harness
 

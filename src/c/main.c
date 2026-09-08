@@ -47,6 +47,7 @@ static void health_event_handler(HealthEventType event, void *context) {
 static void init(void) {
   pacelet_model_init();
   watch_services_load_settings();
+  watch_services_load_activity_state();
 
   s_main_window = window_create();
   window_set_click_config_provider(s_main_window, click_config_provider);
@@ -62,7 +63,7 @@ static void init(void) {
 #endif
 
   window_stack_push(s_main_window, true);
-  watch_services_request_settings();
+  watch_services_request_initial_state();
 }
 
 static void deinit(void) {

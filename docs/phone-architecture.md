@@ -7,13 +7,13 @@ coordinates four focused modules instead of owning their implementation.
 Pebble events and AppMessage
             |
          index.js
-       /      |       \
-      v       v        v
-   GPS     activity   Strava
- service    store    service
-      |        ^        |
-      v        +--------+
- tracker_core.js
+       /       |        \
+      v        v         v
+   GPS      recovery    Strava
+ service  coordinator  service
+      |       /  \        |
+      v      v    v       v
+ tracker_core.js  activity_store.js
 ```
 
 ## Module Responsibilities
@@ -24,6 +24,7 @@ Creates the services and connects Pebble events to them. It owns the short
 workflows that cross module boundaries:
 
 - Starting, pausing, resuming, and finishing an activity
+- Reconciling recovery state and session-aware watch commands
 - Sending completed summaries back to the watch
 - Opening and handling the configuration page
 - Sending compact saved-activity history to the watch
@@ -39,6 +40,7 @@ Contains deterministic activity logic:
 - GPS point acceptance and distance calculation
 - Pace and speed smoothing
 - Pause/resume semantics
+- Validation and restoration of checkpointed activities
 - HR samples and zone summaries
 - Final activity summaries
 
@@ -50,11 +52,22 @@ Owns phone-side localStorage:
 
 - Normalized settings
 - Saved activity history
+- Versioned in-progress activity drafts and corrupt-draft quarantine
 - Compact activity summaries for the configuration page
 - Strava upload-status updates
 
 Storage and settings normalization are injected so the module can be tested
 without a browser or Pebble runtime.
+
+### `activity_recovery.js`
+
+Coordinates durable partial activities without owning their data model:
+
+- Writes a draft immediately on state changes and every 15 seconds while active
+- Restores a valid draft in a paused recovery state when PebbleKit JS starts
+- Waits for a fresh GPS lock before resuming on a new GPS segment
+- Matches resume, finish, and discard requests to the activity ID
+- Clears the draft only after a successful save or confirmed discard
 
 ### `gps_service.js`
 
@@ -103,6 +116,7 @@ Strava upload states to the watch-side status enum.
 - Change GPS filtering or pace/speed math: `tracker_core.js`
 - Change geolocation acquisition or live watch updates: `gps_service.js`
 - Change stored activity fields or history limits: `activity_store.js`
+- Change checkpoint timing or recovery workflow: `activity_recovery.js`
 - Change OAuth/TCX/multipart data: `strava.js`
 - Change token, upload, or polling behavior: `strava_service.js`
 - Change settings UI or TCX export UI: `config_page.js`

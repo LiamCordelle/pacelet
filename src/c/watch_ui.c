@@ -245,6 +245,8 @@ static const char *state_short_label(void) {
     case ActivityStateHistoryList:
     case ActivityStateHistoryDetail:
       return "HIST";
+    case ActivityStateRecovery:
+      return "FOUND";
     default:
       return "";
   }
@@ -262,6 +264,7 @@ static GColor state_color(void) {
     return color_accent();
   }
   if (g_pacelet.activity_state == ActivityStatePaused ||
+      g_pacelet.activity_state == ActivityStateRecovery ||
       g_pacelet.gps_state == GpsStateSearching) {
     return color_warning();
   }
@@ -930,8 +933,11 @@ static void draw_activity_screen(GContext *ctx, GRect bounds) {
   draw_hr_row(
       ctx, bounds, hr_y, row_h, g_pacelet.last_hr_bpm);
 
-  graphics_context_set_text_color(ctx, color_muted());
-  if (g_pacelet.gps_state == GpsStateLocked &&
+  graphics_context_set_text_color(
+      ctx, g_pacelet.phone_connected ? color_muted() : color_bad());
+  if (!g_pacelet.phone_connected) {
+    snprintf(gps_text, sizeof(gps_text), "PHONE DISCONNECTED");
+  } else if (g_pacelet.gps_state == GpsStateLocked &&
       g_pacelet.gps_accuracy_m >= 0) {
     snprintf(gps_text, sizeof(gps_text), "GPS %ld M",
              (long)g_pacelet.gps_accuracy_m);
@@ -959,6 +965,114 @@ static void draw_activity_screen(GContext *ctx, GRect bounds) {
     draw_action_rail(
         ctx, bounds, ActionIconPause, ActionIconNone, ActionIconNone);
   }
+}
+
+static void draw_recovery_discard_confirm_screen(GContext *ctx,
+                                                 GRect bounds) {
+  int right = content_right(bounds);
+  int third = right / 3;
+  char clock_text[8];
+  char elapsed_text[16];
+
+  graphics_context_set_fill_color(ctx, color_pause_bg());
+  graphics_fill_rect(ctx, GRect(0, 0, right, bounds.size.h),
+                     0, GCornerNone);
+  format_clock(clock_text, sizeof(clock_text));
+  graphics_context_set_text_color(ctx, GColorBlack);
+  graphics_draw_text(
+      ctx, pacelet_activity_short_label(g_pacelet.activity_type),
+      font_status(), GRect(8, 5, third - 8, 18),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, clock_text, font_status(),
+                     GRect(third, 5, third, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+  graphics_draw_text(ctx, "DELETE?", font_status(),
+                     GRect(third * 2, 5, right - third * 2 - 4, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentRight, NULL);
+
+  graphics_context_set_fill_color(ctx, GColorBlack);
+  graphics_fill_rect(ctx, GRect(right / 2 - 17, 47, 34, 34),
+                     2, GCornersAll);
+  graphics_context_set_text_color(ctx, GColorBlack);
+  graphics_draw_text(ctx, "DISCARD PARTIAL?", font_value(),
+                     GRect(4, 91, right - 8, 30),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+  graphics_draw_text(ctx, "THIS CANNOT BE UNDONE", font_status(),
+                     GRect(4, 126, right - 8, 20),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+  format_elapsed(g_pacelet.recovery_moving_s,
+                 elapsed_text, sizeof(elapsed_text));
+  graphics_draw_text(ctx, elapsed_text, font_timer(),
+                     GRect(0, 151, right, 45),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+  draw_action_rail_colors(
+      ctx, bounds, ActionIconCheck, ActionIconNone, ActionIconClose,
+      GColorBlack, GColorWhite);
+}
+
+static void draw_recovery_screen(GContext *ctx, GRect bounds) {
+  int right = content_right(bounds);
+  char elapsed_text[16];
+  char distance_value[16];
+  char distance_unit[8];
+
+  if (g_pacelet.discard_confirm_visible) {
+    draw_recovery_discard_confirm_screen(ctx, bounds);
+    return;
+  }
+
+  draw_top_bar(ctx, bounds);
+  graphics_context_set_text_color(ctx, color_warning());
+  graphics_draw_text(ctx, "PARTIAL ACTIVITY", font_value(),
+                     GRect(4, 32, right - 8, 30),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+  graphics_context_set_text_color(ctx, color_muted());
+  graphics_draw_text(ctx, pacelet_activity_label(g_pacelet.activity_type),
+                     font_status(), GRect(4, 60, right - 8, 18),
+                     GTextOverflowModeTrailingEllipsis,
+                     GTextAlignmentCenter, NULL);
+
+  format_elapsed(g_pacelet.recovery_moving_s,
+                 elapsed_text, sizeof(elapsed_text));
+  format_distance_parts(g_pacelet.distance_m,
+                        distance_value, sizeof(distance_value),
+                        distance_unit, sizeof(distance_unit));
+  draw_metric_row(ctx, bounds, 82, 42, "TIME", elapsed_text, "");
+  draw_metric_row(ctx, bounds, 124, 42, "DIST",
+                  distance_value, distance_unit);
+
+  graphics_context_set_text_color(
+      ctx, g_pacelet.recovery_phone_draft_available ?
+          color_muted() : color_bad());
+  graphics_draw_text(
+      ctx,
+      g_pacelet.recovery_message[0] != '\0' ?
+          g_pacelet.recovery_message : "READY TO RECOVER",
+      font_status(), GRect(4, 169, right - 8, 18),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+
+  graphics_context_set_text_color(ctx, color_text());
+  graphics_draw_text(
+      ctx,
+      g_pacelet.recovery_phone_draft_available ?
+          "UP RESUME  SEL FINISH\nDOWN DISCARD" :
+          "PHONE DATA UNAVAILABLE\nDOWN DISCARD",
+      font_label(), GRect(4, 189, right - 8, 36),
+      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+
+  draw_action_rail(
+      ctx, bounds,
+      g_pacelet.recovery_phone_draft_available ?
+          ActionIconPlay : ActionIconNone,
+      g_pacelet.recovery_phone_draft_available ?
+          ActionIconStop : ActionIconNone,
+      ActionIconClose);
 }
 
 static void draw_finish_confirm_screen(GContext *ctx, GRect bounds) {
@@ -1404,6 +1518,9 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
       break;
     case ActivityStateHistoryDetail:
       draw_history_detail_screen(ctx, bounds);
+      break;
+    case ActivityStateRecovery:
+      draw_recovery_screen(ctx, bounds);
       break;
     case ActivityStatePaused:
     default:

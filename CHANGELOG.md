@@ -7,6 +7,31 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-08
+
+### Added
+
+- Added crash- and power-loss recovery for in-progress activities, with
+  periodic phone checkpoints and a compact watch-side fallback record.
+- Added a recovery screen that can resume, finish, or confirm discarding the
+  matching partial activity after the phone runtime or watch app restarts.
+- Added restart, checkpoint, corrupt-draft, stale-session, and idempotent finish
+  tests, plus Emery recovery-screen mockups and emulator capture support.
+
+### Changed
+
+- Made activity commands retry across temporary watch-phone transport failures
+  and attach activity IDs so delayed commands cannot affect a newer session.
+- Show phone disconnection status during an activity and exclude recovery
+  downtime from moving time and GPS distance.
+
+## [0.4.8] - 2026-07-08
+
+### Changed
+
+- Removed the TCX export page's unreliable file handoff button and made the
+  copy-based export path explicit.
+
 ## [0.4.7] - 2026-07-08
 
 ### Changed

@@ -206,6 +206,20 @@ var screens = [
     gps: 'GPS 10 M'
   },
   {
+    name: 'recovery',
+    kind: 'recovery',
+    activity: 'RUNNING',
+    elapsed: '23:14',
+    distance: '4.62 km',
+    message: 'READY TO RECOVER'
+  },
+  {
+    name: 'recovery-discard',
+    kind: 'recovery-discard',
+    activity: 'RUNNING',
+    elapsed: '23:14'
+  },
+  {
     name: 'end-confirm',
     kind: 'confirm',
     activity: 'RUNNING',
@@ -1123,6 +1137,51 @@ function renderPaused(screen) {
   return renderActivity(screen, true);
 }
 
+function renderRecovery(screen) {
+  var centerX = Math.round(RIGHT / 2);
+  return base([
+    topBar(screen.activity, 'FOUND', THEME.warning),
+    '<text x="' + centerX + '" y="54" class="title" fill="' +
+      THEME.warning + '" text-anchor="middle">PARTIAL ACTIVITY</text>',
+    '<text x="' + centerX + '" y="75" class="status" fill="' +
+      THEME.muted + '" text-anchor="middle">' + esc(screen.activity) +
+      '</text>',
+    metricRow(82, 42, 'TIME', screen.elapsed),
+    metricRow(124, 42, 'DIST', screen.distance),
+    '<text x="' + centerX + '" y="183" class="status" fill="' +
+      THEME.muted + '" text-anchor="middle">' + esc(screen.message) +
+      '</text>',
+    '<text x="' + centerX + '" y="204" class="label" text-anchor="middle">UP RESUME  SEL FINISH</text>',
+    '<text x="' + centerX + '" y="220" class="label" text-anchor="middle">DOWN DISCARD</text>',
+    actionRail('play', 'stop', 'close')
+  ].join('\n'));
+}
+
+function renderRecoveryDiscard(screen) {
+  var third = Math.floor(RIGHT / 3);
+  var centerX = Math.round(RIGHT / 2);
+  return base([
+    '<rect x="0" y="0" width="' + RIGHT + '" height="' + HEIGHT +
+      '" fill="' + THEME.pauseBg + '"/>',
+    '<text x="8" y="17" class="status" fill="#000000">' +
+      esc(shortActivity(screen.activity)) + '</text>',
+    '<text x="' + (third + Math.floor(third / 2)) +
+      '" y="17" class="status" fill="#000000" text-anchor="middle">10:09</text>',
+    '<text x="' + RIGHT +
+      '" y="17" class="status" fill="#000000" text-anchor="end">DELETE?</text>',
+    '<rect x="' + (centerX - 17) +
+      '" y="47" width="34" height="34" rx="2" fill="#000000"/>',
+    '<text x="' + centerX +
+      '" y="113" class="title" fill="#000000" text-anchor="middle">DISCARD PARTIAL?</text>',
+    '<text x="' + centerX +
+      '" y="140" class="status" fill="#000000" text-anchor="middle">THIS CANNOT BE UNDONE</text>',
+    '<text x="' + centerX +
+      '" y="184" class="timer" fill="#000000" text-anchor="middle">' +
+      esc(screen.elapsed) + '</text>',
+    actionRail('check', null, 'close', '#000000', '#ffffff')
+  ].join('\n'));
+}
+
 function renderConfirm(screen) {
   var third = Math.floor(RIGHT / 3);
   var centerX = Math.round(RIGHT / 2);
@@ -1205,6 +1264,12 @@ function render(screen) {
   }
   if (screen.kind === 'paused') {
     return renderPaused(screen);
+  }
+  if (screen.kind === 'recovery') {
+    return renderRecovery(screen);
+  }
+  if (screen.kind === 'recovery-discard') {
+    return renderRecoveryDiscard(screen);
   }
   if (screen.kind === 'split') {
     return renderSplit(screen);
@@ -1586,6 +1651,38 @@ function renderPixel(screen) {
     canvas.text(screen.gps, centerX, HEIGHT - 14, 1, THEME.muted, 'center',
                 false);
     pixelActionRail(canvas, 'play', 'stop', null);
+  } else if (screen.kind === 'recovery') {
+    pixelTopBar(canvas, screen.activity, 'FOUND', THEME.warning);
+    pixelTextFit(canvas, 'PARTIAL ACTIVITY', centerX, 36, RIGHT - 8, 2,
+                 THEME.warning, 'center', true);
+    canvas.text(screen.activity, centerX, 64, 1, THEME.muted,
+                'center', true);
+    pixelMetricRow(canvas, 82, 42, 'TIME', screen.elapsed);
+    pixelMetricRow(canvas, 124, 42, 'DIST', screen.distance);
+    pixelTextFit(canvas, screen.message, centerX, 172, RIGHT - 8, 1,
+                 THEME.muted, 'center', true);
+    canvas.text('UP RESUME  SEL FINISH', centerX, 194, 1, THEME.text,
+                'center', false);
+    canvas.text('DOWN DISCARD', centerX, 210, 1, THEME.text,
+                'center', false);
+    pixelActionRail(canvas, 'play', 'stop', 'close');
+  } else if (screen.kind === 'recovery-discard') {
+    var recoveryThird = Math.floor(RIGHT / 3);
+    canvas.fillRect(0, 0, RIGHT, HEIGHT, THEME.pauseBg);
+    canvas.text(shortActivity(screen.activity), 8, 7, 1,
+                '#000000', 'left', true);
+    canvas.text('10:09', recoveryThird + Math.floor(recoveryThird / 2), 7, 1,
+                '#000000', 'center', true);
+    canvas.text('DELETE?', RIGHT, 7, 1, '#000000', 'right', true);
+    canvas.fillRect(centerX - 17, 47, 34, 34, '#000000');
+    pixelTextFit(canvas, 'DISCARD PARTIAL?', centerX, 95,
+                 RIGHT - 8, 2, '#000000', 'center', true);
+    canvas.text('THIS CANNOT BE UNDONE', centerX, 128, 1,
+                '#000000', 'center', true);
+    pixelTextFit(canvas, screen.elapsed, centerX, 151,
+                 RIGHT - 8, 5, '#000000', 'center', true);
+    pixelActionRail(canvas, 'check', null, 'close',
+                    '#000000', '#ffffff');
   } else if (screen.kind === 'split') {
     var splitBandY = durationBandY();
     var splitBandH = splitBandHeight();

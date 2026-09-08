@@ -1,6 +1,9 @@
 var SETTINGS_KEY = 'pebbleTrackerSettings';
 var ACTIVITIES_KEY = 'pebbleTrackerActivities';
 var PENDING_TCX_EXPORT_KEY = 'pebbleTrackerPendingTcxExport';
+var ACTIVE_ACTIVITY_KEY = 'pebbleTrackerActiveActivity';
+var CORRUPT_ACTIVE_ACTIVITY_KEY = 'pebbleTrackerCorruptActiveActivity';
+var ACTIVE_ACTIVITY_VERSION = 1;
 var MAX_STORED_ACTIVITIES = 10;
 
 function createActivityStore(options) {
@@ -120,6 +123,9 @@ function createActivityStore(options) {
       stravaStatus: 'not_uploaded'
     };
 
+    history = history.filter(function(existingActivity) {
+      return existingActivity.id !== storedActivity.id;
+    });
     history.unshift(storedActivity);
     if (history.length > maxActivities) {
       history = history.slice(0, maxActivities);
@@ -168,6 +174,59 @@ function createActivityStore(options) {
     return removeKey(PENDING_TCX_EXPORT_KEY, 'Pending TCX export');
   }
 
+  function saveActiveActivity(activity, checkpointedAt) {
+    if (!activity || !activity.id) {
+      return false;
+    }
+    return writeJson(ACTIVE_ACTIVITY_KEY, {
+      version: ACTIVE_ACTIVITY_VERSION,
+      checkpointedAt: checkpointedAt,
+      activity: activity
+    }, 'Active activity');
+  }
+
+  function quarantineActiveActivity(reason) {
+    var raw;
+    try {
+      raw = storage.getItem(ACTIVE_ACTIVITY_KEY);
+      if (raw) {
+        storage.setItem(CORRUPT_ACTIVE_ACTIVITY_KEY, raw);
+      }
+      removeKey(ACTIVE_ACTIVITY_KEY, 'Active activity');
+      log('Active activity quarantined: ' + reason);
+      return true;
+    } catch (e) {
+      log('Active activity quarantine failed: ' + e);
+      return false;
+    }
+  }
+
+  function getActiveActivityDraft() {
+    var raw;
+    var draft;
+    try {
+      raw = storage.getItem(ACTIVE_ACTIVITY_KEY);
+      if (!raw) {
+        return null;
+      }
+      draft = JSON.parse(raw);
+      if (!draft || draft.version !== ACTIVE_ACTIVITY_VERSION ||
+          typeof draft.checkpointedAt !== 'number' ||
+          !draft.activity || !draft.activity.id) {
+        quarantineActiveActivity('invalid draft envelope');
+        return null;
+      }
+      return draft;
+    } catch (e) {
+      quarantineActiveActivity('draft read failed: ' + e);
+      return null;
+    }
+  }
+
+  function clearActiveActivity() {
+    return removeKey(ACTIVE_ACTIVITY_KEY, 'Active activity');
+  }
+
   return {
     getSettings: getSettings,
     setSettings: setSettings,
@@ -179,7 +238,11 @@ function createActivityStore(options) {
     setPendingTcxExport: setPendingTcxExport,
     getPendingTcxExportActivityId: getPendingTcxExportActivityId,
     getPendingTcxExportActivity: getPendingTcxExportActivity,
-    clearPendingTcxExport: clearPendingTcxExport
+    clearPendingTcxExport: clearPendingTcxExport,
+    saveActiveActivity: saveActiveActivity,
+    getActiveActivityDraft: getActiveActivityDraft,
+    clearActiveActivity: clearActiveActivity,
+    quarantineActiveActivity: quarantineActiveActivity
   };
 }
 
@@ -187,6 +250,9 @@ module.exports = {
   SETTINGS_KEY: SETTINGS_KEY,
   ACTIVITIES_KEY: ACTIVITIES_KEY,
   PENDING_TCX_EXPORT_KEY: PENDING_TCX_EXPORT_KEY,
+  ACTIVE_ACTIVITY_KEY: ACTIVE_ACTIVITY_KEY,
+  CORRUPT_ACTIVE_ACTIVITY_KEY: CORRUPT_ACTIVE_ACTIVITY_KEY,
+  ACTIVE_ACTIVITY_VERSION: ACTIVE_ACTIVITY_VERSION,
   MAX_STORED_ACTIVITIES: MAX_STORED_ACTIVITIES,
   createActivityStore: createActivityStore
 };

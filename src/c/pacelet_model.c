@@ -38,6 +38,7 @@ void pacelet_model_init(void) {
   g_pacelet.hr_zone_2_bpm = PACELET_DEFAULT_HR_ZONE_2_BPM;
   g_pacelet.hr_zone_3_bpm = PACELET_DEFAULT_HR_ZONE_3_BPM;
   g_pacelet.history_selected_index = 0;
+  g_pacelet.recovery_phone_draft_available = false;
   for (int i = 0; i < PACELET_HISTORY_MAX; i++) {
     g_pacelet.history_items[i].activity_type = ActivityTypeRunning;
     g_pacelet.history_items[i].strava_status = HistoryStravaUnknown;
@@ -47,6 +48,7 @@ void pacelet_model_init(void) {
 
 void pacelet_model_reset_activity(bool preserve_hr) {
   g_pacelet.finish_confirm_visible = false;
+  g_pacelet.discard_confirm_visible = false;
   g_pacelet.started_at = 0;
   g_pacelet.paused_at = 0;
   g_pacelet.total_paused_s = 0;
@@ -68,6 +70,12 @@ void pacelet_model_reset_activity(bool preserve_hr) {
   g_pacelet.summary_distance_m = 0;
   g_pacelet.summary_moving_s = 0;
   g_pacelet.summary_points = 0;
+  g_pacelet.recovery_moving_s = 0;
+  g_pacelet.activity_checkpointed_at = 0;
+  g_pacelet.pending_command = 0;
+  g_pacelet.activity_id[0] = '\0';
+  g_pacelet.recovery_message[0] = '\0';
+  g_pacelet.recovery_phone_draft_available = false;
   g_pacelet.next_split_km = 1;
   g_pacelet.last_split_elapsed_s = 0;
   g_pacelet.split_elapsed_s = 0;
@@ -88,6 +96,9 @@ int32_t pacelet_clamp_i32(int32_t value, int32_t min_value,
 int32_t pacelet_elapsed_s(void) {
   if (g_pacelet.activity_state == ActivityStateFinished) {
     return g_pacelet.finished_elapsed_s;
+  }
+  if (g_pacelet.activity_state == ActivityStateRecovery) {
+    return g_pacelet.recovery_moving_s;
   }
   if (g_pacelet.activity_state != ActivityStateActive &&
       g_pacelet.activity_state != ActivityStatePaused) {

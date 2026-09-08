@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="456" viewBox="0 0 200 228">
+<style>
+  .status { font: 700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+  .timer { font: 800 31px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+  .label { font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #3e5459; letter-spacing: 0; }
+  .value { font: 750 19px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #071014; letter-spacing: 0; }
+  .menu { font: 750 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+  .footer { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #3e5459; letter-spacing: 0; }
+  .title { font: 750 20px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+</style>
+<rect width="200" height="228" fill="#f7fbf8"/>
+<rect x="0" y="0" width="180" height="228" fill="#ffdc00"/>
+<text x="8" y="17" class="status" fill="#000000">RUN</text>
+<text x="90" y="17" class="status" fill="#000000" text-anchor="middle">10:09</text>
+<text x="180" y="17" class="status" fill="#000000" text-anchor="end">DELETE?</text>
+<rect x="73" y="47" width="34" height="34" rx="2" fill="#000000"/>
+<text x="90" y="113" class="title" fill="#000000" text-anchor="middle">DISCARD PARTIAL?</text>
+<text x="90" y="140" class="status" fill="#000000" text-anchor="middle">THIS CANNOT BE UNDONE</text>
+<text x="90" y="184" class="timer" fill="#000000" text-anchor="middle">23:14</text>
+<rect x="180" y="0" width="20" height="228" fill="#000000"/>
+<path d="M184 57 L188 62 L197 52" fill="none" stroke="#ffffff" stroke-width="2"/>
+
+<path d="M185 166 L195 176 M195 166 L185 176" fill="none" stroke="#ffffff" stroke-width="2"/>
+</svg>

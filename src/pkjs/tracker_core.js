@@ -43,6 +43,11 @@ function activityTypeName(value) {
   return ACTIVITY_TYPES[index];
 }
 
+function activityTypeValue(value) {
+  var index = ACTIVITY_TYPES.indexOf(value);
+  return index >= 0 ? index : 1;
+}
+
 function canStartFromPosition(position) {
   return !!position && position.accuracy <= LOCK_ACCURACY_M;
 }
@@ -294,7 +299,7 @@ function createTrackerCore(options) {
   }
 
   function startActivity(position, typeValue) {
-    if (!canStartFromPosition(position)) {
+    if (activeActivity || !canStartFromPosition(position)) {
       return null;
     }
 
@@ -317,6 +322,81 @@ function createTrackerCore(options) {
 
     recordPoint(activeActivity, normalizePoint(position, now), currentHrBpm);
     return activeActivity;
+  }
+
+  function restoreActivity(snapshot, checkpointedAt) {
+    var startedAt;
+    var checkpoint;
+    var restored;
+    var points;
+    var hrSamples;
+
+    if (activeActivity || !snapshot || typeof snapshot.id !== 'string' ||
+        !snapshot.id || ACTIVITY_TYPES.indexOf(snapshot.type) < 0 ||
+        !Array.isArray(snapshot.points) ||
+        !Array.isArray(snapshot.hrSamples)) {
+      return null;
+    }
+
+    startedAt = Number(snapshot.startedAt);
+    checkpoint = Number(checkpointedAt);
+    if (!isFinite(startedAt) || startedAt <= 0 ||
+        !isFinite(checkpoint) || checkpoint < startedAt) {
+      return null;
+    }
+
+    points = snapshot.points.filter(function(point) {
+      return point && isFinite(Number(point.t)) &&
+          isFinite(Number(point.lat)) && isFinite(Number(point.lon));
+    }).map(function(point) {
+      return {
+        t: Number(point.t),
+        lat: Number(point.lat),
+        lon: Number(point.lon),
+        acc: isFinite(Number(point.acc)) ? Number(point.acc) : 9999,
+        alt: typeof point.alt === 'number' ? point.alt : null,
+        hr: typeof point.hr === 'number' ? point.hr : null
+      };
+    });
+    hrSamples = snapshot.hrSamples.filter(function(sample) {
+      return sample && isFinite(Number(sample.t)) &&
+          isFinite(Number(sample.bpm)) && Number(sample.bpm) > 0 &&
+          Number(sample.bpm) <= 250;
+    }).map(function(sample) {
+      return { t: Number(sample.t), bpm: Number(sample.bpm) };
+    });
+
+    restored = {
+      id: snapshot.id,
+      type: snapshot.type,
+      startedAt: startedAt,
+      paused: true,
+      pausedAt: snapshot.paused && Number(snapshot.pausedAt) >= startedAt ?
+        Number(snapshot.pausedAt) : checkpoint,
+      pausedMs: Math.max(0, Number(snapshot.pausedMs) || 0),
+      distanceM: Math.max(0, Number(snapshot.distanceM) || 0),
+      points: points,
+      lastPoint: points.length ? points[points.length - 1] : null,
+      speedWindow: [],
+      smoothedSpeedCentiMps: 0,
+      hrSamples: hrSamples,
+      hrZoneThresholds: normalizeHrZoneThresholds(
+        snapshot.hrZoneThresholds || hrZoneThresholds)
+    };
+
+    currentHrBpm = 0;
+    activeActivity = restored;
+    return activeActivity;
+  }
+
+  function discardActivity(activityId) {
+    if (!activeActivity ||
+        (activityId && activeActivity.id !== activityId)) {
+      return false;
+    }
+    activeActivity = null;
+    currentHrBpm = 0;
+    return true;
   }
 
   function recordPosition(position) {
@@ -413,6 +493,8 @@ function createTrackerCore(options) {
 
   return {
     startActivity: startActivity,
+    restoreActivity: restoreActivity,
+    discardActivity: discardActivity,
     recordPosition: recordPosition,
     pauseActivity: pauseActivity,
     resumeActivity: resumeActivity,
@@ -443,6 +525,7 @@ module.exports = {
     ACTIVITY_TYPES: ACTIVITY_TYPES
   },
   activityTypeName: activityTypeName,
+  activityTypeValue: activityTypeValue,
   canStartFromPosition: canStartFromPosition,
   createTrackerCore: createTrackerCore,
   haversineMeters: haversineMeters,

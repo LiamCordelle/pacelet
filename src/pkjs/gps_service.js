@@ -11,6 +11,7 @@ function createGpsService(options) {
   var setIntervalFn = options.setIntervalFn || setInterval;
   var clearIntervalFn = options.clearIntervalFn || clearInterval;
   var log = options.log || function() {};
+  var onPosition = options.onPosition || function() {};
 
   var gpsWatchId = null;
   var gpsPollTimer = null;
@@ -85,6 +86,7 @@ function createGpsService(options) {
     latestGpsStatus = accuracy <= lockAccuracyM ? 2 : 1;
 
     tracker.recordPosition(latestPosition);
+    onPosition(latestPosition);
     sendGpsStatus(false);
     sendActivityUpdate(false);
   }
@@ -163,4 +165,3 @@ function createGpsService(options) {
 module.exports = {
   createGpsService: createGpsService
 };
-

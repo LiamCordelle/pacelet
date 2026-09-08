@@ -61,7 +61,6 @@ function renderExportPage(activity) {
   var url = ConfigPage.buildExportUrl(activity);
   var html = decodeURIComponent(url.replace('data:text/html;charset=utf-8,', ''));
   var script = html.match(/<script>([\s\S]*)<\/script>/)[1];
-  var createdLink = null;
   var elements = {
     tcx: {
       value: '',
@@ -69,26 +68,9 @@ function renderExportPage(activity) {
       select: function() {},
       setSelectionRange: function() {}
     },
-    openFile: {
-      addEventListener: function(name, listener) {
-        this.listener = listener;
-      }
-    },
-    fileStatus: {
-      textContent: ''
-    },
     copy: {
       addEventListener: function(name, listener) {
         this.listener = listener;
-      }
-    }
-  };
-  var Blob = function() {};
-  var window = {
-    Blob: Blob,
-    URL: {
-      createObjectURL: function() {
-        return 'blob:tcx';
       }
     }
   };
@@ -96,38 +78,18 @@ function renderExportPage(activity) {
     getElementById: function(id) {
       return elements[id];
     },
-    createElement: function(tagName) {
-      createdLink = {
-        tagName: tagName,
-        href: '',
-        download: '',
-        target: '',
-        clicked: false,
-        click: function() {
-          this.clicked = true;
-        }
-      };
-      return createdLink;
-    },
-    body: {
-      appendChild: function() {},
-      removeChild: function() {}
-    },
     execCommand: function() {
       return true;
     }
   };
 
   eval(script);
-  elements.openFile.listener();
+  elements.copy.listener.call(elements.copy);
   return {
     url: url,
     html: html,
     tcx: elements.tcx.value,
-    fileHref: createdLink.href,
-    fileName: createdLink.download,
-    fileClicked: createdLink.clicked,
-    fileStatus: elements.fileStatus.textContent
+    copyText: elements.copy.textContent
   };
 }
 
@@ -338,22 +300,17 @@ run('config close responses preserve activity actions', function() {
   assert.strictEqual(ConfigPage.parseResponse('pebblejs://close'), null);
 });
 
-run('TCX export opens a readable page with copy and file actions', function() {
+run('TCX export opens a readable page with copy fallback', function() {
   var exportPage = renderExportPage(activity);
 
   assert.ok(exportPage.html.indexOf('Export TCX') !== -1);
-  assert.ok(exportPage.html.indexOf('Share TCX File') !== -1);
+  assert.strictEqual(exportPage.html.indexOf('Share TCX File'), -1);
+  assert.strictEqual(exportPage.html.indexOf('Open TCX File'), -1);
   assert.ok(exportPage.html.indexOf('Copy TCX') !== -1);
-  assert.ok(exportPage.html.indexOf('file handoff') !== -1);
+  assert.ok(exportPage.html.indexOf('Pebble config browser') !== -1);
   assert.ok(exportPage.html.indexOf('pt-123.tcx') !== -1);
   assert.ok(exportPage.html.indexOf('clear_pending_tcx_export') !== -1);
-  assert.strictEqual(exportPage.fileHref, 'blob:tcx');
-  assert.strictEqual(exportPage.fileName, 'pt-123.tcx');
-  assert.strictEqual(exportPage.fileClicked, true);
-  assert.strictEqual(
-    exportPage.fileStatus,
-    'File handoff requested. If nothing opens, use Copy TCX.'
-  );
+  assert.strictEqual(exportPage.copyText, 'Copied');
   assert.strictEqual(exportPage.tcx, Strava.generateTcx(activity));
 });
 

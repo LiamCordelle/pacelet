@@ -14,7 +14,8 @@ SIM_PATH = ROOT / 'tools' / 'pypkjs_gps_sim'
 
 EMULATOR = 'emery'
 SCREENS = ['choose', 'gps-search', 'gps-ready', 'countdown', 'activity',
-           'split', 'paused', 'end-confirm', 'finished']
+           'split', 'paused', 'end-confirm', 'finished', 'recovery',
+           'recovery-discard']
 ALL_SCREEN_SEQUENCE = ['choose', 'gps-search', 'gps-ready', 'countdown',
                        'activity', 'split', 'paused', 'end-confirm',
                        'finished']
@@ -152,6 +153,32 @@ def click(args, button, env):
     raise subprocess.CalledProcessError(code, command)
 
 
+def install_app(args, env):
+    command = ['pebble', 'install', '--emulator', EMULATOR, str(PBW)]
+    attempts = 3
+    code = 0
+    for attempt in range(attempts):
+        code = run(command, env=env, check=False,
+                   dry_run=args.dry_run, args=args)
+        if code == 0:
+            return
+        if attempt + 1 < attempts:
+            print('App install failed; retrying ({}/{})...'.format(
+                attempt + 2, attempts
+            ))
+            wait(1.5, args.dry_run)
+    raise subprocess.CalledProcessError(code, command)
+
+
+def reset_emulator(args, base_env):
+    run(['pebble', 'kill', '--force'], env=base_env, check=False,
+        dry_run=args.dry_run)
+    wait(1.0, args.dry_run)
+    run(['pebble', 'wipe'], env=base_env, check=False,
+        dry_run=args.dry_run)
+    wait(1.5, args.dry_run)
+
+
 def press_activity_buttons(args, env):
     for _ in range(ACTIVITY_DOWN_CLICKS[args.activity]):
         click(args, 'down', env)
@@ -191,6 +218,23 @@ def drive_to_screen(args, env, lock_delay):
         return
 
     wait(4.0, args.dry_run)
+
+    if args.screen in ('recovery', 'recovery-discard'):
+        # Let the phone write at least one periodic draft, then close and
+        # relaunch the watch app. PebbleKit JS restarts with the app and should
+        # offer the persisted draft instead of silently starting over.
+        wait(16.0, args.dry_run)
+        click(args, 'back', env)
+        wait(1.0, args.dry_run)
+        # Reinstalling the same UUID relaunches the app without clearing its
+        # persisted watch or PebbleKit JS data. This avoids depending on the
+        # launcher's post-exit selection, which varies after an emulator wipe.
+        install_app(args, env)
+        wait(5.0, args.dry_run)
+        if args.screen == 'recovery-discard':
+            click(args, 'down', env)
+            wait(0.5, args.dry_run)
+        return
 
     if args.screen == 'split':
         wait(5.0, args.dry_run)
@@ -248,14 +292,20 @@ def capture_all_screens(args, sim_env, base_env, lock_delay):
             screen_env = sim_env.copy()
             if screen == 'split':
                 screen_env['PEBBLE_TRACKER_SIM_SPEED_MPS'] = '250.0'
-            run(['pebble', 'kill', '--force'], env=base_env, check=False,
-                dry_run=args.dry_run)
-            wait(0.75, args.dry_run)
-            run(['pebble', 'install', '--emulator', EMULATOR, str(PBW)],
-                env=screen_env, dry_run=args.dry_run, args=args)
-            drive_to_screen(args, screen_env, lock_delay)
-            captured.append(all_output_path(args, screen, index))
-            capture(args, base_env, captured[-1])
+            screen_output = all_output_path(args, screen, index)
+            for attempt in range(2):
+                try:
+                    reset_emulator(args, base_env)
+                    install_app(args, screen_env)
+                    drive_to_screen(args, screen_env, lock_delay)
+                    capture(args, base_env, screen_output)
+                    break
+                except subprocess.CalledProcessError:
+                    if attempt + 1 >= 2:
+                        raise
+                    print('Screen flow failed; restarting emulator and '
+                          'retrying {}/2...'.format(attempt + 2))
+            captured.append(screen_output)
             index += 1
     finally:
         args.screen = original_screen
@@ -298,9 +348,7 @@ def main(argv):
         return 0
 
     if not args.reuse_emulator:
-        run(['pebble', 'kill', '--force'], env=base_env, check=False,
-            dry_run=args.dry_run)
-        wait(0.75, args.dry_run)
+        reset_emulator(args, base_env)
 
     if not args.skip_build:
         run(['pebble', 'build'], env=base_env, dry_run=args.dry_run)
@@ -308,8 +356,7 @@ def main(argv):
     if not PBW.exists() and not args.dry_run:
         raise SystemExit('PBW not found: {}'.format(PBW))
 
-    run(['pebble', 'install', '--emulator', EMULATOR, str(PBW)],
-        env=sim_env, dry_run=args.dry_run, args=args)
+    install_app(args, sim_env)
 
     drive_to_screen(args, sim_env, lock_delay)
     capture(args, base_env, output)

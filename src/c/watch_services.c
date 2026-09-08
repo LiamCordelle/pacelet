@@ -8,6 +8,8 @@
 
 #define SETTINGS_KEY 1
 #define SETTINGS_VERSION 2
+#define ACTIVITY_STATE_KEY 2
+#define ACTIVITY_STATE_VERSION 1
 
 typedef struct {
   uint8_t version;
@@ -21,6 +23,129 @@ typedef struct {
   uint8_t version;
   bool dark_mode;
 } AppSettingsV1;
+
+typedef struct {
+  uint8_t version;
+  uint8_t phone_state;
+  uint8_t activity_type;
+  uint8_t reserved;
+  int32_t moving_s;
+  int32_t distance_m;
+  int32_t checkpointed_at;
+  int32_t next_split_km;
+  int32_t last_split_elapsed_s;
+  int32_t activity_start_steps_today;
+  int32_t total_paused_steps;
+  int32_t current_steps;
+  uint32_t pending_command;
+  char activity_id[24];
+} PersistedActivityState;
+
+static AppTimer *s_retry_timer;
+static bool s_initial_state_pending;
+
+static bool send_command(uint32_t command_key, bool mark_pending);
+static void schedule_retry(void);
+
+static bool is_reliable_command(uint32_t command_key) {
+  return command_key == MESSAGE_KEY_START_ACTIVITY ||
+      command_key == MESSAGE_KEY_PAUSE_ACTIVITY ||
+      command_key == MESSAGE_KEY_RESUME_ACTIVITY ||
+      command_key == MESSAGE_KEY_FINISH_ACTIVITY ||
+      command_key == MESSAGE_KEY_RECOVER_ACTIVITY ||
+      command_key == MESSAGE_KEY_DISCARD_ACTIVITY;
+}
+
+static PhoneActivityState current_phone_activity_state(void) {
+  if (g_pacelet.activity_state == ActivityStateActive) {
+    return PhoneActivityStateActive;
+  }
+  if (g_pacelet.activity_state == ActivityStatePaused) {
+    return PhoneActivityStatePaused;
+  }
+  return PhoneActivityStateRecovery;
+}
+
+void watch_services_clear_activity_state(void) {
+  persist_delete(ACTIVITY_STATE_KEY);
+  g_pacelet.pending_command = 0;
+  g_pacelet.activity_id[0] = '\0';
+}
+
+void watch_services_save_activity_state(void) {
+  bool has_activity =
+      g_pacelet.activity_state == ActivityStateActive ||
+      g_pacelet.activity_state == ActivityStatePaused ||
+      g_pacelet.activity_state == ActivityStateRecovery ||
+      g_pacelet.pending_command != 0;
+  PersistedActivityState state;
+
+  if (!has_activity) {
+    watch_services_clear_activity_state();
+    return;
+  }
+
+  memset(&state, 0, sizeof(state));
+  state.version = ACTIVITY_STATE_VERSION;
+  state.phone_state = (uint8_t)current_phone_activity_state();
+  state.activity_type = (uint8_t)g_pacelet.activity_type;
+  state.moving_s = pacelet_elapsed_s();
+  state.distance_m = g_pacelet.distance_m;
+  state.checkpointed_at = g_pacelet.activity_checkpointed_at;
+  state.next_split_km = g_pacelet.next_split_km;
+  state.last_split_elapsed_s = g_pacelet.last_split_elapsed_s;
+  state.activity_start_steps_today =
+      g_pacelet.activity_start_steps_today;
+  state.total_paused_steps = g_pacelet.total_paused_steps;
+  state.current_steps = g_pacelet.current_steps;
+  state.pending_command = g_pacelet.pending_command;
+  snprintf(state.activity_id, sizeof(state.activity_id), "%s",
+           g_pacelet.activity_id);
+  persist_write_data(ACTIVITY_STATE_KEY, &state, sizeof(state));
+}
+
+void watch_services_load_activity_state(void) {
+  PersistedActivityState state;
+  int state_size = persist_get_size(ACTIVITY_STATE_KEY);
+
+  if (state_size != (int)sizeof(state) ||
+      persist_read_data(ACTIVITY_STATE_KEY, &state, sizeof(state)) !=
+          (int)sizeof(state) ||
+      state.version != ACTIVITY_STATE_VERSION ||
+      state.phone_state < PhoneActivityStateActive ||
+      state.phone_state > PhoneActivityStateRecovery ||
+      state.activity_type > ActivityTypeCycling || state.moving_s < 0 ||
+      state.distance_m < 0) {
+    if (state_size > 0) {
+      persist_delete(ACTIVITY_STATE_KEY);
+    }
+    return;
+  }
+
+  g_pacelet.activity_type = (ActivityType)state.activity_type;
+  g_pacelet.choose_index = state.activity_type;
+  g_pacelet.activity_state = ActivityStateRecovery;
+  g_pacelet.recovery_moving_s = state.moving_s;
+  g_pacelet.finished_elapsed_s = state.moving_s;
+  g_pacelet.distance_m = state.distance_m;
+  g_pacelet.activity_checkpointed_at = state.checkpointed_at;
+  g_pacelet.next_split_km = state.next_split_km > 0 ?
+      state.next_split_km : state.distance_m / 1000 + 1;
+  g_pacelet.last_split_elapsed_s = state.last_split_elapsed_s;
+  g_pacelet.activity_start_steps_today =
+      state.activity_start_steps_today;
+  g_pacelet.total_paused_steps = state.total_paused_steps;
+  g_pacelet.current_steps = state.current_steps;
+  g_pacelet.current_steps_available =
+      state.activity_start_steps_today >= 0;
+  g_pacelet.pending_command = state.pending_command;
+  state.activity_id[sizeof(state.activity_id) - 1] = '\0';
+  snprintf(g_pacelet.activity_id, sizeof(g_pacelet.activity_id), "%s",
+           state.activity_id);
+  g_pacelet.recovery_phone_draft_available = false;
+  snprintf(g_pacelet.recovery_message,
+           sizeof(g_pacelet.recovery_message), "CHECKING PHONE");
+}
 
 static void save_settings(void) {
   AppSettings settings = {
@@ -58,10 +183,16 @@ void watch_services_load_settings(void) {
   }
 }
 
-void watch_services_send_command(uint32_t command_key) {
+static bool send_command(uint32_t command_key, bool mark_pending) {
   DictionaryIterator *iter;
+  AppMessageResult result;
+
+  if (mark_pending && is_reliable_command(command_key)) {
+    g_pacelet.pending_command = command_key;
+    watch_services_save_activity_state();
+  }
   if (app_message_outbox_begin(&iter) != APP_MSG_OK) {
-    return;
+    return false;
   }
 
   dict_write_uint8(iter, command_key, 1);
@@ -69,7 +200,20 @@ void watch_services_send_command(uint32_t command_key) {
     dict_write_uint8(iter, MESSAGE_KEY_ACTIVITY_TYPE,
                      (uint8_t)g_pacelet.activity_type);
   }
-  app_message_outbox_send();
+  if (is_reliable_command(command_key) &&
+      g_pacelet.activity_id[0] != '\0') {
+    dict_write_cstring(iter, MESSAGE_KEY_ACTIVITY_ID,
+                       g_pacelet.activity_id);
+  }
+  result = app_message_outbox_send();
+  return result == APP_MSG_OK;
+}
+
+void watch_services_send_command(uint32_t command_key) {
+  if (!send_command(command_key, true) &&
+      is_reliable_command(command_key)) {
+    schedule_retry();
+  }
 }
 
 void watch_services_send_history_action(uint32_t command_key,
@@ -98,6 +242,24 @@ bool watch_services_send_hr_bpm(int32_t bpm) {
 
 void watch_services_request_settings(void) {
   watch_services_send_command(MESSAGE_KEY_REQUEST_SETTINGS);
+}
+
+void watch_services_request_activity_state(void) {
+  watch_services_send_command(MESSAGE_KEY_REQUEST_ACTIVITY_STATE);
+}
+
+void watch_services_request_initial_state(void) {
+  DictionaryIterator *iter;
+  s_initial_state_pending = true;
+  if (app_message_outbox_begin(&iter) != APP_MSG_OK) {
+    schedule_retry();
+    return;
+  }
+  dict_write_uint8(iter, MESSAGE_KEY_REQUEST_SETTINGS, 1);
+  dict_write_uint8(iter, MESSAGE_KEY_REQUEST_ACTIVITY_STATE, 1);
+  if (app_message_outbox_send() != APP_MSG_OK) {
+    schedule_retry();
+  }
 }
 
 void watch_services_request_history(void) {
@@ -194,6 +356,13 @@ static void parse_history_items(const char *items_text) {
 
 static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   bool settings_changed = false;
+  Tuple *phone_activity_state =
+      dict_find(iter, MESSAGE_KEY_ACTIVITY_STATE);
+
+  if (!g_pacelet.phone_connected) {
+    activity_controller_handle_phone_connection(true);
+  }
+
   Tuple *gps_status = dict_find(iter, MESSAGE_KEY_GPS_STATUS);
   if (gps_status) {
     GpsState previous_gps_state = g_pacelet.gps_state;
@@ -225,7 +394,13 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
 
   Tuple *distance = dict_find(iter, MESSAGE_KEY_DISTANCE_M);
   if (distance) {
-    activity_controller_handle_distance(distance->value->int32);
+    if (phone_activity_state &&
+        phone_activity_state->value->int32 ==
+            PhoneActivityStateRecovery) {
+      g_pacelet.distance_m = distance->value->int32;
+    } else {
+      activity_controller_handle_distance(distance->value->int32);
+    }
   }
 
   Tuple *pace = dict_find(iter, MESSAGE_KEY_CURRENT_PACE);
@@ -254,6 +429,56 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   Tuple *summary_points = dict_find(iter, MESSAGE_KEY_SUMMARY_POINTS);
   if (summary_points) {
     g_pacelet.summary_points = summary_points->value->int32;
+  }
+
+  Tuple *activity_id = dict_find(iter, MESSAGE_KEY_ACTIVITY_ID);
+  if (activity_id) {
+    if ((g_pacelet.pending_command == MESSAGE_KEY_FINISH_ACTIVITY ||
+         g_pacelet.pending_command == MESSAGE_KEY_DISCARD_ACTIVITY) &&
+        g_pacelet.activity_id[0] != '\0' &&
+        strcmp(g_pacelet.activity_id, activity_id->value->cstring) != 0) {
+      // The phone is reporting a different current activity. Retire the old
+      // destructive command before adopting the authoritative session ID.
+      g_pacelet.pending_command = 0;
+    }
+    snprintf(g_pacelet.activity_id, sizeof(g_pacelet.activity_id), "%s",
+             activity_id->value->cstring);
+  }
+
+  Tuple *activity_type = dict_find(iter, MESSAGE_KEY_ACTIVITY_TYPE);
+  if (activity_type) {
+    g_pacelet.activity_type = (ActivityType)pacelet_clamp_i32(
+        activity_type->value->int32, ActivityTypeWalking,
+        ActivityTypeCycling);
+  }
+
+  Tuple *activity_started_at =
+      dict_find(iter, MESSAGE_KEY_ACTIVITY_STARTED_AT);
+  if (activity_started_at) {
+    g_pacelet.started_at = activity_started_at->value->int32;
+  }
+
+  Tuple *activity_moving =
+      dict_find(iter, MESSAGE_KEY_ACTIVITY_MOVING_S);
+  if (activity_moving) {
+    g_pacelet.recovery_moving_s =
+        activity_moving->value->int32 < 0 ? 0 :
+            activity_moving->value->int32;
+  }
+
+  Tuple *activity_checkpointed =
+      dict_find(iter, MESSAGE_KEY_ACTIVITY_CHECKPOINTED_AT);
+  if (activity_checkpointed) {
+    g_pacelet.activity_checkpointed_at =
+        activity_checkpointed->value->int32;
+  }
+
+  Tuple *recovery_message =
+      dict_find(iter, MESSAGE_KEY_RECOVERY_MESSAGE);
+  if (recovery_message) {
+    snprintf(g_pacelet.recovery_message,
+             sizeof(g_pacelet.recovery_message), "%s",
+             recovery_message->value->cstring);
   }
 
   Tuple *dark_mode = dict_find(iter, MESSAGE_KEY_DARK_MODE);
@@ -319,6 +544,13 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     save_settings();
   }
 
+  if (phone_activity_state) {
+    activity_controller_handle_phone_activity_state(
+        (PhoneActivityState)pacelet_clamp_i32(
+            phone_activity_state->value->int32,
+            PhoneActivityStateNone, PhoneActivityStateRecovery));
+  }
+
   watch_ui_mark_dirty();
 }
 
@@ -326,19 +558,93 @@ static void inbox_dropped_callback(AppMessageResult reason, void *context) {
   APP_LOG(APP_LOG_LEVEL_WARNING, "Inbox dropped: %d", reason);
 }
 
+static void retry_timer_callback(void *context) {
+  s_retry_timer = NULL;
+  if (!g_pacelet.phone_connected) {
+    return;
+  }
+  if (g_pacelet.pending_command != 0) {
+    if (!send_command(g_pacelet.pending_command, false)) {
+      schedule_retry();
+    }
+  } else if (s_initial_state_pending) {
+    watch_services_request_initial_state();
+  }
+}
+
+static void schedule_retry(void) {
+  if (!s_retry_timer) {
+    s_retry_timer = app_timer_register(750, retry_timer_callback, NULL);
+  }
+}
+
+static bool sent_command(DictionaryIterator *iter, uint32_t command_key) {
+  return command_key != 0 && dict_find(iter, command_key) != NULL;
+}
+
+static void outbox_sent_callback(DictionaryIterator *iter, void *context) {
+  if (dict_find(iter, MESSAGE_KEY_REQUEST_ACTIVITY_STATE) &&
+      dict_find(iter, MESSAGE_KEY_REQUEST_SETTINGS)) {
+    s_initial_state_pending = false;
+  }
+
+  if (sent_command(iter, g_pacelet.pending_command) &&
+      g_pacelet.pending_command != MESSAGE_KEY_FINISH_ACTIVITY &&
+      g_pacelet.pending_command != MESSAGE_KEY_DISCARD_ACTIVITY) {
+    g_pacelet.pending_command = 0;
+    watch_services_save_activity_state();
+  }
+
+  if (g_pacelet.pending_command != 0 || s_initial_state_pending) {
+    schedule_retry();
+  }
+}
+
 static void outbox_failed_callback(DictionaryIterator *iter,
                                    AppMessageResult reason,
                                    void *context) {
   APP_LOG(APP_LOG_LEVEL_WARNING, "Outbox failed: %d", reason);
+  if (g_pacelet.pending_command != 0 || s_initial_state_pending) {
+    schedule_retry();
+  }
+  if (!connection_service_peek_pebble_app_connection()) {
+    activity_controller_handle_phone_connection(false);
+  }
+}
+
+static void app_connection_handler(bool connected) {
+  activity_controller_handle_phone_connection(connected);
+  if (!connected) {
+    return;
+  }
+  if (g_pacelet.pending_command != 0) {
+    if (!send_command(g_pacelet.pending_command, false)) {
+      schedule_retry();
+    }
+  } else {
+    watch_services_request_initial_state();
+  }
 }
 
 void watch_services_init(void) {
   app_message_register_inbox_received(inbox_received_callback);
   app_message_register_inbox_dropped(inbox_dropped_callback);
+  app_message_register_outbox_sent(outbox_sent_callback);
   app_message_register_outbox_failed(outbox_failed_callback);
   app_message_open(768, 128);
+  connection_service_subscribe((ConnectionHandlers) {
+    .pebble_app_connection_handler = app_connection_handler
+  });
+  activity_controller_handle_phone_connection(
+      connection_service_peek_pebble_app_connection());
 }
 
 void watch_services_deinit(void) {
+  if (s_retry_timer) {
+    app_timer_cancel(s_retry_timer);
+    s_retry_timer = NULL;
+  }
+  watch_services_save_activity_state();
+  connection_service_unsubscribe();
   app_message_deregister_callbacks();
 }

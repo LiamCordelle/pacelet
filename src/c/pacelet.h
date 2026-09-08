@@ -17,8 +17,16 @@ typedef enum {
   ActivityStatePaused = 5,
   ActivityStateFinished = 6,
   ActivityStateHistoryList = 7,
-  ActivityStateHistoryDetail = 8
+  ActivityStateHistoryDetail = 8,
+  ActivityStateRecovery = 9
 } ActivityState;
+
+typedef enum {
+  PhoneActivityStateNone = 0,
+  PhoneActivityStateActive = 1,
+  PhoneActivityStatePaused = 2,
+  PhoneActivityStateRecovery = 3
+} PhoneActivityState;
 
 typedef enum {
   GpsStateIdle = 0,
@@ -106,6 +114,15 @@ typedef struct {
   int32_t split_number;
   bool split_visible;
   bool finish_confirm_visible;
+
+  bool phone_connected;
+  bool recovery_phone_draft_available;
+  bool discard_confirm_visible;
+  int32_t recovery_moving_s;
+  int32_t activity_checkpointed_at;
+  uint32_t pending_command;
+  char activity_id[24];
+  char recovery_message[32];
 
   char gps_error[32];
 } PaceletModel;

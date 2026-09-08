@@ -4,16 +4,20 @@
 #include "watch_services.h"
 #include "watch_ui.h"
 
+#include <string.h>
+
 #define HR_SAMPLE_PERIOD_S 1
 #define HR_SEND_INTERVAL_S 1
 #define HR_READING_STALE_S 60
 #define SPLIT_DISTANCE_M 1000
 #define SPLIT_SUMMARY_MS 6000
 #define CHOOSE_ITEM_COUNT 4
+#define ACTIVITY_PERSIST_INTERVAL_S 30
 
 static AppTimer *s_countdown_timer;
 static AppTimer *s_split_timer;
 static bool s_hr_sample_period_requested;
+static int32_t s_last_persist_elapsed_s;
 
 static void update_hr(bool fresh_event);
 
@@ -49,6 +53,25 @@ static bool read_today_steps(int32_t *steps_out) {
   (void)steps_out;
   return false;
 #endif
+}
+
+static void rebase_steps_after_recovery(bool paused) {
+  int32_t today_steps = 0;
+  if (!read_today_steps(&today_steps)) {
+    g_pacelet.current_steps_available = false;
+    g_pacelet.pause_start_steps_today = -1;
+    return;
+  }
+
+  if (g_pacelet.current_steps < 0 ||
+      g_pacelet.current_steps > today_steps) {
+    g_pacelet.current_steps = 0;
+  }
+  g_pacelet.activity_start_steps_today =
+      today_steps - g_pacelet.current_steps;
+  g_pacelet.total_paused_steps = 0;
+  g_pacelet.pause_start_steps_today = paused ? today_steps : -1;
+  g_pacelet.current_steps_available = true;
 }
 
 static void update_steps(void) {
@@ -205,6 +228,7 @@ static void return_to_choose(void) {
   g_pacelet.gps_state = GpsStateIdle;
   g_pacelet.gps_accuracy_m = -1;
   g_pacelet.gps_error[0] = '\0';
+  watch_services_clear_activity_state();
   watch_ui_mark_dirty();
 }
 
@@ -280,6 +304,8 @@ static void start_activity_recording(void) {
   reset_activity_metrics(true);
   g_pacelet.started_at = time(NULL);
   g_pacelet.activity_state = ActivityStateActive;
+  g_pacelet.recovery_phone_draft_available = true;
+  s_last_persist_elapsed_s = 0;
   set_activity_hr_sampling(true);
   update_hr(false);
   update_steps();
@@ -409,6 +435,67 @@ static void finish_activity(void) {
   watch_ui_mark_dirty();
 }
 
+static void request_recovery_resume(void) {
+  if (g_pacelet.activity_state != ActivityStateRecovery ||
+      !g_pacelet.recovery_phone_draft_available ||
+      g_pacelet.discard_confirm_visible) {
+    return;
+  }
+  snprintf(g_pacelet.recovery_message,
+           sizeof(g_pacelet.recovery_message), "WAITING FOR GPS");
+  watch_services_send_command(MESSAGE_KEY_RECOVER_ACTIVITY);
+  watch_ui_mark_dirty();
+}
+
+static void finish_recovered_activity(void) {
+  if (g_pacelet.activity_state != ActivityStateRecovery ||
+      !g_pacelet.recovery_phone_draft_available ||
+      g_pacelet.discard_confirm_visible) {
+    return;
+  }
+  g_pacelet.finished_elapsed_s = g_pacelet.recovery_moving_s;
+  g_pacelet.summary_distance_m = g_pacelet.distance_m;
+  g_pacelet.summary_moving_s = g_pacelet.recovery_moving_s;
+  g_pacelet.activity_state = ActivityStateFinished;
+  set_activity_hr_sampling(false);
+  watch_services_send_command(MESSAGE_KEY_FINISH_ACTIVITY);
+  vibes_short_pulse();
+  watch_ui_mark_dirty();
+}
+
+static void show_discard_confirmation(void) {
+  if (g_pacelet.activity_state != ActivityStateRecovery ||
+      g_pacelet.discard_confirm_visible) {
+    return;
+  }
+  g_pacelet.discard_confirm_visible = true;
+  vibes_short_pulse();
+  watch_services_save_activity_state();
+  watch_ui_mark_dirty();
+}
+
+static void hide_discard_confirmation(void) {
+  if (!g_pacelet.discard_confirm_visible) {
+    return;
+  }
+  g_pacelet.discard_confirm_visible = false;
+  watch_services_save_activity_state();
+  watch_ui_mark_dirty();
+}
+
+static void discard_recovered_activity(void) {
+  if (g_pacelet.activity_state != ActivityStateRecovery ||
+      !g_pacelet.discard_confirm_visible) {
+    return;
+  }
+  g_pacelet.discard_confirm_visible = false;
+  snprintf(g_pacelet.recovery_message,
+           sizeof(g_pacelet.recovery_message), "DISCARDING");
+  watch_services_send_command(MESSAGE_KEY_DISCARD_ACTIVITY);
+  vibes_short_pulse();
+  watch_ui_mark_dirty();
+}
+
 static void cycle_activity_type(int direction) {
   if (g_pacelet.activity_state != ActivityStateChoose &&
       g_pacelet.activity_state != ActivityStateGps &&
@@ -500,7 +587,8 @@ static void maybe_send_periodic_hr(void) {
 }
 
 void activity_controller_handle_select(void) {
-  if (g_pacelet.finish_confirm_visible) {
+  if (g_pacelet.finish_confirm_visible ||
+      g_pacelet.discard_confirm_visible) {
     return;
   }
 
@@ -534,6 +622,9 @@ void activity_controller_handle_select(void) {
     case ActivityStateHistoryDetail:
       request_selected_history_retry();
       break;
+    case ActivityStateRecovery:
+      finish_recovered_activity();
+      break;
     case ActivityStateCountdown:
     case ActivityStateActive:
     case ActivityStateFinished:
@@ -543,7 +634,9 @@ void activity_controller_handle_select(void) {
 }
 
 void activity_controller_handle_up(void) {
-  if (g_pacelet.finish_confirm_visible) {
+  if (g_pacelet.discard_confirm_visible) {
+    discard_recovered_activity();
+  } else if (g_pacelet.finish_confirm_visible) {
     finish_activity();
   } else if (g_pacelet.activity_state == ActivityStateChoose) {
     cycle_choose_index(-1);
@@ -555,6 +648,8 @@ void activity_controller_handle_up(void) {
     cycle_history_index(-1);
   } else if (g_pacelet.activity_state == ActivityStateHistoryDetail) {
     request_selected_history_export();
+  } else if (g_pacelet.activity_state == ActivityStateRecovery) {
+    request_recovery_resume();
   } else if (g_pacelet.activity_state == ActivityStateGps ||
              g_pacelet.activity_state == ActivityStateReady ||
              g_pacelet.activity_state == ActivityStateFinished) {
@@ -563,7 +658,9 @@ void activity_controller_handle_up(void) {
 }
 
 void activity_controller_handle_down(void) {
-  if (g_pacelet.finish_confirm_visible) {
+  if (g_pacelet.discard_confirm_visible) {
+    hide_discard_confirmation();
+  } else if (g_pacelet.finish_confirm_visible) {
     hide_finish_confirmation();
   } else if (g_pacelet.activity_state == ActivityStateFinished) {
     return_to_choose();
@@ -574,6 +671,8 @@ void activity_controller_handle_down(void) {
   } else if (g_pacelet.activity_state == ActivityStateHistoryDetail) {
     g_pacelet.activity_state = ActivityStateHistoryList;
     watch_ui_mark_dirty();
+  } else if (g_pacelet.activity_state == ActivityStateRecovery) {
+    show_discard_confirmation();
   } else {
     cycle_activity_type(1);
   }
@@ -586,6 +685,14 @@ void activity_controller_handle_tick(void) {
   expire_stale_hr();
   maybe_send_hr_clear();
   maybe_send_periodic_hr();
+  if (g_pacelet.activity_state == ActivityStateActive) {
+    int32_t elapsed_s = pacelet_elapsed_s();
+    if (elapsed_s - s_last_persist_elapsed_s >=
+        ACTIVITY_PERSIST_INTERVAL_S) {
+      s_last_persist_elapsed_s = elapsed_s;
+      watch_services_save_activity_state();
+    }
+  }
   watch_ui_mark_dirty();
 }
 
@@ -604,6 +711,126 @@ void activity_controller_handle_health_event(HealthEventType event) {
 void activity_controller_handle_distance(int32_t distance_m) {
   g_pacelet.distance_m = distance_m;
   maybe_show_split_summary(distance_m);
+}
+
+void activity_controller_handle_phone_connection(bool connected) {
+  g_pacelet.phone_connected = connected;
+  if (!connected && g_pacelet.activity_state == ActivityStateRecovery) {
+    snprintf(g_pacelet.recovery_message,
+             sizeof(g_pacelet.recovery_message), "PHONE DISCONNECTED");
+  }
+  watch_ui_mark_dirty();
+}
+
+void activity_controller_handle_phone_activity_state(
+    PhoneActivityState phone_state) {
+  time_t now = time(NULL);
+  ActivityState previous_state = g_pacelet.activity_state;
+
+  if (phone_state == PhoneActivityStateActive) {
+    if (previous_state == ActivityStateRecovery) {
+      rebase_steps_after_recovery(false);
+    }
+    g_pacelet.activity_state = ActivityStateActive;
+    g_pacelet.started_at = now - g_pacelet.recovery_moving_s;
+    g_pacelet.paused_at = 0;
+    g_pacelet.total_paused_s = 0;
+    g_pacelet.finished_elapsed_s = 0;
+    g_pacelet.recovery_phone_draft_available = true;
+    g_pacelet.discard_confirm_visible = false;
+    g_pacelet.recovery_message[0] = '\0';
+    g_pacelet.pending_command = 0;
+    s_last_persist_elapsed_s = g_pacelet.recovery_moving_s;
+    set_activity_hr_sampling(true);
+    update_hr(false);
+    update_steps();
+    watch_services_save_activity_state();
+    return;
+  }
+
+  if (phone_state == PhoneActivityStatePaused) {
+    if (previous_state == ActivityStateRecovery) {
+      rebase_steps_after_recovery(true);
+    }
+    g_pacelet.activity_state = ActivityStatePaused;
+    g_pacelet.started_at = now - g_pacelet.recovery_moving_s;
+    g_pacelet.paused_at = now;
+    g_pacelet.total_paused_s = 0;
+    g_pacelet.finished_elapsed_s = 0;
+    g_pacelet.recovery_phone_draft_available = true;
+    g_pacelet.discard_confirm_visible = false;
+    g_pacelet.recovery_message[0] = '\0';
+    g_pacelet.pending_command = 0;
+    set_activity_hr_sampling(true);
+    update_hr(false);
+    update_steps();
+    watch_services_save_activity_state();
+    return;
+  }
+
+  if (phone_state == PhoneActivityStateRecovery) {
+    cancel_countdown();
+    hide_split_summary();
+    g_pacelet.activity_state = ActivityStateRecovery;
+    g_pacelet.finished_elapsed_s = g_pacelet.recovery_moving_s;
+    g_pacelet.recovery_phone_draft_available = true;
+    g_pacelet.finish_confirm_visible = false;
+    g_pacelet.discard_confirm_visible = false;
+    if (g_pacelet.pending_command != MESSAGE_KEY_FINISH_ACTIVITY &&
+        g_pacelet.pending_command != MESSAGE_KEY_DISCARD_ACTIVITY) {
+      g_pacelet.pending_command = 0;
+    } else if (strcmp(g_pacelet.recovery_message, "SAVE FAILED") == 0 ||
+               strcmp(g_pacelet.recovery_message, "SESSION CHANGED") == 0 ||
+               strcmp(g_pacelet.recovery_message, "DISCARD FAILED") == 0) {
+      // The phone handled the destructive command but kept its draft. Stop
+      // automatic retries and let the user explicitly choose the next action.
+      g_pacelet.pending_command = 0;
+    }
+    set_activity_hr_sampling(false);
+    watch_services_save_activity_state();
+    return;
+  }
+
+  if (g_pacelet.pending_command == MESSAGE_KEY_FINISH_ACTIVITY &&
+      strcmp(g_pacelet.recovery_message, "NO ACTIVE ACTIVITY") == 0) {
+    g_pacelet.activity_state = ActivityStateRecovery;
+    g_pacelet.recovery_phone_draft_available = false;
+    g_pacelet.pending_command = 0;
+    set_activity_hr_sampling(false);
+    watch_services_save_activity_state();
+    return;
+  }
+
+  if (g_pacelet.pending_command == MESSAGE_KEY_DISCARD_ACTIVITY) {
+    return_to_choose();
+    return;
+  }
+
+  if (g_pacelet.pending_command == MESSAGE_KEY_FINISH_ACTIVITY ||
+      g_pacelet.activity_state == ActivityStateFinished) {
+    g_pacelet.activity_state = ActivityStateFinished;
+    g_pacelet.finished_elapsed_s =
+        g_pacelet.summary_moving_s > 0 ?
+            g_pacelet.summary_moving_s : g_pacelet.recovery_moving_s;
+    g_pacelet.recovery_phone_draft_available = false;
+    g_pacelet.pending_command = 0;
+    watch_services_clear_activity_state();
+    return;
+  }
+
+  if (g_pacelet.activity_state == ActivityStateActive ||
+      g_pacelet.activity_state == ActivityStatePaused ||
+      g_pacelet.activity_state == ActivityStateRecovery) {
+    cancel_countdown();
+    hide_split_summary();
+    g_pacelet.activity_state = ActivityStateRecovery;
+    g_pacelet.recovery_phone_draft_available = false;
+    g_pacelet.pending_command = 0;
+    snprintf(g_pacelet.recovery_message,
+             sizeof(g_pacelet.recovery_message), "PHONE DATA MISSING");
+    set_activity_hr_sampling(false);
+    watch_services_save_activity_state();
+  }
 }
 
 void activity_controller_deinit(void) {

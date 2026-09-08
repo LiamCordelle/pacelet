@@ -115,6 +115,43 @@ run('activity store tracks pending TCX export activity', function() {
   assert.strictEqual(store.getPendingTcxExportActivityId(), '');
 });
 
+run('activity store persists, loads, and clears active drafts', function() {
+  var storage = createMemoryStorage();
+  var store = createStore(storage);
+  var activity = sampleActivity('draft');
+  delete activity.finishedAt;
+
+  assert.strictEqual(store.saveActiveActivity(activity, 12345), true);
+  assert.strictEqual(store.getActiveActivityDraft().activity.id, 'draft');
+  assert.strictEqual(store.getActiveActivityDraft().checkpointedAt, 12345);
+  assert.strictEqual(store.clearActiveActivity(), true);
+  assert.strictEqual(store.getActiveActivityDraft(), null);
+});
+
+run('activity store quarantines corrupt active drafts', function() {
+  var storage = createMemoryStorage();
+  var store = createStore(storage);
+  storage.setItem(ActivityStore.ACTIVE_ACTIVITY_KEY, '{broken');
+
+  assert.strictEqual(store.getActiveActivityDraft(), null);
+  assert.strictEqual(storage.getItem(ActivityStore.ACTIVE_ACTIVITY_KEY), null);
+  assert.strictEqual(
+    storage.getItem(ActivityStore.CORRUPT_ACTIVE_ACTIVITY_KEY),
+    '{broken'
+  );
+});
+
+run('saving an activity again replaces its prior copy', function() {
+  var store = createStore(createMemoryStorage());
+  var activity = sampleActivity('same-id');
+  store.saveActivity(activity);
+  activity.summaryDistanceM = 999;
+  store.saveActivity(activity);
+
+  assert.strictEqual(store.getActivities().length, 1);
+  assert.strictEqual(store.getActivity('same-id').distanceM, 999);
+});
+
 run('history messages compact saved activities for the watch', function() {
   var activities = [
     {
@@ -173,6 +210,7 @@ run('GPS service owns watch, polling, position, and metric messages',
   var clock = 10000;
   var messages = [];
   var recorded = [];
+  var positionNotifications = [];
   var clearedWatch = null;
   var clearedTimer = null;
   var tracker = {
@@ -224,12 +262,16 @@ run('GPS service owns watch, polling, position, and metric messages',
     },
     clearIntervalFn: function(id) {
       clearedTimer = id;
+    },
+    onPosition: function(position) {
+      positionNotifications.push(position);
     }
   });
 
   gps.start();
 
   assert.strictEqual(recorded.length, 1);
+  assert.strictEqual(positionNotifications.length, 1);
   assert.strictEqual(gps.getLatestPosition().accuracy, 8);
   assert.strictEqual(messages[0].GPS_STATUS, 1);
   assert.strictEqual(messages[1].GPS_STATUS, 2);

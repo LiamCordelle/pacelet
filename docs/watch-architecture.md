@@ -49,6 +49,7 @@ Owns user actions and time-based behavior:
 
 - GPS request and countdown
 - Start, pause, resume, finish, and return-to-picker transitions
+- Partial-activity resume, finish, and confirmed discard transitions
 - Activity History list/detail navigation and history actions
 - Split timers and kilometre summary state
 - Pebble Health sampling, stale-reading expiry, and HR messages
@@ -63,6 +64,7 @@ Owns external watch services:
 - GPS/live metric updates received from the phone
 - Saved-activity history responses received from the phone
 - Watch settings persistence and migration
+- Compact activity recovery persistence and reliable command retries
 
 New watch-phone fields must first be declared in `package.json`.
 
@@ -79,12 +81,25 @@ would create many tiny modules without reducing shared drawing context.
 
 ```text
 Choose -> GPS -> Ready -> Countdown -> Active <-> Paused -> Finished
+                                      |          |
+                                      +-> Recovery <- app/phone restart
+                                             |\
+                                             | +-> Finished
+                                             +---> Active (after fresh GPS)
    |
    +-> History List -> History Detail
 ```
 
-The finish confirmation and kilometre split are temporary overlays represented
-by flags on the model rather than separate activity states.
+The finish confirmation, recovery discard confirmation, and kilometre split
+are temporary overlays represented by flags on the model rather than separate
+activity states. Recovery is a first-class activity state because it may
+survive process and watch-app restarts.
+
+The watch saves compact activity metadata on state changes, every 30 seconds
+while active, and during app teardown. It never attempts to reconstruct the
+GPS track; the phone checkpoint is authoritative. Commands that change an
+activity carry its ID and are retried when transport fails, preventing a
+delayed command from mutating a newer session.
 
 ## Change Guide
 
