@@ -38,6 +38,8 @@ It should not implement storage, geolocation, HTTP, or activity calculations.
 Contains deterministic activity logic:
 
 - GPS point acceptance and distance calculation
+- Confirmation of a new GPS segment after gaps or persistent outliers
+- Accuracy-based position smoothing and stationary jitter suppression
 - Pace and speed smoothing
 - Pause/resume semantics
 - Validation and restoration of checkpointed activities
@@ -75,6 +77,8 @@ Owns phone geolocation:
 
 - High-accuracy position watch
 - Fifteen-second fallback polling
+- Restarting acquisition after 30 seconds without fresh valid callbacks
+- Rejecting stale/out-of-order callbacks and isolating stopped request generations
 - Current GPS lock/error state
 - GPS and live metric AppMessage dictionaries
 - Stopping geolocation when no activity is active
@@ -84,8 +88,37 @@ activity starts or finishes.
 
 ### `strava.js`
 
-Contains pure Strava helpers: settings normalization, OAuth request bodies, TCX
-generation, multipart upload bodies, URLs, and activity naming.
+Contains pure Strava helpers: settings normalization, OAuth request bodies,
+multipart upload bodies, URLs, and activity naming. Re-exports the shared TCX
+generator from `tcx.js`.
+
+### `gps_diagnostics.js`
+
+Records all-time GPS decision counters plus up to 64 event groups. Consecutive
+events with the same reason retain their first/last time and occurrence count;
+when the history fills, it drops the oldest group and increments `droppedEvents`.
+Routine accepted/interval/duplicate decisions only increment counters. The
+diagnostics live on the activity, so checkpointing and saved history preserve
+them. No settings or credentials enter this record.
+
+### `tcx.js`
+
+Owns the shared, self-contained TCX generator. Strava uploads call it directly;
+the config page embeds the same function and decodes a compact activity payload.
+Both paths preserve millisecond timestamps and recorded segment distances.
+The compact handoff rounds coordinates to six decimal places (roughly 0.1 m),
+uses delta times/coordinates, and preserves all accepted points.
+
+New activities mark the first point after a pause or GPS recovery with
+`segmentStart` and store cumulative `distanceM` on every point. These become
+separate TCX `Track` elements with no inferred distance across the gap. Historical
+activities without those fields retain the legacy fallback; their lost pause
+boundaries cannot be reconstructed reliably.
+
+TCX `Notes` identify the recording app/filter version. Extensions in
+`urn:pacelet:tcx:1` include point accuracy, raw coordinates when the point was
+smoothed, and JSON diagnostic counters/events on the activity. Preserve the
+Pacelet TCX when debugging; downstream exports may omit custom metadata.
 
 ### `strava_service.js`
 
@@ -117,7 +150,9 @@ Strava upload states to the watch-side status enum.
 - Change geolocation acquisition or live watch updates: `gps_service.js`
 - Change stored activity fields or history limits: `activity_store.js`
 - Change checkpoint timing or recovery workflow: `activity_recovery.js`
-- Change OAuth/TCX/multipart data: `strava.js`
+- Change OAuth/multipart data: `strava.js`
+- Change TCX XML/diagnostic metadata: `tcx.js`
+- Change GPS diagnostic collection/limits: `gps_diagnostics.js`
 - Change token, upload, or polling behavior: `strava_service.js`
 - Change settings UI or TCX export UI: `config_page.js`
 - Change watch history payload shape or status mapping: `history_messages.js`

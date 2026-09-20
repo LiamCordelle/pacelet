@@ -55,7 +55,7 @@ run('recovery checkpoints and restores an active activity as paused', function()
     }
   });
 
-  tracker.startActivity(START, 1);
+  tracker.startActivity(Object.assign({}, START, { timestamp: clock }), 1);
   recovery.recordStarted();
   assert.ok(timerCallback);
   assert.strictEqual(store.getActiveActivityDraft().activity.type, 'running');
@@ -87,7 +87,7 @@ run('recovery waits for GPS then resumes exactly once', function() {
   var storage = memoryStorage();
   var store = createStore(storage);
   var original = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });
-  original.startActivity(START, 2);
+  original.startActivity(Object.assign({}, START, { timestamp: clock }), 2);
   store.saveActiveActivity(original.getActiveActivity(), clock);
 
   clock += 30000;
@@ -105,8 +105,8 @@ run('recovery waits for GPS then resumes exactly once', function() {
     'waiting'
   );
   assert.strictEqual(recovery.isResumePending(), true);
-  assert.strictEqual(recovery.tryPendingResume(START), true);
-  assert.strictEqual(recovery.tryPendingResume(START), false);
+  assert.strictEqual(recovery.tryPendingResume(Object.assign({}, START, { timestamp: clock })), true);
+  assert.strictEqual(recovery.tryPendingResume(Object.assign({}, START, { timestamp: clock })), false);
   assert.strictEqual(tracker.getActiveActivity().paused, false);
   assert.strictEqual(
     recovery.discard(tracker.getActiveActivity().id),
@@ -123,7 +123,7 @@ run('recovery rejects stale session commands and confirms discard', function() {
   var storage = memoryStorage();
   var store = createStore(storage);
   var original = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });
-  var activity = original.startActivity(START, 0);
+  var activity = original.startActivity(Object.assign({}, START, { timestamp: clock }), 0);
   store.saveActiveActivity(activity, clock);
 
   var tracker = TrackerCore.createTrackerCore({ nowMs: function() { return clock; } });

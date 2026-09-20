@@ -7,6 +7,35 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-20
+
+### Added
+
+- Record bounded GPS diagnostic counters and events, the recording app/filter
+  version, accepted-point accuracy, and original coordinates of smoothed fixes.
+  Preserve these in TCX notes/extensions for future tracking investigations.
+
+### Fixed
+
+- Confirm coherent fixes after GPS gaps or persistent jumps, then resume on a
+  new segment without counting the unknown connecting distance.
+- Reject stale, invalid, duplicate, and out-of-order fixes; restart silent
+  geolocation acquisition and prevent overlapping fallback polls or late
+  callbacks from overwriting current GPS state.
+- Reduce stationary jitter and uncertain-position noise, use window displacement
+  for live pace, and clear stale speed after GPS loss.
+- Share TCX generation between phone export and Strava upload, preserving
+  millisecond timestamps, pause/recovery segment boundaries and recorded
+  cumulative distances. Use valid TCX sport values and required calorie fields.
+- Preserve full millisecond timestamps across the emulator's Python/JavaScript
+  bridge so simulated GPS fixes pass the same freshness checks as real fixes.
+- Exercise the emulator split screen with an explicit 1 km metric instead of
+  simulated 250 m/s GPS jumps rejected by the recorder.
+
+### Changed
+
+- Document Conventional Commits as the format for future commits.
+
 ## [0.5.0] - 2026-09-08
 
 ### Added

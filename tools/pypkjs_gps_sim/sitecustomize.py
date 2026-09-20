@@ -115,7 +115,9 @@ def _patch_geolocation(_geo):
         position = _geo.Position(
             self.runtime,
             coords,
-            round(time.time() * 1000)
+            # STPyV8 converts Python ints through a signed 32-bit bridge.
+            # A float preserves the full JavaScript millisecond timestamp.
+            float(round(time.time() * 1000))
         )
         self.runtime.enqueue(success, position)
 

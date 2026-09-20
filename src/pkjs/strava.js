@@ -1,3 +1,5 @@
+var generateTcx = require('./tcx').generateTcx;
+
 var TOKEN_URL = 'https://www.strava.com/oauth/token';
 var UPLOAD_URL = 'https://www.strava.com/api/v3/uploads';
 var AUTHORIZE_URL = 'https://www.strava.com/oauth/authorize';
@@ -191,12 +193,12 @@ function isoTime(ms) {
 
 function sportForActivityType(type) {
   if (type === 'cycling') {
-    return 'biking';
+    return 'Biking';
   }
   if (type === 'walking') {
-    return 'walking';
+    return 'Other';
   }
-  return 'running';
+  return 'Running';
 }
 
 function stravaSportType(type) {
@@ -213,116 +215,6 @@ function titleForActivity(activity) {
   var type = activity.type || 'running';
   var label = type.charAt(0).toUpperCase() + type.slice(1);
   return 'Pacelet ' + label + ' ' + isoTime(activity.startedAt).slice(0, 16);
-}
-
-function pointTime(point) {
-  return point.t || point.timestamp || 0;
-}
-
-function pointLat(point) {
-  return typeof point.lat === 'number' ? point.lat : null;
-}
-
-function pointLon(point) {
-  return typeof point.lon === 'number' ? point.lon : null;
-}
-
-function pointAlt(point) {
-  return typeof point.alt === 'number' ? point.alt :
-      (typeof point.altitude === 'number' ? point.altitude : null);
-}
-
-function pointHr(point) {
-  return typeof point.hr === 'number' ? point.hr : null;
-}
-
-function pointDistance(point, fallback) {
-  return typeof point.distanceM === 'number' ? point.distanceM : fallback;
-}
-
-function haversineMeters(a, b) {
-  var earthM = 6371000;
-  var lat1 = pointLat(a);
-  var lat2 = pointLat(b);
-  var lon1 = pointLon(a);
-  var lon2 = pointLon(b);
-  if (lat1 === null || lat2 === null || lon1 === null || lon2 === null) {
-    return 0;
-  }
-  var dLat = (lat2 - lat1) * Math.PI / 180;
-  var dLon = (lon2 - lon1) * Math.PI / 180;
-  var rLat1 = lat1 * Math.PI / 180;
-  var rLat2 = lat2 * Math.PI / 180;
-  var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(rLat1) * Math.cos(rLat2) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  return earthM * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-}
-
-function cumulativeDistances(points) {
-  var distances = [];
-  var total = 0;
-  var i;
-  for (i = 0; i < points.length; i += 1) {
-    if (i > 0) {
-      total += haversineMeters(points[i - 1], points[i]);
-    }
-    distances.push(total);
-  }
-  return distances;
-}
-
-function generateTcx(activity) {
-  var points = activity.points || [];
-  var startedAt = activity.startedAt || (points[0] ? pointTime(points[0]) : 0);
-  var movingTimeS = activity.movingTimeS || 0;
-  var distanceM = activity.distanceM || activity.summaryDistanceM || 0;
-  var sport = sportForActivityType(activity.type);
-  var distances = cumulativeDistances(points);
-  var lines = [];
-  var i;
-
-  lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-  lines.push('<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2">');
-  lines.push('  <Activities>');
-  lines.push('    <Activity Sport="' + escapeXml(sport) + '">');
-  lines.push('      <Id>' + escapeXml(isoTime(startedAt)) + '</Id>');
-  lines.push('      <Lap StartTime="' + escapeXml(isoTime(startedAt)) + '">');
-  lines.push('        <TotalTimeSeconds>' + escapeXml(movingTimeS) + '</TotalTimeSeconds>');
-  lines.push('        <DistanceMeters>' + escapeXml(Math.round(distanceM)) + '</DistanceMeters>');
-  lines.push('        <Intensity>Active</Intensity>');
-  lines.push('        <TriggerMethod>Manual</TriggerMethod>');
-  lines.push('        <Track>');
-
-  for (i = 0; i < points.length; i += 1) {
-    lines.push('          <Trackpoint>');
-    lines.push('            <Time>' + escapeXml(isoTime(pointTime(points[i]))) + '</Time>');
-    if (pointLat(points[i]) !== null && pointLon(points[i]) !== null) {
-      lines.push('            <Position>');
-      lines.push('              <LatitudeDegrees>' + escapeXml(pointLat(points[i])) + '</LatitudeDegrees>');
-      lines.push('              <LongitudeDegrees>' + escapeXml(pointLon(points[i])) + '</LongitudeDegrees>');
-      lines.push('            </Position>');
-    }
-    if (pointAlt(points[i]) !== null) {
-      lines.push('            <AltitudeMeters>' + escapeXml(pointAlt(points[i])) + '</AltitudeMeters>');
-    }
-    lines.push('            <DistanceMeters>' +
-        escapeXml(Math.round(pointDistance(points[i], distances[i]))) +
-        '</DistanceMeters>');
-    if (pointHr(points[i]) !== null) {
-      lines.push('            <HeartRateBpm>');
-      lines.push('              <Value>' + escapeXml(pointHr(points[i])) + '</Value>');
-      lines.push('            </HeartRateBpm>');
-    }
-    lines.push('          </Trackpoint>');
-  }
-
-  lines.push('        </Track>');
-  lines.push('      </Lap>');
-  lines.push('    </Activity>');
-  lines.push('  </Activities>');
-  lines.push('</TrainingCenterDatabase>');
-  return lines.join('\n');
 }
 
 function makeBoundary() {

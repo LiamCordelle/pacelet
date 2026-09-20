@@ -282,6 +282,96 @@ run('GPS service owns watch, polling, position, and metric messages',
   assert.strictEqual(clearedTimer, 9);
 });
 
+function gpsHarness() {
+  var clock = 100000;
+  var watches = [];
+  var polls = [];
+  var cleared = [];
+  var messages = [];
+  var tick;
+  var tracker = require('../src/pkjs/tracker_core').createTrackerCore({
+    nowMs: function() { return clock; }
+  });
+  var gps = GpsService.createGpsService({
+    geolocation: {
+      watchPosition: function(success, error) {
+        watches.push({ success: success, error: error });
+        return watches.length;
+      },
+      clearWatch: function(id) { cleared.push(id); },
+      getCurrentPosition: function(success, error) {
+        polls.push({ success: success, error: error });
+      }
+    },
+    tracker: tracker, lockAccuracyM: 25,
+    nowMs: function() { return clock; },
+    sendMessage: function(message) { messages.push(message); },
+    setIntervalFn: function(callback) { tick = callback; return 1; },
+    clearIntervalFn: function() {},
+  });
+  function fix(timestamp, lon) {
+    return { timestamp: timestamp, coords: {
+      latitude: 51.5, longitude: lon || -0.1, accuracy: 8 } };
+  }
+  gps.start();
+  return { gps: gps, tracker: tracker, watches: watches, polls: polls,
+    cleared: cleared, messages: messages, fix: fix,
+    setClock: function(value) { clock = value; },
+    tick: function() { tick(); } };
+}
+
+run('GPS service ignores cached, invalid and out-of-order callback results', function() {
+  var h = gpsHarness();
+  h.watches[0].success(h.fix(100000));
+  h.polls[0].success(h.fix(99000, -0.2));
+  h.watches[0].success(h.fix(80000, -0.3));
+  h.watches[0].success(h.fix(160000, -0.4));
+  var invalid = h.fix(100001);
+  invalid.coords.latitude = NaN;
+  h.watches[0].success(invalid);
+  assert.strictEqual(h.gps.getLatestPosition().lon, -0.1);
+  h.setClock(116000);
+  assert.strictEqual(h.gps.getLatestPosition(), null);
+  assert.strictEqual(h.gps.makeGpsDictionary().GPS_STATUS, 1);
+});
+
+run('GPS polling cannot overlap or replace fresh watch lock with a timeout', function() {
+  var h = gpsHarness();
+  h.tick();
+  assert.strictEqual(h.polls.length, 1);
+  h.watches[0].success(h.fix(100000));
+  h.polls[0].error({ code: 3 });
+  assert.strictEqual(h.gps.makeGpsDictionary().GPS_STATUS, 2);
+  h.tick();
+  assert.strictEqual(h.polls.length, 2);
+});
+
+run('silent GPS watchdog restarts acquisition, clears stale pace and rejects late callbacks', function() {
+  var h = gpsHarness();
+  h.watches[0].success(h.fix(100000));
+  h.tracker.startActivity(h.gps.getLatestPosition(), 1);
+  h.setClock(105000);
+  h.watches[0].success(h.fix(105000, -0.0998));
+  assert.ok(h.tracker.getMetrics().currentSpeedCentiMps > 0);
+  h.setClock(135000);
+  h.tick();
+  assert.deepStrictEqual(h.cleared, [1]);
+  assert.strictEqual(h.watches.length, 2);
+  assert.strictEqual(h.polls.length, 2);
+  assert.strictEqual(h.messages[h.messages.length - 1].CURRENT_SPEED, 0);
+  h.watches[0].success(h.fix(135000, -0.3));
+  h.polls[0].success(h.fix(135000, -0.4));
+  assert.strictEqual(h.gps.getLatestPosition(), null);
+  h.watches[1].success(h.fix(135000, -0.099));
+  assert.strictEqual(h.gps.getLatestPosition().lon, -0.099);
+  h.tracker.finishActivity();
+  h.gps.stopIfIdle();
+  var count = h.messages.length;
+  h.watches[1].success(h.fix(135001, -0.5));
+  h.polls[1].error({ code: 3 });
+  assert.strictEqual(h.messages.length, count);
+});
+
 run('Strava service exchanges authorization codes and persists tokens',
     function() {
   var store = createStore(createMemoryStorage());

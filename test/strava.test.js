@@ -206,7 +206,7 @@ run('token response persists replacement access and refresh tokens', function() 
 run('TCX includes sport, trackpoints, coordinates, distance, and HR', function() {
   var tcx = Strava.generateTcx(activity);
 
-  assert.ok(tcx.indexOf('<Activity Sport="running">') !== -1);
+  assert.ok(tcx.indexOf('<Activity Sport="Running">') !== -1);
   assert.ok(tcx.indexOf('<TotalTimeSeconds>10</TotalTimeSeconds>') !== -1);
   assert.ok(tcx.indexOf('<DistanceMeters>30</DistanceMeters>') !== -1);
   assert.ok(tcx.indexOf('<LatitudeDegrees>51.5074</LatitudeDegrees>') !== -1);
@@ -214,7 +214,7 @@ run('TCX includes sport, trackpoints, coordinates, distance, and HR', function()
 });
 
 run('cycling maps to biking TCX sport and Strava Ride sport type', function() {
-  assert.strictEqual(Strava.sportForActivityType('cycling'), 'biking');
+  assert.strictEqual(Strava.sportForActivityType('cycling'), 'Biking');
   assert.strictEqual(Strava.stravaSportType('cycling'), 'Ride');
 });
 
@@ -319,4 +319,73 @@ run('TCX export URL stays compact for long activity history', function() {
 
   assert.ok(exported.url.length < 30000, 'URL length was ' + exported.url.length);
   assert.ok(exported.tcx.indexOf('<TrainingCenterDatabase') !== -1);
+});
+
+run('TCX export preserves milliseconds, diagnostics and pause boundaries', function() {
+  var diagnosticActivity = JSON.parse(JSON.stringify(activity));
+  diagnosticActivity.gpsDiagnostics = { appVersion: '0.6.0', filterVersion: 2,
+    counts: { accuracy: 2 }, events: [{ t: activity.startedAt, reason: 'accuracy' }],
+    droppedEvents: 0 };
+  diagnosticActivity.points[0].t += 123;
+  diagnosticActivity.points[0].acc = 8;
+  diagnosticActivity.points[0].distanceM = 0;
+  diagnosticActivity.points[1].t = diagnosticActivity.points[0].t + 751;
+  diagnosticActivity.points[1].lat = 51.508123;
+  diagnosticActivity.points[1].rawLat = 51.508128;
+  diagnosticActivity.points[1].rawLon = diagnosticActivity.points[1].lon;
+  diagnosticActivity.points[1].acc = 20;
+  diagnosticActivity.points[1].segmentStart = true;
+  diagnosticActivity.points[1].distanceM = 0;
+  var direct = Strava.generateTcx(diagnosticActivity);
+  var exported = renderExportPage(diagnosticActivity).tcx;
+  assert.strictEqual(exported, direct);
+  assert.strictEqual((exported.match(/<Track>/g) || []).length, 2);
+  assert.ok(exported.indexOf('13:00:00.123Z') !== -1);
+  assert.ok(exported.indexOf('13:00:00.874Z') !== -1);
+  assert.ok(exported.indexOf('<pacelet:AccuracyMeters>20</pacelet:AccuracyMeters>') !== -1);
+  assert.ok(exported.indexOf('<pacelet:RawLatitudeDegrees>51.508128') !== -1);
+  assert.ok(exported.indexOf('<Notes>Pacelet 0.6.0; GPS filter 2.') !== -1);
+  assert.ok(exported.indexOf('<pacelet:Diagnostics>') !== -1);
+  assert.ok(exported.indexOf('<Calories>0</Calories>') !== -1);
+});
+
+run('diagnostic text is safe in XML and the export page script', function() {
+  var recorded = JSON.parse(JSON.stringify(activity));
+  recorded.gpsDiagnostics = { appVersion: '</script><script>throw 123;</script>',
+    filterVersion: 2, counts: {}, events: [], droppedEvents: 0 };
+  var page = renderExportPage(recorded);
+  assert.ok(page.tcx.indexOf('&lt;/script&gt;') !== -1);
+  assert.strictEqual((page.html.match(/<script>/g) || []).length, 1);
+});
+
+run('segment distance fallback never joins separate tracks and walking uses TCX Other', function() {
+  var recorded = JSON.parse(JSON.stringify(activity));
+  recorded.type = 'walking';
+  recorded.points[1].segmentStart = true;
+  var tcx = renderExportPage(recorded).tcx;
+  assert.ok(tcx.indexOf('<Activity Sport="Other">') !== -1);
+  assert.ok(tcx.indexOf('<DistanceMeters>0</DistanceMeters>') !== -1);
+  assert.strictEqual((tcx.match(/<DistanceMeters>0<\/DistanceMeters>/g) || []).length, 2);
+  assert.strictEqual(Strava.stravaSportType('walking'), 'Walk');
+});
+
+run('a long diagnostic export remains bounded without dropping recorded metadata', function() {
+  var recorded = longActivity(1500);
+  recorded.gpsDiagnostics = { filterVersion: 2, appVersion: '0.6.0',
+    counts: { accuracy: 100 }, events: [], droppedEvents: 36 };
+  recorded.points.forEach(function(point, i) {
+    point.acc = 20;
+    point.distanceM = i * 6;
+    point.rawLat = point.lat + 0.000005;
+    point.rawLon = point.lon - 0.000002;
+    point.segmentStart = i % 100 === 0;
+  });
+  for (var i = 0; i < 64; i += 1) {
+    recorded.gpsDiagnostics.events.push({ t: recorded.startedAt + i * 5000,
+      reason: 'accuracy', lat: 51.5074, lon: -0.1278, acc: 80, ageMs: 1000 });
+  }
+  var page = renderExportPage(recorded);
+  assert.ok(page.url.length < 60000, 'URL length was ' + page.url.length);
+  assert.strictEqual((page.tcx.match(/<pacelet:AccuracyMeters>/g) || []).length, 1500);
+  assert.strictEqual((page.tcx.match(/<Track>/g) || []).length, 15);
 });

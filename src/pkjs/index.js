@@ -46,6 +46,7 @@ var store = ActivityStore.createActivityStore({
 });
 
 var tracker = TrackerCore.createTrackerCore({
+  appVersion: require('../../package.json').version,
   hrZoneThresholds:
       hrZoneThresholdsFromSettings(store.getSettings())
 });

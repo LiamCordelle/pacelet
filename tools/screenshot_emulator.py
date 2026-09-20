@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -104,9 +105,7 @@ def command_env(args):
     env['PEBBLE_TRACKER_SIM_DELAY_S'] = str(lock_delay)
     env['PEBBLE_TRACKER_SIM_INTERVAL_S'] = '1.0'
     env['PEBBLE_TRACKER_SIM_LOOP_DISTANCE_M'] = '1000'
-    env['PEBBLE_TRACKER_SIM_SPEED_MPS'] = (
-        '250.0' if args.screen == 'split' else '3.0'
-    )
+    env['PEBBLE_TRACKER_SIM_SPEED_MPS'] = '3.0'
     env['PEBBLE_TRACKER_SIM_JITTER_M'] = '4.0'
     env['PEBBLE_TRACKER_SIM_ACCURACY_M'] = '10.0'
     env['PEBBLE_TRACKER_SIM_CENTER_LAT'] = '51.5074'
@@ -237,7 +236,16 @@ def drive_to_screen(args, env, lock_delay):
         return
 
     if args.screen == 'split':
-        wait(5.0, args.dry_run)
+        # Exercise the watch's split UI with an explicit metric. Racing the
+        # GPS simulator at 250 m/s only exercises outlier rejection.
+        key = 'DISTANCE_M'
+        if not args.dry_run:
+            appinfo = json.loads((ROOT / 'build' / 'appinfo.json').read_text())
+            key = appinfo['appKeys']['DISTANCE_M']
+        run(['pebble', 'send-app-message', '--emulator', EMULATOR,
+             '--int', '{}=1000'.format(key)], env=env,
+            dry_run=args.dry_run, args=args)
+        wait(0.25, args.dry_run)
         return
 
     if args.screen in ('paused', 'end-confirm', 'finished'):
@@ -290,8 +298,6 @@ def capture_all_screens(args, sim_env, base_env, lock_delay):
         for screen in ALL_SCREEN_SEQUENCE:
             args.screen = screen
             screen_env = sim_env.copy()
-            if screen == 'split':
-                screen_env['PEBBLE_TRACKER_SIM_SPEED_MPS'] = '250.0'
             screen_output = all_output_path(args, screen, index)
             for attempt in range(2):
                 try:

@@ -54,6 +54,8 @@ Core behavior:
 - `src/pkjs/activity_store.js`: Settings and saved-activity localStorage
   persistence.
 - `src/pkjs/gps_service.js`: Geolocation watch/polling and live watch updates.
+- `src/pkjs/gps_diagnostics.js`: Bounded GPS decision counters and event history.
+- `src/pkjs/tcx.js`: Shared TCX generator used for Strava uploads and phone exports.
 - `src/pkjs/strava_service.js`: Strava token exchange, upload, and polling
   orchestration.
 - `src/pkjs/tracker_core.js`: Pure tracking logic used by the phone app and
@@ -142,6 +144,15 @@ Current defaults:
 - Minimum accepted point distance: 5 m.
 - Live speed/pace smoothing: recent 10-second window plus an exponential moving
   average, with faster deceleration and a low-speed stop clamp.
+- Reject fixes older than 15 seconds and require fresh lock before starting.
+- After a 20-second accepted-point gap or persistent implausible movement,
+  confirm a new GPS segment with at least three coherent fixes spanning four
+  seconds (five over eight seconds when accuracy is worse than 35 m).
+- Suppress position jitter within a bounded accuracy-based deadband; smooth
+  uncertain positions over up to three seconds. Live speed uses net displacement
+  over the recent window to reduce zigzag inflation.
+- Preserve segment boundaries, cumulative distance, accuracy, and original
+  coordinates of smoothed points in storage and both TCX export paths.
 
 For Walking and Running, the watch displays `CURRENT_PACE` as seconds per km.
 For Cycling, the watch displays `CURRENT_SPEED` as centi-metres per second,
@@ -241,6 +252,9 @@ The built PBW is written to `build/pebble-activity-tracker.pbw`.
 
 ## Development Guidance
 
+- Use Conventional Commits for all future commits, for example
+  `feat(gps): improve recovery after signal loss` or
+  `fix(tcx): preserve recorded segment distances`.
 - Before committing a completed change set, bump the version in `package.json`
   and add a dated entry to `CHANGELOG.md`. Use Semantic Versioning: patch for
   fixes, refactors, tests, documentation, and other compatible improvements;

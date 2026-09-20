@@ -179,6 +179,18 @@ history actions live on the watch because configuration applets close when they
 return a response. The configuration page also has an Appearance section with a
 dark-mode toggle for the watch app.
 
+From version 0.6.0, newly recorded activities include GPS diagnostics in the
+Pacelet TCX: recording app/filter version, point accuracy, original coordinates
+where smoothing was applied, and a bounded history of rejected fixes, GPS
+restarts, pauses and recoveries. Keep this export when reporting a tracking
+problem. The Strava GPX may not retain this metadata. Both upload and phone
+export preserve gaps as separate tracks and keep the recorded distance; missing
+route sections are not estimated. Older recordings cannot gain diagnostics or
+pause boundaries retrospectively.
+
+See [GPS recovery and filtering](docs/gps-recovery.md) for the investigation,
+algorithm, tradeoffs and validation.
+
 Important caveat: this is a personal-credentials integration rather than a
 managed OAuth service. Pacelet has no shared backend, so each user needs their
 own Strava API client ID and secret. The client secret and tokens are stored in

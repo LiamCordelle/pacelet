@@ -1,3 +1,6 @@
+var TrackerCore = require('./tracker_core');
+var RESTART_AFTER_MS = 30000;
+
 function createGpsService(options) {
   options = options || {};
 
@@ -19,6 +22,18 @@ function createGpsService(options) {
   var latestGpsStatus = 0;
   var latestGpsError = '';
   var lastStatusSentAt = 0;
+  var running = false;
+  var generation = 0;
+  var watchGeneration = 0;
+  var pollPending = false;
+  var lastFreshAt = 0;
+  var lastRestartAt = 0;
+
+  function diagnostic(reason, position) {
+    if (tracker.recordGpsEvent) {
+      tracker.recordGpsEvent(reason, position);
+    }
+  }
 
   function gpsAgeSeconds() {
     if (!latestPosition) {
@@ -31,12 +46,14 @@ function createGpsService(options) {
   }
 
   function makeGpsDictionary() {
+    var fresh = latestPosition &&
+        TrackerCore.freshPosition(latestPosition, nowMs());
     return {
-      GPS_STATUS: latestGpsStatus,
+      GPS_STATUS: latestGpsStatus === 2 && !fresh ? 1 : latestGpsStatus,
       GPS_ACCURACY: latestPosition ?
         Math.round(latestPosition.accuracy) : -1,
       GPS_AGE: gpsAgeSeconds(),
-      GPS_ERROR: latestGpsError
+      GPS_ERROR: latestGpsError || (latestPosition && !fresh ? 'GPS stale' : '')
     };
   }
 
@@ -71,17 +88,28 @@ function createGpsService(options) {
   }
 
   function onLocationSuccess(position) {
-    var coords = position.coords || {};
+    var coords = position && position.coords || {};
     var accuracy =
         typeof coords.accuracy === 'number' ? coords.accuracy : 9999;
 
-    latestPosition = {
+    var candidate = {
       lat: coords.latitude,
       lon: coords.longitude,
       accuracy: accuracy,
       altitude: coords.altitude,
-      timestamp: position.timestamp || nowMs()
+      timestamp: position && typeof position.timestamp === 'number' ?
+          position.timestamp : NaN
     };
+    if (!TrackerCore.freshPosition(candidate, nowMs())) {
+      diagnostic('stale_or_invalid', candidate);
+      return;
+    }
+    if (latestPosition && candidate.timestamp <= latestPosition.timestamp) {
+      diagnostic('duplicate', candidate);
+      return;
+    }
+    latestPosition = candidate;
+    lastFreshAt = nowMs();
     latestGpsError = '';
     latestGpsStatus = accuracy <= lockAccuracyM ? 2 : 1;
 
@@ -92,17 +120,36 @@ function createGpsService(options) {
   }
 
   function onLocationError(error) {
+    diagnostic('error_' + (error && error.code || 'unknown'));
+    // A failed fallback request must not overwrite a fresh watch fix.
+    if (latestPosition && TrackerCore.freshPosition(latestPosition, nowMs())) {
+      return;
+    }
     latestGpsStatus = 3;
     latestGpsError =
         'GPS error ' + (error && error.code ? error.code : '?');
     log(latestGpsError);
     sendGpsStatus(true);
+    sendActivityUpdate(false);
   }
 
   function requestOneLocation() {
+    if (!running || pollPending) {
+      return;
+    }
+    var requestGeneration = generation;
+    pollPending = true;
     geolocation.getCurrentPosition(
-      onLocationSuccess,
-      onLocationError,
+      function(position) {
+        if (!running || requestGeneration !== generation) { return; }
+        pollPending = false;
+        onLocationSuccess(position);
+      },
+      function(error) {
+        if (!running || requestGeneration !== generation) { return; }
+        pollPending = false;
+        onLocationError(error);
+      },
       {
         enableHighAccuracy: true,
         timeout: 20000,
@@ -111,26 +158,60 @@ function createGpsService(options) {
     );
   }
 
+  function startWatch() {
+    var requestGeneration = generation;
+    var requestWatchGeneration = ++watchGeneration;
+    if (geolocation.watchPosition) {
+      gpsWatchId = geolocation.watchPosition(function(position) {
+        if (running && requestGeneration === generation &&
+            requestWatchGeneration === watchGeneration) {
+          onLocationSuccess(position);
+        }
+      }, function(error) {
+        if (running && requestGeneration === generation &&
+            requestWatchGeneration === watchGeneration) {
+          onLocationError(error);
+        }
+      }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 1000 });
+    }
+  }
+
+  function poll() {
+    if (!running) { return; }
+    var timestamp = nowMs();
+    if (timestamp - lastFreshAt >= RESTART_AFTER_MS &&
+        timestamp - lastRestartAt >= RESTART_AFTER_MS) {
+      if (gpsWatchId !== null && geolocation.clearWatch) {
+        geolocation.clearWatch(gpsWatchId);
+      }
+      lastRestartAt = timestamp;
+      // Invalidate requests that never called back and retry the acquisition.
+      generation += 1;
+      pollPending = false;
+      diagnostic('watch_restart');
+      startWatch();
+    }
+    sendGpsStatus(false);
+    sendActivityUpdate(false);
+    requestOneLocation();
+  }
+
   function start() {
     latestGpsStatus = latestPosition &&
         latestPosition.accuracy <= lockAccuracyM ? 2 : 1;
     latestGpsError = '';
     sendGpsStatus(true);
 
-    if (gpsWatchId === null && geolocation.watchPosition) {
-      gpsWatchId = geolocation.watchPosition(
-        onLocationSuccess,
-        onLocationError,
-        {
-          enableHighAccuracy: true,
-          timeout: 20000,
-          maximumAge: 1000
-        }
-      );
+    if (!running) {
+      running = true;
+      generation += 1;
+      lastFreshAt = nowMs();
+      lastRestartAt = nowMs();
+      startWatch();
     }
 
-    if (!gpsPollTimer) {
-      gpsPollTimer = setIntervalFn(requestOneLocation, 15000);
+    if (gpsPollTimer === null) {
+      gpsPollTimer = setIntervalFn(poll, 15000);
     }
     requestOneLocation();
   }
@@ -140,11 +221,15 @@ function createGpsService(options) {
       return;
     }
 
+    running = false;
+    generation += 1;
+    pollPending = false;
+
     if (gpsWatchId !== null && geolocation.clearWatch) {
       geolocation.clearWatch(gpsWatchId);
       gpsWatchId = null;
     }
-    if (gpsPollTimer) {
+    if (gpsPollTimer !== null) {
       clearIntervalFn(gpsPollTimer);
       gpsPollTimer = null;
     }
@@ -156,7 +241,8 @@ function createGpsService(options) {
     sendGpsStatus: sendGpsStatus,
     sendActivityUpdate: sendActivityUpdate,
     getLatestPosition: function() {
-      return latestPosition;
+      return latestPosition && TrackerCore.freshPosition(latestPosition, nowMs()) ?
+          latestPosition : null;
     },
     makeGpsDictionary: makeGpsDictionary
   };
