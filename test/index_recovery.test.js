@@ -2,7 +2,12 @@ var assert = require('assert');
 var ActivityStore = require('../src/pkjs/activity_store');
 
 function run(name, fn) {
-  fn();
+  var originalNow = Date.now;
+  try {
+    fn();
+  } finally {
+    Date.now = originalNow;
+  }
   console.log('ok - ' + name);
 }
 
@@ -32,7 +37,8 @@ function latestMessageWith(messages, key, value) {
   return null;
 }
 
-function launchRuntime(storage) {
+function launchRuntime(storage, options) {
+  options = options || {};
   var listeners = {};
   var messages = [];
   var position = {
@@ -54,6 +60,10 @@ function launchRuntime(storage) {
       },
       clearWatch: function() {},
       getCurrentPosition: function(success) {
+        if (options.manualGps) {
+          this.pollSuccess = success;
+          return;
+        }
         position.timestamp = Date.now();
         success(position);
       }
@@ -80,6 +90,13 @@ function launchRuntime(storage) {
 
   return {
     messages: messages,
+    fix: function(timestamp, source) {
+      // Match the phone bridge, whose successful callbacks contain only coords.
+      var fix = { coords: position.coords };
+      if (typeof timestamp !== 'undefined') { fix.timestamp = timestamp; }
+      global.navigator.geolocation[source === 'poll' ?
+        'pollSuccess' : 'watchSuccess'](fix);
+    },
     ready: function() {
       listeners.ready();
     },
@@ -88,6 +105,42 @@ function launchRuntime(storage) {
     }
   };
 }
+
+['watch', 'poll'].forEach(function(source) {
+  run('runtime starts from a timestamp-less phone ' + source + ' fix', function() {
+    var clock = 1800000000000;
+    Date.now = function() { return clock; };
+    var storage = createMemoryStorage();
+    var runtime = launchRuntime(storage, { manualGps: true });
+    runtime.ready();
+    runtime.send({ REQUEST_GPS: 1 });
+    assert.strictEqual(latestMessageWith(runtime.messages, 'GPS_STATUS').GPS_STATUS, 1);
+    clock += 100;
+    runtime.fix(undefined, source);
+    // A quick lock must reach the watch without waiting for another callback.
+    assert.strictEqual(latestMessageWith(runtime.messages, 'GPS_STATUS').GPS_STATUS, 2);
+    clock += 3000; // Watch countdown.
+    runtime.send({ START_ACTIVITY: 1, ACTIVITY_TYPE: 1 });
+    assert.ok(latestMessageWith(runtime.messages, 'ACTIVITY_STATE', 1));
+    assert.ok(storage.getItem(ActivityStore.ACTIVE_ACTIVITY_KEY));
+  });
+});
+
+run('runtime refuses to start when a timestamp-less fix has aged out', function() {
+  var clock = 1800000000000;
+  Date.now = function() { return clock; };
+  var storage = createMemoryStorage();
+  var runtime = launchRuntime(storage, { manualGps: true });
+  runtime.ready();
+  runtime.send({ REQUEST_GPS: 1 });
+  runtime.fix();
+  assert.strictEqual(latestMessageWith(runtime.messages, 'GPS_STATUS').GPS_STATUS, 2);
+  clock += 16000;
+  runtime.send({ START_ACTIVITY: 1, ACTIVITY_TYPE: 1 });
+  assert.strictEqual(latestMessageWith(runtime.messages, 'GPS_STATUS').GPS_STATUS, 1);
+  assert.strictEqual(latestMessageWith(runtime.messages, 'ACTIVITY_STATE', 1), null);
+  assert.strictEqual(storage.getItem(ActivityStore.ACTIVE_ACTIVITY_KEY), null);
+});
 
 run('runtime restores, resumes, and idempotently finishes a draft', function() {
   var storage = createMemoryStorage();

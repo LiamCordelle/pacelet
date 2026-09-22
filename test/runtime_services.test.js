@@ -275,7 +275,7 @@ run('GPS service owns watch, polling, position, and metric messages',
   assert.strictEqual(gps.getLatestPosition().accuracy, 8);
   assert.strictEqual(messages[0].GPS_STATUS, 1);
   assert.strictEqual(messages[1].GPS_STATUS, 2);
-  assert.strictEqual(messages[1].DISTANCE_M, 25);
+  assert.strictEqual(messages[messages.length - 1].DISTANCE_M, 25);
 
   gps.stopIfIdle();
   assert.strictEqual(clearedWatch, 7);
@@ -288,6 +288,7 @@ function gpsHarness() {
   var polls = [];
   var cleared = [];
   var messages = [];
+  var logs = [];
   var tick;
   var tracker = require('../src/pkjs/tracker_core').createTrackerCore({
     nowMs: function() { return clock; }
@@ -306,6 +307,7 @@ function gpsHarness() {
     tracker: tracker, lockAccuracyM: 25,
     nowMs: function() { return clock; },
     sendMessage: function(message) { messages.push(message); },
+    log: function(message) { logs.push(message); },
     setIntervalFn: function(callback) { tick = callback; return 1; },
     clearIntervalFn: function() {},
   });
@@ -315,10 +317,56 @@ function gpsHarness() {
   }
   gps.start();
   return { gps: gps, tracker: tracker, watches: watches, polls: polls,
-    cleared: cleared, messages: messages, fix: fix,
+    cleared: cleared, messages: messages, logs: logs, fix: fix,
     setClock: function(value) { clock = value; },
     tick: function() { tick(); } };
 }
+
+run('GPS timestamp fallback preserves validation and expires from receipt time', function() {
+  var h = gpsHarness();
+  var suppliedTimestamps = [null, NaN, Infinity, -Infinity, '100000', {}, 0, 80000, 102000];
+  suppliedTimestamps.forEach(function(timestamp) {
+    h.watches[0].success(h.fix(timestamp));
+    assert.strictEqual(h.gps.getLatestPosition(), null);
+  });
+  assert.strictEqual(h.logs.length, 1, 'rejected callbacks are logged without flooding');
+  assert.ok(h.logs[0].indexOf('GPS fix rejected:') === 0);
+  var invalid = h.fix();
+  delete invalid.timestamp;
+  invalid.coords.latitude = NaN;
+  h.watches[0].success(invalid);
+  assert.strictEqual(h.gps.getLatestPosition(), null);
+  var missing = h.fix();
+  delete missing.timestamp;
+  h.watches[0].success(missing);
+  assert.strictEqual(h.gps.getLatestPosition().timestamp, 100000);
+  assert.strictEqual(h.messages[h.messages.length - 1].GPS_STATUS, 2);
+  h.setClock(116000);
+  assert.strictEqual(h.gps.getLatestPosition(), null);
+  h.tick();
+  assert.strictEqual(h.messages[h.messages.length - 1].GPS_STATUS, 1);
+  h.watches[0].success(missing);
+  assert.strictEqual(h.gps.getLatestPosition().timestamp, 116000);
+  assert.strictEqual(h.messages[h.messages.length - 1].GPS_STATUS, 2);
+  assert.strictEqual(h.logs.filter(function(message) {
+    return message.indexOf('GPS timestamp missing') === 0;
+  }).length, 1);
+});
+
+run('GPS lock transitions bypass throttling for numeric timestamps too', function() {
+  var h = gpsHarness();
+  h.setClock(100100);
+  h.watches[0].success(h.fix(100100));
+  assert.strictEqual(h.messages[h.messages.length - 1].GPS_STATUS, 2);
+  var poor = h.fix(100200);
+  poor.coords.accuracy = 40;
+  h.setClock(100200);
+  h.watches[0].success(poor);
+  assert.strictEqual(h.messages[h.messages.length - 1].GPS_STATUS, 1);
+  h.setClock(100300);
+  h.watches[0].success(h.fix(100300));
+  assert.strictEqual(h.messages[h.messages.length - 1].GPS_STATUS, 2);
+});
 
 run('GPS service ignores cached, invalid and out-of-order callback results', function() {
   var h = gpsHarness();

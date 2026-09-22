@@ -28,6 +28,8 @@ function createGpsService(options) {
   var pollPending = false;
   var lastFreshAt = 0;
   var lastRestartAt = 0;
+  var loggedMissingTimestamp = false;
+  var lastRejectedLogAt = null;
 
   function diagnostic(reason, position) {
     if (tracker.recordGpsEvent) {
@@ -89,33 +91,52 @@ function createGpsService(options) {
 
   function onLocationSuccess(position) {
     var coords = position && position.coords || {};
+    var receivedAt = nowMs();
+    var timestamp = position && position.timestamp;
+    var missingTimestamp = !!position && typeof timestamp === 'undefined';
+    var previousStatus = makeGpsDictionary().GPS_STATUS;
     var accuracy =
         typeof coords.accuracy === 'number' ? coords.accuracy : 9999;
 
+    // The current Pebble phone bridge supplies only coords. Use receipt time
+    // only when no timestamp is supplied; never refresh a stale/invalid one.
     var candidate = {
       lat: coords.latitude,
       lon: coords.longitude,
       accuracy: accuracy,
       altitude: coords.altitude,
-      timestamp: position && typeof position.timestamp === 'number' ?
-          position.timestamp : NaN
+      timestamp: missingTimestamp ? receivedAt : timestamp
     };
-    if (!TrackerCore.freshPosition(candidate, nowMs())) {
+    if (!TrackerCore.freshPosition(candidate, receivedAt)) {
       diagnostic('stale_or_invalid', candidate);
+      if (lastRejectedLogAt === null || receivedAt - lastRejectedLogAt >= 30000) {
+        lastRejectedLogAt = receivedAt;
+        log('GPS fix rejected: stale_or_invalid; timestampType=' +
+          typeof timestamp + '; ageMs=' + (receivedAt - candidate.timestamp) +
+          '; accuracyM=' + accuracy);
+      }
       return;
     }
     if (latestPosition && candidate.timestamp <= latestPosition.timestamp) {
       diagnostic('duplicate', candidate);
       return;
     }
+    if (missingTimestamp && !loggedMissingTimestamp) {
+      loggedMissingTimestamp = true;
+      log('GPS timestamp missing from phone callback; using receipt time');
+    }
     latestPosition = candidate;
-    lastFreshAt = nowMs();
+    lastFreshAt = receivedAt;
     latestGpsError = '';
     latestGpsStatus = accuracy <= lockAccuracyM ? 2 : 1;
 
     tracker.recordPosition(latestPosition);
     onPosition(latestPosition);
-    sendGpsStatus(false);
+    // Do not throttle the first lock behind the initial searching message.
+    if (previousStatus !== latestGpsStatus) {
+      log('GPS status=' + latestGpsStatus + '; accuracyM=' + accuracy);
+    }
+    sendGpsStatus(previousStatus !== latestGpsStatus);
     sendActivityUpdate(false);
   }
 

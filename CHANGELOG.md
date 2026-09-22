@@ -7,6 +7,21 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-22
+
+### Fixed
+
+- Restore GPS acquisition when the Pebble phone bridge omits fix timestamps.
+  Use callback receipt time only for missing timestamps; supplied stale or
+  malformed timestamps remain rejected, and received fixes still expire.
+- Send GPS lock transitions immediately, even when the fix arrives within the
+  status-message throttle window after requesting GPS.
+- Log timestamp fallback, GPS lock changes, and rate-limited invalid/stale fix
+  rejections so Developer Mode can explain failures before an activity starts.
+- Cover timestamp-less watch and polling callbacks through activity start,
+  expiry, and validation tests. Match the phone's missing timestamps in the
+  default emulator GPS simulator.
+
 ## [0.6.0] - 2026-09-20
 
 ### Added

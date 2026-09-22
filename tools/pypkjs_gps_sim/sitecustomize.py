@@ -112,13 +112,13 @@ def _patch_geolocation(_geo):
             point['accuracy']
         )
         coords.altitude = point['altitude']
-        position = _geo.Position(
-            self.runtime,
-            coords,
+        # Match the phone bridge by default: no fix timestamp is supplied.
+        if os.environ.get('PEBBLE_TRACKER_SIM_TIMESTAMP') == 'milliseconds':
             # STPyV8 converts Python ints through a signed 32-bit bridge.
             # A float preserves the full JavaScript millisecond timestamp.
-            float(round(time.time() * 1000))
-        )
+            position = _geo.Position(self.runtime, coords, float(round(time.time() * 1000)))
+        else:
+            position = _geo.Position(self.runtime, coords)
         self.runtime.enqueue(success, position)
 
     def single_position(self, success, failure=None, options=None):

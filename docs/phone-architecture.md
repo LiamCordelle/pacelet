@@ -86,6 +86,20 @@ Owns phone geolocation:
 It records positions through `tracker_core.js` but does not decide when an
 activity starts or finishes.
 
+The [current phone bridge](https://github.com/coredevices/mobileapp/blob/master/libpebble3/src/androidMain/assets/startup.js)
+returns callbacks with `coords` and no `timestamp`. The service uses receipt
+time when the timestamp is absent, while preserving strict checks for supplied
+timestamps. Such fixes expire 15 seconds after receipt; their native measurement
+age and ordering cannot be verified because the bridge does not expose them.
+Developer Mode logs identify this fallback once per runtime and rate-limit
+invalid/stale fix rejection logs, including before recording starts.
+
+The emulator GPS shim omits timestamps by default to exercise the phone's
+callback shape. Set `PEBBLE_TRACKER_SIM_TIMESTAMP=milliseconds` to exercise the
+numeric timestamp path. `test/index_recovery.test.js` also covers both watch and
+polling callbacks through GPS request, immediate ready status, countdown, and
+activity start, including expiry before start.
+
 ### `strava.js`
 
 Contains pure Strava helpers: settings normalization, OAuth request bodies,

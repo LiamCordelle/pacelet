@@ -145,6 +145,9 @@ Current defaults:
 - Live speed/pace smoothing: recent 10-second window plus an exponential moving
   average, with faster deceleration and a low-speed stop clamp.
 - Reject fixes older than 15 seconds and require fresh lock before starting.
+- The current phone GPS bridge omits `position.timestamp`. Use callback receipt
+  time only when it is missing; keep supplied timestamp validation intact.
+  Include this phone callback shape in start-flow tests and emulator QA.
 - After a 20-second accepted-point gap or persistent implausible movement,
   confirm a new GPS segment with at least three coherent fixes spanning four
   seconds (five over eight seconds when accuracy is worse than 35 m).
