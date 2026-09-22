@@ -253,6 +253,44 @@ pebble build
 
 The built PBW is written to `build/pebble-activity-tracker.pbw`.
 
+## Phone Development Installs
+
+Use a separate app identity for real-phone/watch testing so sideloads cannot
+replace the store-installed Pacelet or interfere with its updates and history.
+Changing the display name alone is insufficient; the UUID must also differ.
+
+| Build | `pebble.displayName` | `pebble.uuid` |
+| --- | --- | --- |
+| Production / Pebble Store | `Pacelet` | `4481EF3F-FB7F-4EE1-85C4-5B3E1DBA08B2` |
+| Local development | `Pacelet Dev` | `6038A669-EDA3-429E-BF33-0398BCCC0659` |
+
+- Reuse the fixed development UUID across test builds so development history
+  and settings survive ordinary updates. Do not generate a new UUID per build.
+- Build the development variant in an isolated source copy with its own build
+  directory, containing the changes being tested. Override the two manifest
+  fields above in that copy and rebuild with `pebble build`; the UUID is also
+  compiled into the watch binary, so editing only an existing PBW's manifest is
+  insufficient. Keep the main checkout's manifest and release bundle production.
+- Give the resulting bundle a clear name such as `pacelet-dev.pbw`. Check its
+  `appinfo.json` UUID and display name before running
+  `pebble install --phone --logs /absolute/path/to/pacelet-dev.pbw`.
+- Do not sideload the production UUID for testing unless the user explicitly
+  requests replacing their production installation. Publish store releases from
+  the production build only; never publish the development UUID.
+- Development has separate phone localStorage and watch persistence. Expect
+  its own activity history, recovery state, settings, and Strava credentials;
+  do not copy production storage or credentials into it automatically. Keep
+  Strava auto-upload off for routine test activities.
+- Changing future test builds does not repair an existing production sideload
+  or restore lost history. Do not uninstall or reset production to switch this
+  workflow; preserve existing activities before any requested repair.
+
+Pebble documents the UUID and display name in
+[App Metadata](https://developer.repebble.com/guides/tools-and-resources/app-metadata/).
+The phone runtime passes `appInfo.uuid` to localStorage on both
+[Android](https://github.com/coredevices/mobileapp/blob/master/libpebble3/src/androidMain/kotlin/io/rebble/libpebblecommon/js/WebViewJsRunner.kt)
+and [iOS](https://github.com/coredevices/mobileapp/blob/master/libpebble3/src/iosMain/kotlin/io/rebble/libpebblecommon/js/JavascriptCoreJsRunner.kt).
+
 ## Development Guidance
 
 - Use Conventional Commits for all future commits, for example

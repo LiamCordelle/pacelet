@@ -7,6 +7,15 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-09-22
+
+### Changed
+
+- Document a fixed `Pacelet Dev` name and separate UUID for future phone test
+  installs, keeping production store updates, settings, and activity history
+  separate. Require isolated development builds and identity checks before
+  installation.
+
 ## [0.6.1] - 2026-09-22
 
 ### Fixed
