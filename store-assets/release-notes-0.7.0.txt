@@ -1,0 +1,7 @@
+Paceboard is here: a softer aqua and teal design, with pace front and centre, DIST. KM, Last KM comparisons and a clearer heart-rate zone marker.
+
+Use DOWN during an activity to explore kilometre splits, time in each HR zone and your last minute of heart-rate history. SELECT returns to the dashboard.
+
+GPS acquisition now has a smooth orbit and lock animation. Short transitions connect starting, pages, splits, pausing and saving. Choose Full, Key moments or Off motion in settings; Paceboard uses one consistent palette.
+
+BACK safely pauses a recording. Leaving while saving or uploading now asks for confirmation. This update also improves GPS-start acknowledgement, offline pause syncing, interrupted upload recovery, storage handling, HR batching and walking across midnight. Existing activities and personal Strava settings are preserved.

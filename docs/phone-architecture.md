@@ -174,6 +174,44 @@ Strava upload states to the watch-side status enum.
 
 New watch-phone message keys must be declared in `package.json` before use.
 
+## Paceboard presentation protocol
+
+`MOTION_MODE` is 0 Full, 1 Key moments, 2 Off. Existing settings are normalized
+without resetting history or credentials. `DARK_MODE` remains a reserved legacy
+slot. `SUMMARY_HR` is `average,z0Seconds,z1Seconds,z2Seconds,z3Seconds` from the
+saved phone summary; `HISTORY_HR` carries the same rows separated by semicolons,
+aligned with `HISTORY_ITEMS`. Each field is bounded and the watch inbox is 1280
+bytes. Empty old summaries remain empty; the watch never invents HR data.
+
+## Recording reliability protocol
+
+- START is acknowledged by an activity-state reply with its session ID. Stale
+  GPS returns `ACTIVITY_STATE=0` and `RECOVERY_MESSAGE=GPS LOST`.
+- PAUSE/RESUME carry the desired state and `PAUSE_WINDOWS`: up to five pairs
+  of little-endian uint48 UTC millisecond timestamps. A zero endpoint means an
+  open pause. The phone echoes the exact bytes; old state replies cannot retire
+  a newer snapshot. FINISH carries the same intervals before saving.
+- The tracker merges intervals idempotently, removes GPS/HR within them, and
+  marks new segments without adding distance across a pause. Phone-runtime
+  downtime and delayed watch pauses are excluded only once. Recovery metadata
+  is retained in the active draft.
+- `HR_BPM_BATCH` contains up to ten samples, each a little-endian uint32 UTC
+  second followed by BPM. Normal batches contain five samples. The activity
+  ID scopes them; old/duplicate samples are rejected. `HR_BPM` remains supported.
+- Phone messages are serialized and retried up to three times. Watch activity
+  commands stay pending until a matching application reply, rather than only
+  Bluetooth delivery success.
+- `UPLOAD_PENDING` covers uploading/processing activities. On ready, uploads
+  with a saved Strava ID resume GET polling instead of POSTing the file again.
+  Unconfirmed interrupted POSTs require an explicit retry; duplicate responses
+  are treated as already uploaded.
+
+HR is stored as compact `[t,bpm]` rows and expanded by the store; old object
+rows still load. A failed storage write may prune raw GPS/HR only from the
+oldest already-uploaded activities and retry. Summaries/diagnostics and unsynced
+tracks remain. Such activities are labelled `rawDataPruned`, and local TCX
+export/re-upload gives an explanation instead of generating an empty track.
+
 After phone-side changes, run:
 
 ```sh

@@ -1,1612 +1,501 @@
 #include "watch_ui.h"
-
 #include "pacelet_model.h"
-
 #include <string.h>
+#include "paceboard_icons.h"
 
-#define ACTION_RAIL_W 20
+// One fixed Emery palette. Drawn in native Pebble primitives; no frame copies.
+#define PB_PAPER GColorWhite
+#define PB_MIST GColorFromHEX(0xAAFFFF)
+#define PB_INK GColorFromHEX(0x005555)
+#define PB_MUTED GColorFromHEX(0x555555)
+#define PB_RULE GColorFromHEX(0xAAAAAA)
+#define PB_TEAL GColorFromHEX(0x00AAAA)
+#define PB_AMBER GColorFromHEX(0xFFAA00)
+#define PB_CORAL GColorFromHEX(0xFFAAAA)
+#define PB_RED GColorFromHEX(0xAA0000)
 
-typedef enum {
-  ActionIconNone = 0,
-  ActionIconUp,
-  ActionIconDown,
-  ActionIconGps,
-  ActionIconRefresh,
-  ActionIconPlay,
-  ActionIconPause,
-  ActionIconStop,
-  ActionIconCheck,
-  ActionIconClose,
-  ActionIconType,
-  ActionIconHistory,
-  ActionIconFile
-} ActionIcon;
+// All animations consume view snapshots. Sensor data and controller timers are
+// authoritative; frame callbacks never mutate recording state.
+typedef enum { ScenePicker, SceneGps, SceneCountdown, SceneLive, SceneLaps,
+  SceneZones, SceneHeart, SceneRecap, SceneUpload, SceneHistory, SceneDetail, SceneRecovery } Scene;
+typedef struct {
+  PaceletModel model;
+  int32_t elapsed;
+  time_t now;
+  Scene scene;
+} WatchView;
+typedef enum { FxNone, FxPick, FxOrbit, FxFix, FxLock, FxCount, FxStart,
+  FxPush, FxSheet, FxSplitOut, FxPause, FxSave, FxZone, FxHr, FxUpload } Effect;
+static struct {
+  Window *window;
+  Layer *content, *overlay, *header, *rail;
+  AppTimer *timer;
+  WatchView view, from, pending, previous;
+  Effect effect;
+  uint32_t began, duration, gps_began;
+  int progress, radius_from, radius_to, orbit_angle, picker_from_y;
+  bool loaded, focused;
+} s_ui;
+enum { I_NONE,I_UP,I_DOWN,I_PLAY,I_PAUSE,I_STOP,I_CHECK,I_BACK,I_DELETE,I_PAGES,I_FILE,I_RETRY };
+static int pb_dy;
+static int pb_clamp(int v,int low,int high){return v<low?low:v>high?high:v;}
+static int pb_lerp(int a,int b,int p){return a+(b-a)*p/1000;}
+static int pb_ease(int p){int q=1000-p;return 1000-q*q/1000*q/1000;}
+static void pb_fill(GContext*c,int x,int y,int w,int h,GColor color,int radius){
+ graphics_context_set_fill_color(c,color);graphics_fill_rect(c,GRect(x,y+pb_dy,w,h),radius,radius?GCornersAll:GCornerNone);
+}
+static void pb_line(GContext*c,int x,int y,int xx,int yy,GColor color,int weight){
+ graphics_context_set_stroke_color(c,color);graphics_context_set_stroke_width(c,weight);
+ graphics_draw_line(c,GPoint(x,y+pb_dy),GPoint(xx,yy+pb_dy));graphics_context_set_stroke_width(c,1);
+}
+static const char *pb_fit(const char*v,int width,const char*large,const char*small){
+ GSize size=graphics_text_layout_get_content_size(v,fonts_get_system_font(large),GRect(0,0,500,100),GTextOverflowModeWordWrap,GTextAlignmentLeft);
+ return size.w<=width?large:small;
+}
+static void pb_text(GContext*c,const char*v,const char*font,int x,int y,int w,int h,GColor color,GTextAlignment align){
+ graphics_context_set_text_color(c,color);graphics_draw_text(c,v,fonts_get_system_font(font),GRect(x,y+pb_dy,w,h),GTextOverflowModeTrailingEllipsis,align,NULL);
+}
+#define PB_LABEL(c,v,x,y,w,col) pb_text(c,v,FONT_KEY_GOTHIC_14_BOLD,x,y,w,18,col,GTextAlignmentLeft)
+static void pb_number(GContext*c,const char*v,int x,int y,int w,int h,const char*large,const char*small,GColor col,GTextAlignment align){
+ const char*f=pb_fit(v,w,large,small);f=pb_fit(v,w,f,FONT_KEY_GOTHIC_18_BOLD);pb_text(c,v,f,x,y,w,h,col,align);
+}
+static GColor pb_zone(int zone){const uint32_t colors[]={0xAAFFFF,0xAAFFAA,0xFFAA00,0xFFAAAA};return GColorFromHEX(colors[pb_clamp(zone,0,3)]);}
+static void pb_heart(GContext*c,int x,int y,GColor ink,int scale){
+ const char*rows[]={".##.##.","#######","#######",".#####.","..###..","...#..."};
+ for(int j=0;j<6;j++)for(int i=0;i<7;i++)if(rows[j][i]=='#')pb_fill(c,x+i*scale,y+j*scale,scale,scale,ink,0);
+}
+static void pb_activity_icon(GContext*c,int type,int x,int y,GColor ink,int percent){
+ const uint8_t(*runs)[3]=type==0?pb_icon_walk:type==1?pb_icon_run:pb_icon_cycle;
+ int count=type==0?ARRAY_LENGTH(pb_icon_walk):type==1?ARRAY_LENGTH(pb_icon_run):ARRAY_LENGTH(pb_icon_cycle);
+ for(int i=0;i<count;i++){
+  int xx=x-17*percent/1000+runs[i][0]*percent/1000;
+  int yy=y-17*percent/1000+runs[i][1]*percent/1000;
+  int w=(runs[i][0]+runs[i][2])*percent/1000-runs[i][0]*percent/1000;
+  int h=(runs[i][1]+1)*percent/1000-runs[i][1]*percent/1000;
+  if(w>0)pb_fill(c,xx,yy,w,h>0?h:1,ink,0);
+ }
+}
+static void pb_icon(GContext*c,int icon,int cy,GColor ink){
+ switch(icon){
+ case I_UP:pb_line(c,185,cy+3,190,cy-3,ink,2);pb_line(c,190,cy-3,195,cy+3,ink,2);break;
+ case I_DOWN:pb_line(c,185,cy-3,190,cy+3,ink,2);pb_line(c,190,cy+3,195,cy-3,ink,2);break;
+ case I_PLAY:pb_line(c,186,cy-6,195,cy,ink,2);pb_line(c,195,cy,186,cy+6,ink,2);pb_line(c,186,cy-6,186,cy+6,ink,2);break;
+ case I_PAUSE:pb_fill(c,185,cy-6,3,12,ink,0);pb_fill(c,192,cy-6,3,12,ink,0);break;
+ case I_STOP:pb_fill(c,185,cy-5,10,10,ink,1);break;
+ case I_CHECK:pb_line(c,184,cy,188,cy+4,ink,2);pb_line(c,188,cy+4,196,cy-5,ink,2);break;
+ case I_BACK:pb_line(c,193,cy-5,187,cy,ink,2);pb_line(c,187,cy,193,cy+5,ink,2);break;
+ case I_DELETE:pb_line(c,185,cy-5,195,cy+5,ink,2);pb_line(c,195,cy-5,185,cy+5,ink,2);break;
+ case I_PAGES:for(int i=0;i<3;i++)pb_fill(c,187,cy-7+i*6,6,3,ink,0);break;
+ case I_FILE:pb_line(c,186,cy-7,194,cy-7,ink,1);pb_line(c,194,cy-7,194,cy+7,ink,1);pb_line(c,194,cy+7,186,cy+7,ink,1);pb_line(c,186,cy+7,186,cy-7,ink,1);pb_line(c,188,cy-2,192,cy-2,ink,1);pb_line(c,188,cy+2,192,cy+2,ink,1);break;
+ case I_RETRY:graphics_context_set_stroke_color(c,ink);graphics_context_set_stroke_width(c,2);graphics_draw_arc(c,GRect(185,cy-5,11,11),GOvalScaleModeFitCircle,DEG_TO_TRIGANGLE(45),DEG_TO_TRIGANGLE(320));pb_line(c,194,cy-5,194,cy,ink,2);pb_line(c,194,cy-5,189,cy-5,ink,2);break;
+ default:break;
+ }
+}
 
-static Window *s_window;
-static Layer *s_canvas_layer;
-static GBitmap *s_activity_icons[3][2];
-static GBitmap *s_countdown_icons[3][2];
-static GBitmap *s_heart_icons[2];
-static GBitmap *s_measuring_heart_icons[2];
-
-static const uint32_t ACTIVITY_ICON_RESOURCE_IDS[3][2] = {
-  {
-    RESOURCE_ID_IMAGE_ACTIVITY_WALK_BLACK,
-    RESOURCE_ID_IMAGE_ACTIVITY_WALK_WHITE
-  },
-  {
-    RESOURCE_ID_IMAGE_ACTIVITY_RUN_BLACK,
-    RESOURCE_ID_IMAGE_ACTIVITY_RUN_WHITE
-  },
-  {
-    RESOURCE_ID_IMAGE_ACTIVITY_CYCLE_BLACK,
-    RESOURCE_ID_IMAGE_ACTIVITY_CYCLE_WHITE
+static void duration_text(char *out, size_t size, int32_t seconds) {
+  seconds = pb_clamp(seconds, 0, 999999);
+  if (seconds >= 3600) snprintf(out,size,"%ld:%02ld:%02ld",(long)seconds/3600,(long)seconds/60%60,(long)seconds%60);
+  else snprintf(out,size,"%ld:%02ld",(long)seconds/60,(long)seconds%60);
+}
+static void distance_text(char *out,size_t size,int32_t metres) {
+  metres = pb_clamp(metres,0,999999);
+  snprintf(out,size,"%ld.%02ld",(long)metres/1000,(long)metres%1000/10);
+}
+static void speed_text(char*out,size_t size,int32_t centi_mps) {
+  int32_t tenths=pb_clamp(centi_mps,0,99999)*36/100;
+  snprintf(out,size,"%ld.%ld",(long)tenths/10,(long)tenths%10);
+}
+static bool live_state(ActivityState state) { return state==ActivityStateActive||state==ActivityStatePaused; }
+static Scene scene_for(const PaceletModel*m) {
+  switch(m->activity_state) {
+    case ActivityStateChoose:return ScenePicker;
+    case ActivityStateGps:case ActivityStateReady:return SceneGps;
+    case ActivityStateCountdown:return SceneCountdown;
+    case ActivityStateActive:case ActivityStatePaused:
+      return m->page==1?SceneLaps:m->page==2?SceneZones:m->page==3?SceneHeart:SceneLive;
+    case ActivityStateFinished:return m->upload_pending&&!m->pending_command?SceneUpload:SceneRecap;
+    case ActivityStateHistoryList:return SceneHistory;
+    case ActivityStateHistoryDetail:return SceneDetail;
+    default:return SceneRecovery;
   }
-};
-
-static const uint32_t COUNTDOWN_ICON_RESOURCE_IDS[3][2] = {
-  {
-    RESOURCE_ID_IMAGE_COUNTDOWN_1_BLACK,
-    RESOURCE_ID_IMAGE_COUNTDOWN_1_WHITE
-  },
-  {
-    RESOURCE_ID_IMAGE_COUNTDOWN_2_BLACK,
-    RESOURCE_ID_IMAGE_COUNTDOWN_2_WHITE
-  },
-  {
-    RESOURCE_ID_IMAGE_COUNTDOWN_3_BLACK,
-    RESOURCE_ID_IMAGE_COUNTDOWN_3_WHITE
+}
+static void capture_view(WatchView *view) {
+  view->model=g_pacelet;view->elapsed=pacelet_elapsed_s();view->now=time(NULL);
+  view->scene=scene_for(&view->model);
+}
+static uint32_t clock_ms(void) { time_t seconds;uint16_t ms;time_ms(&seconds,&ms);return (uint32_t)seconds*1000+ms; }
+static int zone_for(const WatchView*v,int bpm) {
+  return bpm<v->model.hr_zone_1_bpm?0:bpm<v->model.hr_zone_2_bpm?1:bpm<v->model.hr_zone_3_bpm?2:3;
+}
+static void scale(GContext*c,const WatchView*v,int x,int y,int width,int bpm) {
+  int bounds[]={40,v->model.hr_zone_1_bpm,v->model.hr_zone_2_bpm,v->model.hr_zone_3_bpm,250};
+  int z=zone_for(v,bpm),segment=(width-9)/4;
+  for(int i=0;i<4;i++) {
+    int xx=x+i*(segment+3);
+    if(i==z)pb_fill(c,xx,y,segment,4,PB_INK,0);
+    else{graphics_context_set_stroke_color(c,PB_INK);graphics_draw_rect(c,GRect(xx,y+pb_dy,segment,4));}
   }
-};
-
-static const uint32_t HEART_ICON_RESOURCE_IDS[2] = {
-  RESOURCE_ID_IMAGE_HEART_BLACK,
-  RESOURCE_ID_IMAGE_HEART_WHITE
-};
-
-static const uint32_t MEASURING_HEART_ICON_RESOURCE_IDS[2] = {
-  RESOURCE_ID_IMAGE_HEART_MEASURING_BLACK,
-  RESOURCE_ID_IMAGE_HEART_MEASURING_WHITE
-};
-
-static GColor color_bg(void) {
-  return PBL_IF_COLOR_ELSE(
-      g_pacelet.dark_mode ? GColorFromHEX(0x071014)
-                          : GColorFromHEX(0xf7fbf8),
-      GColorWhite);
+  int f=pb_clamp((bpm-bounds[z])*(segment-1)/(bounds[z+1]-bounds[z]),0,segment-1);
+  int marker=x+z*(segment+3)+f;pb_line(c,marker,y-3,marker,y-7,PB_INK,2);
+}
+static void hr_band(GContext*c,const WatchView*v,bool average) {
+  const PaceletModel*m=&v->model;
+  int bpm=average?(m->summary_avg_hr?m->summary_avg_hr:m->hr_count?(int)(m->hr_sum/m->hr_count):0):(int)m->last_hr_bpm;
+  int z=average?zone_for(v,bpm):m->display_zone>=0?m->display_zone:zone_for(v,bpm);
+  bool missing=bpm<=0;
+  GColor fill=missing?PB_RULE:pb_zone(z);
+  if(s_ui.effect==FxZone&&!average) {
+    int old=s_ui.from.model.display_zone;
+    pb_fill(c,0,199,180,29,old<0?PB_RULE:pb_zone(old),0);
+    pb_fill(c,0,228-29*pb_ease(s_ui.progress)/1000,180,29*pb_ease(s_ui.progress)/1000,fill,0);
+  }else pb_fill(c,0,199,180,29,fill,0);
+  int pop=s_ui.effect==FxHr&&s_ui.progress<500&&!average?1:0;
+  pb_heart(c,10-pop,208-pop,PB_INK,2);
+  char value[8];snprintf(value,sizeof(value),"%d",bpm);
+  pb_text(c,missing?"--":value,FONT_KEY_LECO_26_BOLD_NUMBERS_AM_PM,30,198,54,29,PB_INK,GTextAlignmentLeft);
+  if(missing){PB_LABEL(c,average?"NO HR DATA":"MEASURING",87,204,88,PB_INK);return;}
+  if(average)PB_LABEL(c,"AVG",92,204,42,PB_INK);else scale(c,v,89,218,53,bpm);
+  char label[8];snprintf(label,sizeof(label),"Z%d",zone_for(v,bpm));
+  pb_text(c,label,FONT_KEY_GOTHIC_18_BOLD,148,202,27,24,PB_INK,GTextAlignmentCenter);
+}
+static void pb_pair(GContext*c,const char*distance,const char*second,const char*label){
+ PB_LABEL(c,"DIST. KM",8,115,82,PB_MUTED);PB_LABEL(c,label,98,115,76,PB_MUTED);
+ pb_number(c,distance,6,129,82,31,FONT_KEY_LECO_26_BOLD_NUMBERS_AM_PM,FONT_KEY_LECO_20_BOLD_NUMBERS,PB_INK,GTextAlignmentLeft);
+ pb_number(c,second,96,129,80,31,FONT_KEY_LECO_26_BOLD_NUMBERS_AM_PM,FONT_KEY_LECO_20_BOLD_NUMBERS,PB_INK,GTextAlignmentLeft);
+ pb_line(c,90,119,90,155,PB_RULE,1);
+}
+static void pb_picker(GContext*c,int selected,int old,int progress){
+ int y=pb_lerp(s_ui.effect==FxPick?s_ui.picker_from_y:37+old*44,37+selected*44,progress);
+ pb_fill(c,0,y,180,42,PB_MIST,0);pb_fill(c,0,y,3,42,PB_TEAL,0);
+ const char*names[]={"Walking","Running","Cycling","History"};
+ for(int i=0;i<4;i++){
+  if(i<3)pb_activity_icon(c,i,26,58+i*44,PB_INK,1000);
+  else{graphics_context_set_stroke_color(c,PB_INK);graphics_context_set_stroke_width(c,2);graphics_draw_circle(c,GPoint(26,58+i*44+pb_dy),11);pb_line(c,26,51+i*44,26,58+i*44,PB_INK,2);pb_line(c,26,58+i*44,32,61+i*44,PB_INK,2);}
+  pb_text(c,names[i],FONT_KEY_GOTHIC_24_BOLD,51,41+i*44,122,32,PB_INK,GTextAlignmentLeft);
+ }
 }
 
-static GColor color_text(void) {
-  return PBL_IF_COLOR_ELSE(
-      g_pacelet.dark_mode ? GColorWhite : GColorBlack, GColorBlack);
-}
-
-static GColor color_muted(void) {
-  return PBL_IF_COLOR_ELSE(
-      g_pacelet.dark_mode ? GColorFromHEX(0xa9b5ad)
-                          : GColorFromHEX(0x3e5459),
-      GColorBlack);
-}
-
-static GColor color_accent(void) {
-  return PBL_IF_COLOR_ELSE(
-      g_pacelet.dark_mode ? GColorFromHEX(0x00d084)
-                          : GColorFromHEX(0x007c54),
-      GColorBlack);
-}
-
-static GColor color_on_accent(void) {
-  return PBL_IF_COLOR_ELSE(
-      g_pacelet.dark_mode ? GColorBlack : GColorWhite, GColorWhite);
-}
-
-static GColor color_warning(void) {
-  return PBL_IF_COLOR_ELSE(
-      g_pacelet.dark_mode ? GColorFromHEX(0xffc400)
-                          : GColorFromHEX(0x9a6500),
-      GColorBlack);
-}
-
-static GColor color_pause_bg(void) {
-  return PBL_IF_COLOR_ELSE(GColorYellow, GColorWhite);
-}
-
-static GColor color_bad(void) {
-  return PBL_IF_COLOR_ELSE(
-      g_pacelet.dark_mode ? GColorFromHEX(0xff4b4b)
-                          : GColorFromHEX(0xb00020),
-      GColorBlack);
-}
-
-static GFont font_status(void) {
-  return fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
-}
-
-static GFont font_label(void) {
-  return fonts_get_system_font(FONT_KEY_GOTHIC_14);
-}
-
-static GFont font_metric_label(void) {
-  return fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
-}
-
-static GFont font_value(void) {
-  return fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
-}
-
-static GFont font_metric_value(void) {
-  return fonts_get_system_font(FONT_KEY_LECO_26_BOLD_NUMBERS_AM_PM);
-}
-
-static GFont font_metric_unit(void) {
-  return fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD);
-}
-
-static GFont font_menu(void) {
-  return fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
-}
-
-static GFont font_timer(void) {
-  return fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS);
-}
-
-static void format_elapsed(int32_t total_s, char *buffer,
-                           size_t buffer_size) {
-  int32_t hours = total_s / 3600;
-  int32_t minutes = (total_s % 3600) / 60;
-  int32_t seconds = total_s % 60;
-
-  if (hours > 0) {
-    snprintf(buffer, buffer_size, "%ld:%02ld:%02ld",
-             (long)hours, (long)minutes, (long)seconds);
+static const char *hero_value(const WatchView*v,bool recap,char*hero,size_t size) {
+  const PaceletModel*m=&v->model;
+  bool walk=m->activity_type==ActivityTypeWalking,ride=m->activity_type==ActivityTypeCycling;
+  bool paused=m->activity_state==ActivityStatePaused;
+  int32_t metres=recap?(m->summary_distance_m?m->summary_distance_m:m->distance_m):m->distance_m;
+  int32_t elapsed=recap?(m->summary_moving_s?m->summary_moving_s:v->elapsed):v->elapsed;
+  if(walk)duration_text(hero,size,elapsed);
+  else if(ride) {
+    int speed=recap?(elapsed>0?(int64_t)metres*100/elapsed:0):paused&&m->paused_speed_centi_mps>0?m->paused_speed_centi_mps:m->current_speed_centi_mps;
+    if(speed>0)speed_text(hero,size,speed);else snprintf(hero,size,"--.-");
   } else {
-    snprintf(buffer, buffer_size, "%02ld:%02ld",
-             (long)minutes, (long)seconds);
+    int pace=recap?(metres>0?(int64_t)elapsed*1000/metres:0):paused&&m->paused_pace_s_per_km>0?m->paused_pace_s_per_km:m->current_pace_s_per_km;
+    if(pace>0)snprintf(hero,size,"%ld:%02ld",(long)pace/60,(long)pace%60);else snprintf(hero,size,"--:--");
   }
+  if(!recap&&!paused&&!walk&&(!m->phone_connected||m->gps_state!=GpsStateLocked))snprintf(hero,size,ride?"--.-":"--:--");
+  return walk?"ELAPSED":ride?(recap?"AVG SPEED KM/H":"SPEED KM/H"):(recap?"AVG PACE /KM":"PACE /KM");
 }
-
-static void format_clock(char *buffer, size_t buffer_size) {
-  time_t now = time(NULL);
-  struct tm *time_now = localtime(&now);
-
-  if (!time_now) {
-    snprintf(buffer, buffer_size, "--:--");
-    return;
-  }
-
-  if (clock_is_24h_style()) {
-    strftime(buffer, buffer_size, "%H:%M", time_now);
-  } else {
-    strftime(buffer, buffer_size, "%I:%M", time_now);
-    if (buffer[0] == '0') {
-      memmove(buffer, buffer + 1, strlen(buffer));
+static void live(GContext*c,const WatchView*v,bool recap) {
+  const PaceletModel*m=&v->model;bool walk=m->activity_type==ActivityTypeWalking;
+  bool paused=m->activity_state==ActivityStatePaused;
+  char hero[20],distance[16],second[20],last[20],delta[20];
+  int32_t metres=recap?(m->summary_distance_m?m->summary_distance_m:m->distance_m):m->distance_m;
+  int32_t elapsed=recap?(m->summary_moving_s?m->summary_moving_s:v->elapsed):v->elapsed;
+  const char *label=hero_value(v,recap,hero,sizeof(hero));
+  distance_text(distance,sizeof(distance),metres);
+  if(walk&&!recap)snprintf(second,sizeof(second),m->current_steps_available?"%ld":"--",(long)m->current_steps);
+  else duration_text(second,sizeof(second),elapsed);
+  pb_fill(c,0,22,180,88,PB_MIST,0);
+  PB_LABEL(c,label,8,25,164,PB_INK);
+  if(paused){char pause[24],time[16];duration_text(time,sizeof(time),v->now-m->paused_at);snprintf(pause,sizeof(pause),"FOR %s",time);pb_text(c,pause,FONT_KEY_GOTHIC_14_BOLD,100,25,73,18,PB_INK,GTextAlignmentRight);}
+  pb_number(c,hero,4,35,172,73,FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM,FONT_KEY_LECO_42_NUMBERS,paused?PB_MUTED:PB_INK,GTextAlignmentCenter);
+  pb_pair(c,distance,second,walk&&!recap?"STEPS":"ELAPSED");
+  pb_line(c,8,161,172,161,PB_RULE,1);
+  if(recap) {
+    int32_t total=0;for(int i=0;i<4;i++)total+=m->zone_s[i];
+    if(total) {
+      for(int i=0;i<4;i++){char z[3];snprintf(z,sizeof(z),"Z%d",i);pb_fill(c,8+i*42,170,7,7,pb_zone(i),0);PB_LABEL(c,z,18+i*42,164,25,PB_MUTED);}
+      int x=8;for(int i=0;i<4;i++){int w=(int64_t)164*m->zone_s[i]/total;pb_fill(c,x,186,w,7,pb_zone(i),0);x+=w;}
+    }else PB_LABEL(c,"NO ZONE DATA",8,174,164,PB_MUTED);
+  }else if(paused&&m->recovery_message[0]) {
+    pb_text(c,m->recovery_message,FONT_KEY_GOTHIC_14_BOLD,8,174,164,24,PB_MUTED,GTextAlignmentLeft);
+  }else {
+    PB_LABEL(c,"LAST KM",8,175,59,PB_MUTED);
+    int value=m->recent_splits[0];
+    if(value>0)duration_text(last,sizeof(last),value);else snprintf(last,sizeof(last),"--:--");
+    pb_number(c,last,68,164,68,34,FONT_KEY_LECO_26_BOLD_NUMBERS_AM_PM,FONT_KEY_LECO_20_BOLD_NUMBERS,PB_INK,GTextAlignmentLeft);
+    if(m->previous_split_s>0&&value>0) {
+      int d=value-m->previous_split_s;char time[16];duration_text(time,sizeof(time),d<0?-d:d);snprintf(delta,sizeof(delta),"%c%s",d<0?'-':'+',time);
+      pb_text(c,delta,FONT_KEY_GOTHIC_14_BOLD,133,176,43,18,PB_MUTED,GTextAlignmentRight);
     }
   }
+  hr_band(c,v,recap);
 }
-
-static void format_distance_parts(int32_t meters,
-                                  char *value, size_t value_size,
-                                  char *unit, size_t unit_size) {
-  if (meters >= 1000) {
-    snprintf(value, value_size, "%ld.%02ld",
-             (long)(meters / 1000), (long)((meters % 1000) / 10));
-    snprintf(unit, unit_size, "KM");
-  } else {
-    snprintf(value, value_size, "%ld", (long)meters);
-    snprintf(unit, unit_size, "M");
+static int gps_radius(int accuracy){return accuracy<0?60:pb_clamp(accuracy*12/10,0,60);}
+static void gps(GContext*c,const WatchView*v) {
+  const PaceletModel*m=&v->model;bool ready=m->gps_state==GpsStateLocked,error=m->gps_state==GpsStateError;
+  int p=s_ui.effect==FxLock?s_ui.progress:1000;
+  int radius=ready?pb_lerp(s_ui.radius_from,0,pb_ease(p)):s_ui.effect==FxFix?pb_lerp(s_ui.radius_from,s_ui.radius_to,pb_ease(s_ui.progress)):gps_radius(m->gps_accuracy_m);
+  int angle=s_ui.orbit_angle;
+  if(s_ui.effect==FxOrbit||(s_ui.effect==FxFix&&clock_ms()-s_ui.gps_began<15000))
+    angle=(clock_ms()-s_ui.gps_began)%10200*360/10200;
+  graphics_context_set_fill_color(c,error?PB_PAPER:PB_MIST);graphics_fill_circle(c,GPoint(90,85+pb_dy),30);
+  for(int i=0;i<24;i++){int a=DEG_TO_TRIGANGLE(i*15);graphics_context_set_fill_color(c,PB_RULE);graphics_fill_circle(c,GPoint(90+sin_lookup(a)*60/TRIG_MAX_RATIO,85+pb_dy-cos_lookup(a)*60/TRIG_MAX_RATIO),1);}
+  graphics_context_set_stroke_color(c,error?PB_RULE:PB_TEAL);graphics_context_set_stroke_width(c,2);graphics_draw_circle(c,GPoint(90,85+pb_dy),30);
+  if(!ready&&!error){pb_line(c,85,85,95,85,PB_TEAL,1);pb_line(c,90,80,90,90,PB_TEAL,1);}
+  if(error){graphics_context_set_fill_color(c,PB_RED);graphics_fill_circle(c,GPoint(140,52+pb_dy),4);}
+  else if(!ready||p<850)for(int i=0;i<3;i++) {int a=DEG_TO_TRIGANGLE(15+angle+i*120);graphics_context_set_fill_color(c,PB_AMBER);graphics_fill_circle(c,GPoint(90+sin_lookup(a)*radius/TRIG_MAX_RATIO,85+pb_dy-cos_lookup(a)*radius/TRIG_MAX_RATIO),3);}
+  if(ready) {
+    graphics_context_set_fill_color(c,PB_TEAL);graphics_fill_radial(c,GRect(59,54+pb_dy,62,62),GOvalScaleModeFitCircle,3,0,TRIG_MAX_ANGLE*p/1000);
+    int check=pb_clamp((p-450)*1000/550,0,1000),first=pb_clamp(check,0,350);
+    if(check>0)pb_line(c,78,85,78+10*first/350,85+10*first/350,PB_INK,3);
+    if(check>350)pb_line(c,88,95,88+17*(check-350)/650,95-22*(check-350)/650,PB_INK,3);
   }
+  const char*title=error?"GPS unavailable":ready?(m->activity_type==ActivityTypeWalking?"Ready to walk":m->activity_type==ActivityTypeCycling?"Ready to ride":"Ready to run"):"Finding GPS";
+  pb_text(c,title,FONT_KEY_GOTHIC_24_BOLD,8,148,164,33,error?PB_RED:PB_INK,GTextAlignmentCenter);
+  char detail[40];if(m->gps_accuracy_m>=0)snprintf(detail,sizeof(detail),"%ld m / need 25 m",(long)m->gps_accuracy_m);else snprintf(detail,sizeof(detail),"Waiting for phone fix");
+  pb_text(c,error?(m->gps_error[0]?m->gps_error:"Check phone location"):detail,FONT_KEY_GOTHIC_18,8,183,164,27,PB_MUTED,GTextAlignmentCenter);
+  PB_LABEL(c,error?"UP TO RETRY":ready?"SELECT TO START":"KEEP PHONE NEARBY",28,211,148,PB_MUTED);
 }
-
-static void format_pace_parts(int32_t pace_s_per_km,
-                              char *value, size_t value_size,
-                              char *unit, size_t unit_size) {
-  if (pace_s_per_km <= 0 || pace_s_per_km > 5999) {
-    snprintf(value, value_size, "--:--");
-  } else {
-    snprintf(value, value_size, "%ld:%02ld",
-             (long)(pace_s_per_km / 60), (long)(pace_s_per_km % 60));
-  }
-  snprintf(unit, unit_size, "/KM");
+static void countdown(GContext*c,const WatchView*v) {
+  int r=60,p=s_ui.effect==FxCount?s_ui.progress:1000;
+  if(p<1000){const int radii[]={60,66,60,63,60};int seg=pb_clamp(p/250,0,3);r=pb_lerp(radii[seg],radii[seg+1],p%250*4);}
+  graphics_context_set_fill_color(c,PB_MIST);graphics_fill_circle(c,GPoint(90,112+pb_dy),r);
+  char n[4];snprintf(n,sizeof(n),"%d",v->model.countdown_value);
+  pb_text(c,n,FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM,30,68,120,90,PB_INK,GTextAlignmentCenter);PB_LABEL(c,"STARTING",60,195,95,PB_MUTED);
 }
-
-static void format_speed_parts(int32_t centi_mps,
-                               char *value, size_t value_size,
-                               char *unit, size_t unit_size) {
-  if (centi_mps <= 0) {
-    snprintf(value, value_size, "--.-");
-  } else {
-    int32_t kmh_x10 = (centi_mps * 36) / 100;
-    snprintf(value, value_size, "%ld.%ld",
-             (long)(kmh_x10 / 10), (long)(kmh_x10 % 10));
-  }
-  snprintf(unit, unit_size, "KM/H");
-}
-
-static const char *state_short_label(void) {
-  if (g_pacelet.finish_confirm_visible) {
-    return "END?";
-  }
-
-  switch (g_pacelet.activity_state) {
-    case ActivityStateChoose:
-      return "PICK";
-    case ActivityStateGps:
-      return g_pacelet.gps_state == GpsStateError ? "ERROR" : "GPS";
-    case ActivityStateReady:
-      return "READY";
-    case ActivityStateCountdown:
-      return "3-2-1";
-    case ActivityStateActive:
-      return g_pacelet.split_visible ? "SPLIT" : "REC";
-    case ActivityStatePaused:
-      return "PAUSE";
-    case ActivityStateFinished:
-      return "SAVED";
-    case ActivityStateHistoryList:
-    case ActivityStateHistoryDetail:
-      return "HIST";
-    case ActivityStateRecovery:
-      return "FOUND";
-    default:
-      return "";
-  }
-}
-
-static GColor state_color(void) {
-  if (g_pacelet.finish_confirm_visible) {
-    return color_warning();
-  }
-
-  if (g_pacelet.activity_state == ActivityStateActive ||
-      g_pacelet.activity_state == ActivityStateReady ||
-      g_pacelet.activity_state == ActivityStateCountdown ||
-      g_pacelet.gps_state == GpsStateLocked) {
-    return color_accent();
-  }
-  if (g_pacelet.activity_state == ActivityStatePaused ||
-      g_pacelet.activity_state == ActivityStateRecovery ||
-      g_pacelet.gps_state == GpsStateSearching) {
-    return color_warning();
-  }
-  if (g_pacelet.gps_state == GpsStateError) {
-    return color_bad();
-  }
-  if (g_pacelet.activity_state == ActivityStateHistoryList ||
-      g_pacelet.activity_state == ActivityStateHistoryDetail) {
-    return color_accent();
-  }
-  return color_muted();
-}
-
-static GColor hr_zone_color(HrZone zone) {
-  switch (zone) {
-    case HrZoneOne:
-      return PBL_IF_COLOR_ELSE(GColorMelon, GColorWhite);
-    case HrZoneTwo:
-      return PBL_IF_COLOR_ELSE(GColorChromeYellow, GColorWhite);
-    case HrZoneThree:
-      return PBL_IF_COLOR_ELSE(GColorOrange, GColorWhite);
-    case HrZoneBelow:
-    default:
-      return color_bg();
-  }
-}
-
-static int content_right(GRect bounds) {
-  return bounds.size.w - ACTION_RAIL_W;
-}
-
-static int action_rail_x(GRect bounds) {
-  return bounds.size.w - ACTION_RAIL_W;
-}
-
-static int rail_icon_y(GRect bounds, int index) {
-  return (bounds.size.h * (index + 1)) / 4;
-}
-
-static int choose_row_y(int index) {
-  return 32 + index * 43;
-}
-
-static void draw_dotted_separator(GContext *ctx, int right, int y,
-                                  GColor color) {
-  graphics_context_set_stroke_color(ctx, color);
-  for (int x = 8; x < right - 4; x += 4) {
-    graphics_draw_pixel(ctx, GPoint(x, y));
-  }
-}
-
-static void draw_duration_band(GContext *ctx, GRect bounds, int y,
-                               int height, const char *elapsed_text,
-                               bool paused) {
-  int right = content_right(bounds);
-  GColor bg = paused ? color_pause_bg() : color_accent();
-  GColor ink = paused ? GColorBlack : color_on_accent();
-  int text_y = y + (height - 45) / 2;
-
-  graphics_context_set_fill_color(ctx, bg);
-  graphics_fill_rect(ctx, GRect(0, y, right, height), 0, GCornerNone);
-
-  if (paused) {
-    graphics_context_set_text_color(ctx, ink);
-    graphics_draw_text(ctx, "PAUSED", font_status(),
-                       GRect(7, y + 2, right - 14, 18),
-                       GTextOverflowModeTrailingEllipsis,
-                       GTextAlignmentLeft, NULL);
-  }
-
-  graphics_context_set_text_color(ctx, ink);
-  graphics_draw_text(ctx, elapsed_text, font_timer(),
-                     GRect(0, text_y, right, 45),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-}
-
-static void draw_metric_row(GContext *ctx, GRect bounds, int y, int height,
-                            const char *label, const char *value,
-                            const char *unit) {
-  int right = content_right(bounds);
-  int unit_width = 40;
-
-  draw_dotted_separator(ctx, right, y, color_muted());
-
-  graphics_context_set_text_color(ctx, color_muted());
-  graphics_draw_text(ctx, label, font_metric_label(),
-                     GRect(8, y + (height - 18) / 2, 44, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
-
-  graphics_context_set_text_color(ctx, color_text());
-  graphics_draw_text(ctx, value, font_metric_value(),
-                     GRect(42, y + (height - 30) / 2,
-                           right - 42 - unit_width, 30),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentRight, NULL);
-
-  graphics_draw_text(ctx, unit, font_metric_unit(),
-                     GRect(right - unit_width + 3,
-                           y + (height - 18) / 2 + 2,
-                           unit_width - 3, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
-}
-
-static void draw_heart_icon(GContext *ctx, GPoint center, GColor color) {
-  int variant = gcolor_equal(color, GColorWhite) ? 1 : 0;
-  GBitmap *icon = s_heart_icons[variant];
-  if (icon) {
-    graphics_context_set_compositing_mode(ctx, GCompOpSet);
-    graphics_draw_bitmap_in_rect(
-        ctx, icon, GRect(center.x - 12, center.y - 12, 24, 24));
-    graphics_context_set_compositing_mode(ctx, GCompOpAssign);
-  }
-}
-
-static void draw_measuring_heart(GContext *ctx, GPoint center) {
-  int pulse = g_pacelet.anim_tick % 2;
-  int variant = g_pacelet.dark_mode ? 1 : 0;
-  GBitmap *icon = s_measuring_heart_icons[variant];
-
-  graphics_context_set_stroke_color(ctx, color_muted());
-  graphics_draw_circle(ctx, center, pulse ? 11 : 9);
-
-  if (icon) {
-    graphics_context_set_compositing_mode(ctx, GCompOpSet);
-    graphics_draw_bitmap_in_rect(
-        ctx, icon, GRect(center.x - 8, center.y - 8, 16, 16));
-    graphics_context_set_compositing_mode(ctx, GCompOpAssign);
-  }
-}
-
-static void draw_measuring_hr_row(GContext *ctx, GRect bounds, int y,
-                                  int height) {
-  int right = content_right(bounds);
-  int center_y = y + height / 2;
-
-  draw_dotted_separator(ctx, right, y, color_muted());
-  draw_measuring_heart(ctx, GPoint(20, center_y));
-  graphics_context_set_text_color(ctx, color_muted());
-  graphics_draw_text(ctx, "MEASURING", font_status(),
-                     GRect(40, center_y - 9, right - 46, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
-}
-
-static void draw_hr_row(GContext *ctx, GRect bounds, int y, int height,
-                        int32_t bpm) {
-  int right = content_right(bounds);
-  HrZone zone = bpm > 0 ? pacelet_hr_zone_for_bpm(bpm) : HrZoneBelow;
-  GColor ink = zone == HrZoneBelow ? color_text() : GColorBlack;
-  char value[16];
-
-  if (bpm <= 0 && g_pacelet.activity_state == ActivityStateActive) {
-    draw_measuring_hr_row(ctx, bounds, y, height);
-    return;
-  }
-
-  graphics_context_set_fill_color(ctx, hr_zone_color(zone));
-  graphics_fill_rect(ctx, GRect(0, y, right, height), 0, GCornerNone);
-  draw_dotted_separator(ctx, right, y,
-                        zone == HrZoneBelow ? color_muted() : ink);
-
-  graphics_context_set_text_color(ctx, ink);
-  graphics_draw_text(
-      ctx,
-      zone == HrZoneBelow ? "HEART RATE" : pacelet_hr_zone_label(zone),
-      font_metric_label(), GRect(8, y + 3, 92, 18),
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-
-  if (zone != HrZoneBelow) {
-    graphics_context_set_fill_color(ctx, ink);
-    graphics_context_set_stroke_color(ctx, ink);
-    for (int i = 1; i <= 3; i++) {
-      GRect bar = GRect(8 + (i - 1) * 15, y + height - 8, 12, 4);
-      if (i <= (int)zone) {
-        graphics_fill_rect(ctx, bar, 0, GCornerNone);
-      } else {
-        graphics_draw_rect(ctx, bar);
-      }
+static void laps(GContext*c,const WatchView*v) {
+  pb_text(c,"Kilometres",FONT_KEY_GOTHIC_24_BOLD,8,27,164,35,PB_INK,GTextAlignmentLeft);
+  for(int i=0;i<5;i++) {
+    int y=68+i*29;char label[20],value[20];
+    if(i==0){pb_fill(c,0,y-1,180,28,PB_MIST,0);snprintf(label,sizeof(label),"NOW");duration_text(value,sizeof(value),v->elapsed-v->model.last_split_elapsed_s);}
+    else {
+      int index=i-1;if(v->model.recent_splits[index]<=0)continue;
+      snprintf(label,sizeof(label),"KM %ld",(long)v->model.split_number-index);duration_text(value,sizeof(value),v->model.recent_splits[index]);
+      if(v->model.recent_splits[index]==v->model.best_split_s)pb_fill(c,159,y+9,5,5,PB_TEAL,2);
     }
-  }
-
-  if (bpm > 0) {
-    snprintf(value, sizeof(value), "%ld", (long)bpm);
-  } else {
-    snprintf(value, sizeof(value), "--");
-  }
-  if (right >= 150) {
-    draw_heart_icon(ctx, GPoint(right - 66, y + height / 2 + 1), ink);
-  }
-  graphics_draw_text(ctx, value, font_metric_value(),
-                     GRect(right - 57, y + (height - 30) / 2, 53, 30),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentRight, NULL);
-}
-
-static void draw_top_bar(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  int third = right / 3;
-  char clock_text[8];
-  const char *left_label =
-      (g_pacelet.activity_state == ActivityStateHistoryList ||
-       g_pacelet.activity_state == ActivityStateHistoryDetail) ?
-          "HIST" : pacelet_activity_short_label(g_pacelet.activity_type);
-
-  graphics_context_set_fill_color(ctx, state_color());
-  graphics_fill_rect(ctx, GRect(0, 0, right, 2), 0, GCornerNone);
-
-  format_clock(clock_text, sizeof(clock_text));
-
-  graphics_context_set_text_color(ctx, color_muted());
-  graphics_draw_text(
-      ctx, left_label, font_status(), GRect(8, 5, third - 8, 18),
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-
-  graphics_context_set_text_color(ctx, color_text());
-  graphics_draw_text(ctx, clock_text, font_status(),
-                     GRect(third, 5, third, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-
-  graphics_context_set_text_color(ctx, state_color());
-  graphics_draw_text(ctx, state_short_label(), font_status(),
-                     GRect(third * 2, 5, right - third * 2 - 4, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentRight, NULL);
-}
-
-static void draw_action_icon(GContext *ctx, GPoint center, ActionIcon icon,
-                             GColor color) {
-  int x = center.x;
-  int y = center.y;
-
-  if (icon == ActionIconNone) {
-    return;
-  }
-
-  graphics_context_set_stroke_width(ctx, 2);
-  graphics_context_set_stroke_color(ctx, color);
-  graphics_context_set_fill_color(ctx, color);
-
-  switch (icon) {
-    case ActionIconUp:
-      graphics_draw_line(ctx, GPoint(x - 5, y + 3), GPoint(x, y - 3));
-      graphics_draw_line(ctx, GPoint(x, y - 3), GPoint(x + 5, y + 3));
-      break;
-    case ActionIconDown:
-      graphics_draw_line(ctx, GPoint(x - 5, y - 3), GPoint(x, y + 3));
-      graphics_draw_line(ctx, GPoint(x, y + 3), GPoint(x + 5, y - 3));
-      break;
-    case ActionIconGps:
-      graphics_draw_circle(ctx, center, 5);
-      graphics_draw_line(ctx, GPoint(x, y - 8), GPoint(x, y - 5));
-      graphics_draw_line(ctx, GPoint(x, y + 5), GPoint(x, y + 8));
-      graphics_draw_line(ctx, GPoint(x - 8, y), GPoint(x - 5, y));
-      graphics_draw_line(ctx, GPoint(x + 5, y), GPoint(x + 8, y));
-      graphics_fill_circle(ctx, center, 2);
-      break;
-    case ActionIconRefresh:
-      graphics_draw_circle(ctx, center, 5);
-      graphics_draw_line(ctx, GPoint(x + 2, y - 6), GPoint(x + 6, y - 6));
-      graphics_draw_line(ctx, GPoint(x + 6, y - 6), GPoint(x + 6, y - 2));
-      break;
-    case ActionIconPlay:
-      graphics_draw_line(ctx, GPoint(x - 3, y - 6), GPoint(x + 5, y));
-      graphics_draw_line(ctx, GPoint(x + 5, y), GPoint(x - 3, y + 6));
-      graphics_draw_line(ctx, GPoint(x - 3, y + 6),
-                         GPoint(x - 3, y - 6));
-      break;
-    case ActionIconPause:
-      graphics_fill_rect(ctx, GRect(x - 5, y - 6, 3, 12),
-                         1, GCornersAll);
-      graphics_fill_rect(ctx, GRect(x + 2, y - 6, 3, 12),
-                         1, GCornersAll);
-      break;
-    case ActionIconStop:
-      graphics_fill_rect(ctx, GRect(x - 5, y - 5, 10, 10),
-                         1, GCornersAll);
-      break;
-    case ActionIconCheck:
-      graphics_draw_line(ctx, GPoint(x - 6, y), GPoint(x - 2, y + 5));
-      graphics_draw_line(ctx, GPoint(x - 2, y + 5),
-                         GPoint(x + 7, y - 5));
-      break;
-    case ActionIconClose:
-      graphics_draw_line(ctx, GPoint(x - 5, y - 5),
-                         GPoint(x + 5, y + 5));
-      graphics_draw_line(ctx, GPoint(x + 5, y - 5),
-                         GPoint(x - 5, y + 5));
-      break;
-    case ActionIconType:
-      graphics_draw_line(ctx, GPoint(x - 5, y - 5),
-                         GPoint(x + 4, y - 5));
-      graphics_draw_line(ctx, GPoint(x - 5, y), GPoint(x + 4, y));
-      graphics_draw_line(ctx, GPoint(x - 5, y + 5),
-                         GPoint(x + 4, y + 5));
-      graphics_fill_circle(ctx, GPoint(x + 6, y - 5), 1);
-      graphics_fill_circle(ctx, GPoint(x + 6, y), 1);
-      graphics_fill_circle(ctx, GPoint(x + 6, y + 5), 1);
-      break;
-    case ActionIconHistory:
-      graphics_draw_circle(ctx, center, 7);
-      graphics_draw_line(ctx, center, GPoint(x, y - 5));
-      graphics_draw_line(ctx, center, GPoint(x + 4, y));
-      break;
-    case ActionIconFile:
-      graphics_draw_rect(ctx, GRect(x - 5, y - 7, 10, 14));
-      graphics_draw_line(ctx, GPoint(x + 1, y - 7), GPoint(x + 5, y - 3));
-      graphics_draw_line(ctx, GPoint(x - 2, y + 1), GPoint(x + 3, y + 1));
-      graphics_draw_line(ctx, GPoint(x - 2, y + 5), GPoint(x + 3, y + 5));
-      break;
-    case ActionIconNone:
-    default:
-      break;
+    PB_LABEL(c,label,8,y+1,68,PB_MUTED);pb_number(c,value,80,y-4,68,28,FONT_KEY_LECO_20_BOLD_NUMBERS,FONT_KEY_GOTHIC_18_BOLD,PB_INK,GTextAlignmentRight);
   }
 }
-
-static void draw_action_rail_colors(GContext *ctx, GRect bounds,
-                                    ActionIcon up, ActionIcon select,
-                                    ActionIcon down, GColor rail_color,
-                                    GColor icon_color) {
-  int rail_x = action_rail_x(bounds);
-  int icon_x = rail_x + ACTION_RAIL_W / 2;
-
-  graphics_context_set_fill_color(ctx, rail_color);
-  graphics_fill_rect(ctx, GRect(rail_x, 0, ACTION_RAIL_W, bounds.size.h),
-                     0, GCornerNone);
-
-  draw_action_icon(ctx, GPoint(icon_x, rail_icon_y(bounds, 0)),
-                   up, icon_color);
-  draw_action_icon(ctx, GPoint(icon_x, rail_icon_y(bounds, 1)),
-                   select, icon_color);
-  draw_action_icon(ctx, GPoint(icon_x, rail_icon_y(bounds, 2)),
-                   down, icon_color);
+static void zones(GContext*c,const WatchView*v) {
+  pb_text(c,"Time in zones",FONT_KEY_GOTHIC_24_BOLD,8,27,164,35,PB_INK,GTextAlignmentLeft);
+  int32_t max=1;for(int i=0;i<4;i++)if(v->model.zone_s[i]>max)max=v->model.zone_s[i];
+  for(int i=0;i<4;i++){int z=3-i,y=68+i*37;char label[4],value[20];snprintf(label,sizeof(label),"Z%d",z);duration_text(value,sizeof(value),v->model.zone_s[z]);PB_LABEL(c,label,8,y,32,PB_INK);pb_text(c,value,FONT_KEY_GOTHIC_18_BOLD,82,y-3,90,24,PB_INK,GTextAlignmentRight);pb_fill(c,8,y+21,164,8,PB_RULE,0);pb_fill(c,8,y+21,(int64_t)164*v->model.zone_s[z]/max,8,pb_zone(z),0);}
+  char elapsed[20],label[40];duration_text(elapsed,sizeof(elapsed),v->elapsed);snprintf(label,sizeof(label),"ACTIVE TIME %s",elapsed);PB_LABEL(c,label,8,213,164,PB_MUTED);
 }
-
-static void draw_action_rail(GContext *ctx, GRect bounds, ActionIcon up,
-                             ActionIcon select, ActionIcon down) {
-  draw_action_rail_colors(ctx, bounds, up, select, down,
-                          color_text(), color_bg());
+static void heart_page(GContext*c,const WatchView*v) {
+  pb_text(c,"Heart rate",FONT_KEY_GOTHIC_24_BOLD,8,27,164,35,PB_INK,GTextAlignmentLeft);
+  int bpm=v->model.last_hr_bpm;char value[20];if(bpm>0)snprintf(value,sizeof(value),"%d",bpm);else snprintf(value,sizeof(value),"--");
+  pb_number(c,value,8,55,108,55,FONT_KEY_LECO_42_NUMBERS,FONT_KEY_LECO_32_BOLD_NUMBERS,PB_INK,GTextAlignmentLeft);
+  if(bpm>0){int z=zone_for(v,bpm);char zone[4];snprintf(zone,sizeof(zone),"Z%d",z);pb_fill(c,137,73,35,24,pb_zone(z),0);pb_text(c,zone,FONT_KEY_GOTHIC_18_BOLD,137,71,35,26,PB_INK,GTextAlignmentCenter);scale(c,v,12,123,156,bpm);}
+  char stint[20],label[40];duration_text(stint,sizeof(stint),v->model.zone_stint_s);snprintf(label,sizeof(label),"THIS STINT %s",stint);PB_LABEL(c,bpm>0?label:"WAITING FOR SENSOR",8,135,164,PB_MUTED);
+  for(int i=0;i<60;i++){int b=v->model.hr_history[(v->now-59+i)%60];if(b<=0)continue;int h=pb_clamp((b-40)*47/180,2,47);pb_fill(c,8+i*164/60,206-h,2,h,pb_zone(zone_for(v,b)),0);}
+  PB_LABEL(c,"-60S",8,211,60,PB_MUTED);pb_text(c,"NOW",FONT_KEY_GOTHIC_14_BOLD,120,211,52,18,PB_MUTED,GTextAlignmentRight);
 }
-
-static void draw_activity_icon_for_type(GContext *ctx, ActivityType type,
-                                        GPoint center, int size,
-                                        GColor icon_color) {
-  int variant = gcolor_equal(icon_color, GColorWhite) ? 1 : 0;
-  GBitmap *icon = s_activity_icons[type][variant];
-  GRect icon_rect =
-      GRect(center.x - size / 2, center.y - size / 2, size, size);
-
-  if (!icon) {
-    graphics_context_set_fill_color(ctx, icon_color);
-    graphics_fill_circle(ctx, center, size / 3);
-    return;
+static void history(GContext*c,const WatchView*v) {
+  const PaceletModel*m=&v->model;
+  if(m->history_loading){pb_text(c,"Loading history",FONT_KEY_GOTHIC_24_BOLD,8,60,164,70,PB_INK,GTextAlignmentCenter);return;}
+  if(!m->history_count){pb_text(c,"No saved activities",FONT_KEY_GOTHIC_24_BOLD,8,60,164,70,PB_INK,GTextAlignmentCenter);PB_LABEL(c,m->history_message,8,151,164,PB_MUTED);return;}
+  int first=m->history_selected_index>2?m->history_selected_index-2:0;
+  for(int row=0;row<3;row++){int i=first+row,y=35+row*61;if(i>m->history_count)break;
+    if(i==m->history_selected_index)pb_fill(c,0,y,180,58,PB_MIST,0);
+    if(i==m->history_count){pb_text(c,"Back",FONT_KEY_GOTHIC_24_BOLD,8,y,164,32,PB_INK,GTextAlignmentLeft);continue;}
+    const HistoryItem*item=&m->history_items[i];char dist[16],time[20],line[48];distance_text(dist,sizeof(dist),item->distance_m);duration_text(time,sizeof(time),item->moving_s);snprintf(line,sizeof(line),"%s KM   %s",dist,time);
+    pb_text(c,pacelet_activity_label(item->activity_type),FONT_KEY_GOTHIC_24_BOLD,8,y,164,32,PB_INK,GTextAlignmentLeft);PB_LABEL(c,line,8,y+34,164,PB_MUTED);
+    if(i!=m->history_selected_index)pb_line(c,8,y+58,172,y+58,PB_RULE,1);
   }
-
-  graphics_context_set_compositing_mode(ctx, GCompOpSet);
-  graphics_draw_bitmap_in_rect(ctx, icon, icon_rect);
-  graphics_context_set_compositing_mode(ctx, GCompOpAssign);
 }
-
-static void draw_choose_menu_item(GContext *ctx, GRect bounds,
-                                  ActivityType type, int y) {
-  bool selected = g_pacelet.choose_index == type;
-  int right = content_right(bounds);
-  int row_h = 39;
-  int icon_size = 30;
-  GRect row_bounds = GRect(0, y, right, row_h);
-  GColor item_text = selected ? color_on_accent() : color_text();
-  GColor item_icon = selected ? color_on_accent() : color_text();
-
-  if (selected) {
-    graphics_context_set_fill_color(ctx, color_accent());
-    graphics_fill_rect(ctx, row_bounds, 0, GCornerNone);
-  } else {
-    graphics_context_set_stroke_color(ctx, color_muted());
-    for (int x = 8; x < right - 4; x += 4) {
-      graphics_draw_pixel(ctx, GPoint(x, y + row_h - 1));
+static void recovery(GContext*c,const WatchView*v) {
+  pb_text(c,"Activity interrupted",FONT_KEY_GOTHIC_24_BOLD,8,34,164,38,PB_INK,GTextAlignmentLeft);pb_fill(c,0,82,180,69,PB_MIST,0);PB_LABEL(c,"RECORDED",8,84,164,PB_INK);
+  char time[20],distance[16],line[50];duration_text(time,sizeof(time),v->model.recovery_moving_s);distance_text(distance,sizeof(distance),v->model.distance_m);
+  pb_number(c,time,6,100,168,48,FONT_KEY_LECO_36_BOLD_NUMBERS,FONT_KEY_LECO_32_BOLD_NUMBERS,PB_INK,GTextAlignmentLeft);
+  snprintf(line,sizeof(line),"%s km on phone",distance);pb_text(c,line,FONT_KEY_GOTHIC_18,8,157,164,27,PB_MUTED,GTextAlignmentLeft);
+  pb_text(c,v->model.recovery_message,FONT_KEY_GOTHIC_14_BOLD,8,183,164,38,PB_MUTED,GTextAlignmentLeft);
+}
+static void upload(GContext*c) {
+  pb_fill(c,24,57,132,67,PB_MIST,5);
+  pb_line(c,60,105,60,77,PB_INK,3);pb_line(c,60,77,52,85,PB_INK,3);pb_line(c,60,77,68,85,PB_INK,3);
+  pb_text(c,"Sending\nto Strava",FONT_KEY_GOTHIC_24_BOLD,81,63,75,59,PB_INK,GTextAlignmentLeft);
+  if(s_ui.effect==FxUpload&&s_ui.progress<1000){pb_fill(c,24,143,132,4,PB_RULE,0);pb_fill(c,24+pb_ease(s_ui.progress)*92/1000,143,40,4,PB_TEAL,0);}
+  else for(int i=0;i<3;i++)pb_fill(c,76+i*12,143,5,5,PB_TEAL,2);
+  pb_text(c,"Your activity is saved.",FONT_KEY_GOTHIC_18,8,170,164,27,PB_MUTED,GTextAlignmentCenter);
+}
+static void content(GContext*c,const WatchView*v) {
+  pb_fill(c,0,22,180,206,PB_PAPER,0);
+  switch(v->scene) {
+    case ScenePicker:pb_picker(c,v->model.choose_index,s_ui.effect==FxPick?s_ui.from.model.choose_index:v->model.choose_index,s_ui.effect==FxPick?pb_ease(s_ui.progress):1000);break;
+    case SceneGps:gps(c,v);break;
+    case SceneCountdown:countdown(c,v);break;
+    case SceneLive:live(c,v,false);break;
+    case SceneLaps:laps(c,v);break;
+    case SceneZones:zones(c,v);break;
+    case SceneHeart:heart_page(c,v);break;
+    case SceneRecap:live(c,v,true);break;
+    case SceneUpload:upload(c);break;
+    case SceneHistory:history(c,v);break;
+    case SceneDetail:{
+      if(v->model.history_selected_index>=v->model.history_count)break;
+      WatchView *detail=&s_ui.pending;*detail=*v;const HistoryItem*item=&v->model.history_items[v->model.history_selected_index];
+      detail->model.activity_type=item->activity_type;detail->model.summary_distance_m=item->distance_m;detail->model.distance_m=item->distance_m;detail->model.summary_moving_s=item->moving_s;detail->elapsed=item->moving_s;detail->model.summary_avg_hr=item->avg_hr;detail->model.hr_count=0;memcpy(detail->model.zone_s,item->zone_s,sizeof(item->zone_s));live(c,detail,true);
+      pb_fill(c,0,161,180,38,PB_PAPER,0);PB_LABEL(c,pacelet_history_status_label(item->strava_status),8,162,164,PB_INK);PB_LABEL(c,v->model.history_message,8,178,164,PB_MUTED);break;
     }
+    default:recovery(c,v);break;
   }
-
-  draw_activity_icon_for_type(
-      ctx, type, GPoint(29, y + row_h / 2), icon_size, item_icon);
-
-  graphics_context_set_text_color(ctx, item_text);
-  graphics_draw_text(ctx, pacelet_activity_label(type), font_menu(),
-                     GRect(52, y + (row_h - 24) / 2, right - 56, 24),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
 }
-
-static void draw_choose_history_item(GContext *ctx, GRect bounds, int y) {
-  bool selected = g_pacelet.choose_index == 3;
-  int right = content_right(bounds);
-  int row_h = 39;
-  GRect row_bounds = GRect(0, y, right, row_h);
-  GColor item_text = selected ? color_on_accent() : color_text();
-
-  if (selected) {
-    graphics_context_set_fill_color(ctx, color_accent());
-    graphics_fill_rect(ctx, row_bounds, 0, GCornerNone);
-  } else {
-    graphics_context_set_stroke_color(ctx, color_muted());
-    for (int x = 8; x < right - 4; x += 4) {
-      graphics_draw_pixel(ctx, GPoint(x, y + row_h - 1));
+static void split(GContext*c,const WatchView*v) {
+  pb_fill(c,0,22,180,177,PB_MIST,0);char label[32],value[20];snprintf(label,sizeof(label),"KILOMETRE %ld",(long)v->model.split_number);PB_LABEL(c,label,8,28,164,PB_INK);
+  duration_text(value,sizeof(value),v->model.split_elapsed_s);pb_number(c,value,4,49,172,73,FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM,FONT_KEY_LECO_42_NUMBERS,PB_INK,GTextAlignmentCenter);
+  if(v->model.activity_type==ActivityTypeCycling){char speed[16];speed_text(speed,sizeof(speed),v->model.split_elapsed_s>0?100000/v->model.split_elapsed_s:0);snprintf(label,sizeof(label),"%s KM/H AVERAGE",speed);}
+  else if(v->model.previous_split_s>0){int delta=v->model.split_elapsed_s-v->model.previous_split_s;snprintf(label,sizeof(label),"%d SEC %s",delta<0?-delta:delta,delta<0?"FASTER":delta>0?"SLOWER":"CHANGE");}
+  else snprintf(label,sizeof(label),"FIRST KILOMETRE");
+  pb_text(c,label,FONT_KEY_GOTHIC_18_BOLD,8,132,164,27,PB_INK,GTextAlignmentCenter);
+  if(v->model.previous_split_s>0&&v->model.activity_type!=ActivityTypeCycling)PB_LABEL(c,"THAN THE PREVIOUS KM",19,158,150,PB_MUTED);
+  hr_band(c,v,false);
+}
+static void sheet(GContext*c,const WatchView*v) {
+  PaceletOverlay overlay=v->model.overlay;if(overlay==OverlayNone)return;
+  if(overlay==OverlaySplit){split(c,v);return;}
+  bool leave=overlay==OverlayExit,discard=overlay==OverlayDiscard;
+  pb_fill(c,0,22,180,206,PB_PAPER,0);pb_fill(c,8,39,164,4,leave?PB_MIST:PB_CORAL,0);
+  pb_text(c,leave?(v->model.upload_pending?"Upload in\nprogress":"Saving on\nphone"):discard?"Delete activity?":"Finish activity?",FONT_KEY_GOTHIC_28_BOLD,8,57,164,68,PB_INK,GTextAlignmentLeft);
+  pb_text(c,leave?"Leaving may pause\nstatus checks. Strava\nmay still finish.":discard?"This cannot be undone.":"Save this activity.",FONT_KEY_GOTHIC_18,8,135,164,64,PB_MUTED,GTextAlignmentLeft);
+  PB_LABEL(c,leave?"UP LEAVE / DOWN STAY":discard?"UP DELETE / DOWN KEEP":"UP SAVE / DOWN KEEP",8,207,164,PB_INK);
+}
+static void render_content(GContext*c,int origin) {
+  pb_dy=origin;int e=pb_ease(s_ui.progress);
+  if(s_ui.effect==FxPush){pb_dy=origin-206*e/1000;content(c,&s_ui.from);pb_dy=origin+206*(1000-e)/1000;content(c,&s_ui.view);}
+  else if(s_ui.effect==FxStart){
+    pb_dy=origin+(1000-e)*90/1000;content(c,&s_ui.view);pb_dy=origin;
+    pb_fill(c,0,22,180,88,PB_PAPER,0);int x=pb_lerp(30,0,e),y=pb_lerp(52,22,e),w=pb_lerp(120,180,e),h=pb_lerp(120,88,e);
+    pb_fill(c,x,y,w,h,PB_MIST,pb_lerp(60,0,e));
+    if(s_ui.progress<500)pb_text(c,"GO",FONT_KEY_BITHAM_42_BOLD,x,y+h/2-26,w,60,PB_INK,GTextAlignmentCenter);
+    else {
+      char hero[20];const char*label=hero_value(&s_ui.view,false,hero,sizeof(hero));
+      PB_LABEL(c,label,8,25,164,PB_INK);
+      pb_number(c,hero,4,35,172,73,FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM,FONT_KEY_LECO_42_NUMBERS,PB_INK,GTextAlignmentCenter);
     }
-  }
-
-  draw_action_icon(ctx, GPoint(29, y + row_h / 2),
-                   ActionIconHistory, item_text);
-  graphics_context_set_text_color(ctx, item_text);
-  graphics_draw_text(ctx, "Activity History", font_menu(),
-                     GRect(52, y + (row_h - 24) / 2, right - 56, 24),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
+  }else if(s_ui.effect==FxSave&&s_ui.progress<450){
+    pb_fill(c,0,22,180,206,PB_PAPER,0);pb_fill(c,48,42,84,84,PB_MIST,42);
+    int a=pb_clamp(s_ui.progress*1000/450,0,1000);pb_line(c,65,83,65+18*a/1000,83+18*a/1000,PB_INK,4);if(a>450)pb_line(c,83,101,83+(a-450)*35/550,101-(a-450)*45/550,PB_INK,4);
+    pb_text(c,"Saved",FONT_KEY_GOTHIC_28_BOLD,8,146,164,38,PB_INK,GTextAlignmentCenter);
+  }else if(s_ui.effect==FxSave){
+    pb_fill(c,0,22,180,206,PB_PAPER,0);pb_fill(c,48,42,84,84,PB_MIST,42);
+    pb_line(c,65,83,83,101,PB_INK,4);pb_line(c,83,101,118,56,PB_INK,4);
+    pb_text(c,"Saved",FONT_KEY_GOTHIC_28_BOLD,8,146,164,38,PB_INK,GTextAlignmentCenter);
+    int q=pb_clamp((s_ui.progress-450)*1000/550,0,1000);
+    pb_dy=origin+(1000-pb_ease(q))*206/1000;content(c,&s_ui.view);
+  }else content(c,&s_ui.view);
+  pb_dy=origin;
+  if(s_ui.effect==FxPause&&s_ui.progress<1000)pb_fill(c,0,110,180*(1000-e)/1000,2,PB_AMBER,0);
+  if(s_ui.effect==FxSave&&s_ui.progress>200&&s_ui.progress<850)for(int i=0;i<12;i++){int p=s_ui.progress;pb_fill(c,90+((i*37)%151-75)*p/1000,38+((i*17)%41)*p/1000+p*p/24000,3,4,i%2?PB_TEAL:PB_AMBER,0);}
 }
-
-static void draw_gps_icon(GContext *ctx, GPoint center) {
-  int pulse = g_pacelet.anim_tick % 3;
-  int outer_r = 18 + pulse * 3;
-
-  graphics_context_set_stroke_width(ctx, 1);
-  graphics_context_set_stroke_color(ctx, color_muted());
-  graphics_draw_circle(ctx, center, outer_r);
-  graphics_draw_circle(ctx, center, outer_r + 8);
-
-  graphics_context_set_stroke_width(ctx, 2);
-  graphics_context_set_stroke_color(ctx, state_color());
-  graphics_draw_line(ctx, GPoint(center.x, center.y - 27),
-                     GPoint(center.x, center.y - 13));
-  graphics_draw_line(ctx, GPoint(center.x, center.y + 13),
-                     GPoint(center.x, center.y + 27));
-  graphics_draw_line(ctx, GPoint(center.x - 27, center.y),
-                     GPoint(center.x - 13, center.y));
-  graphics_draw_line(ctx, GPoint(center.x + 13, center.y),
-                     GPoint(center.x + 27, center.y));
-
-  graphics_context_set_fill_color(ctx, state_color());
-  graphics_fill_circle(
-      ctx, center, g_pacelet.gps_state == GpsStateLocked ? 7 : 5);
+static void render_overlay(GContext*c,int origin) {
+  pb_dy=origin;
+  if(s_ui.effect==FxSheet)pb_dy+=206*(1000-pb_ease(s_ui.progress))/1000;
+  if(s_ui.effect==FxSplitOut){pb_dy+=206*pb_ease(s_ui.progress)/1000;sheet(c,&s_ui.from);}else sheet(c,&s_ui.view);
+  pb_dy=0;
 }
-
-static void draw_choose_screen(GContext *ctx, GRect bounds) {
-  draw_top_bar(ctx, bounds);
-
-  draw_choose_menu_item(
-      ctx, bounds, ActivityTypeWalking, choose_row_y(0));
-  draw_choose_menu_item(
-      ctx, bounds, ActivityTypeRunning, choose_row_y(1));
-  draw_choose_menu_item(
-      ctx, bounds, ActivityTypeCycling, choose_row_y(2));
-  draw_choose_history_item(ctx, bounds, choose_row_y(3));
-  draw_action_rail(
-      ctx, bounds, ActionIconUp,
-      g_pacelet.choose_index == 3 ? ActionIconHistory : ActionIconGps,
-      ActionIconDown);
+static void draw_content(Layer*layer,GContext*c){render_content(c,-22);}
+static void draw_overlay(Layer*layer,GContext*c){render_overlay(c,-22);}
+static void draw_header(Layer*layer,GContext*c) {
+  const WatchView*v=&s_ui.view;const PaceletModel*m=&v->model;pb_dy=0;pb_fill(c,0,0,180,22,PB_PAPER,0);
+  const char*mode=v->scene==ScenePicker?"PACELET":v->scene==SceneHistory||v->scene==SceneDetail?"HIST":pacelet_activity_short_label(m->activity_type);
+  char clock[12],status[16];struct tm*tm=localtime(&v->now);strftime(clock,sizeof(clock),clock_is_24h_style()?"%H:%M":"%I:%M",tm);
+  snprintf(status,sizeof(status),"%s",m->low_battery?"LOW BAT":!m->phone_connected?"OFFLINE":m->activity_state==ActivityStatePaused?"PAUSED":m->activity_state==ActivityStateFinished?(m->pending_command?"SAVING":m->upload_pending?"STRAVA":"SAVED"):v->scene==SceneLaps?"LAPS":v->scene==SceneZones?"ZONES":v->scene==SceneHeart?"TRACE":v->scene==SceneGps?(m->gps_state==GpsStateLocked?"READY":m->gps_state==GpsStateError?"GPS ERR":"GPS"):v->scene==SceneRecovery?"RECOVER":"");
+  if(m->overlay==OverlayFinish)snprintf(status,sizeof(status),"FINISH?");
+  if(m->overlay==OverlayDiscard)snprintf(status,sizeof(status),"DELETE?");
+  if(m->overlay==OverlaySplit)snprintf(status,sizeof(status),"SPLIT");
+  PB_LABEL(c,mode,7,1,54,PB_INK);pb_text(c,clock,FONT_KEY_GOTHIC_18_BOLD,55,-3,70,23,PB_INK,GTextAlignmentCenter);pb_text(c,status,FONT_KEY_GOTHIC_14_BOLD,120,1,54,18,PB_MUTED,GTextAlignmentRight);
+  pb_fill(c,0,20,180,2,m->overlay==OverlayFinish||m->overlay==OverlayDiscard?PB_CORAL:m->activity_state==ActivityStatePaused?PB_AMBER:PB_TEAL,0);
 }
-
-static void draw_gps_screen(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  int icon_y = 78;
-  int title_y = 114;
-  int accuracy_y = 145;
-  char accuracy_text[32];
-  char detail_text[32];
-
-  draw_top_bar(ctx, bounds);
-  draw_gps_icon(ctx, GPoint(right / 2, icon_y));
-
-  graphics_context_set_text_color(ctx, state_color());
-  graphics_draw_text(
-      ctx,
-      g_pacelet.gps_state == GpsStateLocked ? "GPS LOCKED" :
-          g_pacelet.gps_state == GpsStateError ? "GPS PROBLEM" :
-                                                "FINDING GPS",
-      font_value(), GRect(8, title_y, right - 8, 28),
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-
-  graphics_context_set_text_color(ctx, color_text());
-  if (g_pacelet.gps_state == GpsStateError &&
-      g_pacelet.gps_error[0] != '\0') {
-    snprintf(accuracy_text, sizeof(accuracy_text), "%s",
-             g_pacelet.gps_error);
-  } else if (g_pacelet.gps_accuracy_m >= 0) {
-    snprintf(accuracy_text, sizeof(accuracy_text), "%ld m accuracy",
-             (long)g_pacelet.gps_accuracy_m);
-  } else {
-    snprintf(accuracy_text, sizeof(accuracy_text),
-             "Waiting for phone GPS");
-  }
-  graphics_draw_text(ctx, accuracy_text, font_label(),
-                     GRect(8, accuracy_y, right - 8, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-
-  if (g_pacelet.gps_state == GpsStateLocked) {
-    snprintf(detail_text, sizeof(detail_text), "Ready to start");
-  } else if (g_pacelet.gps_accuracy_m >= 0) {
-    snprintf(detail_text, sizeof(detail_text), "%d m required",
-             PACELET_GPS_LOCK_ACCURACY_M);
-  } else {
-    snprintf(detail_text, sizeof(detail_text), "Keep phone nearby");
-  }
-  graphics_context_set_text_color(ctx, color_muted());
-  graphics_draw_text(ctx, detail_text, font_label(),
-                     GRect(8, bounds.size.h - 25, right - 8, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-  draw_action_rail(
-      ctx, bounds, ActionIconRefresh,
-      g_pacelet.gps_state == GpsStateLocked ?
-          ActionIconPlay : ActionIconNone,
-      ActionIconType);
+static void draw_rail(Layer*layer,GContext*c) {
+  // This layer's bounds use native screen coordinates.
+  const WatchView*v=&s_ui.view;const PaceletModel*m=&v->model;int up=I_NONE,sel=I_NONE,down=I_NONE;pb_dy=0;
+  if(m->overlay==OverlayFinish||m->overlay==OverlayDiscard){up=I_CHECK;down=I_BACK;}
+  else if(m->overlay==OverlayExit){up=I_DELETE;down=I_BACK;}
+  else if(m->activity_state==ActivityStateFinished&&m->pending_command==MESSAGE_KEY_FINISH_ACTIVITY){}
+  else if(v->scene==ScenePicker||v->scene==SceneHistory){up=I_UP;sel=I_PLAY;down=I_DOWN;}
+  else if(v->scene==SceneGps){up=I_RETRY;sel=m->gps_state==GpsStateLocked?I_PLAY:I_RETRY;down=I_DOWN;}
+  else if(live_state(m->activity_state)){up=m->activity_state==ActivityStatePaused?I_PLAY:I_PAUSE;sel=m->page||m->overlay==OverlaySplit?I_BACK:m->activity_state==ActivityStatePaused?I_STOP:I_NONE;down=I_PAGES;}
+  else if(v->scene==SceneRecap||v->scene==SceneUpload){up=I_PLAY;sel=I_PAGES;down=I_BACK;}
+  else if(v->scene==SceneDetail){up=I_FILE;sel=I_RETRY;down=I_BACK;}
+  else if(v->scene==SceneRecovery){up=m->recovery_phone_draft_available?I_PLAY:I_NONE;sel=m->recovery_phone_draft_available?I_STOP:I_NONE;down=I_DELETE;}
+  pb_fill(c,180,0,20,228,PB_INK,0);pb_icon(c,up,57,PB_PAPER);pb_icon(c,sel,114,PB_PAPER);pb_icon(c,down,171,PB_PAPER);
 }
-
-static void draw_countdown_screen(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  int visible_count =
-      (int)pacelet_clamp_i32(g_pacelet.countdown_value, 1, 3);
-  int band_y = 38;
-  int band_h = 120;
-  int variant = gcolor_equal(color_on_accent(), GColorWhite) ? 1 : 0;
-  GBitmap *number_icon =
-      s_countdown_icons[visible_count - 1][variant];
-
-  draw_top_bar(ctx, bounds);
-
-  graphics_context_set_fill_color(ctx, color_accent());
-  graphics_fill_rect(ctx, GRect(0, band_y, right, band_h),
-                     0, GCornerNone);
-
-  if (number_icon) {
-    GRect icon_bounds = gbitmap_get_bounds(number_icon);
-    icon_bounds.origin.x = (right - icon_bounds.size.w) / 2;
-    icon_bounds.origin.y =
-        band_y + (band_h - icon_bounds.size.h) / 2;
-    graphics_context_set_compositing_mode(ctx, GCompOpSet);
-    graphics_draw_bitmap_in_rect(ctx, number_icon, icon_bounds);
-    graphics_context_set_compositing_mode(ctx, GCompOpAssign);
-  }
-
-  graphics_context_set_text_color(ctx, color_muted());
-  graphics_draw_text(
-      ctx, pacelet_activity_label(g_pacelet.activity_type), font_label(),
-      GRect(8, band_y + band_h + 10, right - 16, 18),
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-
-  draw_action_rail(
-      ctx, bounds, ActionIconNone, ActionIconNone, ActionIconNone);
+static void cancel_motion(void) {
+  if(s_ui.timer){app_timer_cancel(s_ui.timer);s_ui.timer=NULL;}
+  s_ui.effect=FxNone;s_ui.progress=1000;
 }
-
-static void draw_split_screen(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  int band_y = 27;
-  int band_h = 96;
-  int row_h = 44;
-  int movement_y = band_y + band_h + 1;
-  int hr_y = movement_y + row_h;
-  char title_text[20];
-  char split_time_text[16];
-  char movement_value[16];
-  char movement_unit[8];
-
-  draw_top_bar(ctx, bounds);
-
-  snprintf(title_text, sizeof(title_text), "KM %ld",
-           (long)g_pacelet.split_number);
-  graphics_context_set_fill_color(ctx, color_accent());
-  graphics_fill_rect(ctx, GRect(0, band_y, right, band_h),
-                     0, GCornerNone);
-  graphics_context_set_text_color(ctx, color_on_accent());
-  graphics_draw_text(ctx, title_text, font_value(),
-                     GRect(8, band_y + 3, right - 16, 28),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
-
-  format_elapsed(
-      g_pacelet.split_elapsed_s, split_time_text, sizeof(split_time_text));
-  graphics_context_set_text_color(ctx, color_on_accent());
-  graphics_draw_text(ctx, split_time_text, font_timer(),
-                     GRect(0, band_y + band_h - 49, right, 45),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-
-  if (pacelet_activity_uses_speed()) {
-    format_speed_parts(
-        100000 / g_pacelet.split_elapsed_s,
-        movement_value, sizeof(movement_value),
-        movement_unit, sizeof(movement_unit));
-  } else {
-    format_pace_parts(
-        g_pacelet.split_elapsed_s,
-        movement_value, sizeof(movement_value),
-        movement_unit, sizeof(movement_unit));
+static bool optional_motion(void){return s_ui.view.model.motion_mode==MotionFull&&!s_ui.view.model.low_battery;}
+static void dirty_layers(void){layer_mark_dirty(s_ui.content);layer_mark_dirty(s_ui.overlay);}
+static void frame(void*data) {
+  s_ui.timer=NULL;if(!s_ui.loaded||!s_ui.focused)return;
+  uint32_t elapsed=clock_ms()-s_ui.began;
+  s_ui.progress=elapsed>=s_ui.duration?1000:elapsed*1000/s_ui.duration;
+  if(s_ui.effect==FxOrbit||(s_ui.effect==FxFix&&clock_ms()-s_ui.gps_began<15000))
+    s_ui.orbit_angle=(clock_ms()-s_ui.gps_began)%10200*360/10200;
+  if(s_ui.progress==1000){s_ui.effect=FxNone;
+    if(s_ui.view.scene==SceneGps&&s_ui.view.model.gps_state==GpsStateSearching&&optional_motion()&&clock_ms()-s_ui.gps_began<15000){s_ui.effect=FxOrbit;s_ui.began=clock_ms();s_ui.duration=15000-(clock_ms()-s_ui.gps_began);s_ui.progress=0;}
   }
-  draw_metric_row(
-      ctx, bounds, movement_y, row_h,
-      pacelet_activity_uses_speed() ? "AVG" : "PACE",
-      movement_value, movement_unit);
-  draw_hr_row(
-      ctx, bounds, hr_y, row_h, g_pacelet.last_hr_bpm);
-
-  draw_action_rail(
-      ctx, bounds, ActionIconPause, ActionIconNone, ActionIconNone);
+  dirty_layers();
+  if(s_ui.effect!=FxNone)s_ui.timer=app_timer_register(33,frame,NULL);
 }
-
-static void draw_activity_screen(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  int duration_y = 27;
-  int duration_h = 58;
-  int row_h = 39;
-  int distance_y = duration_y + duration_h + 1;
-  int movement_y = distance_y + row_h;
-  int hr_y = movement_y + row_h;
-  char elapsed_text[16];
-  char distance_value[16];
-  char distance_unit[8];
-  char movement_value[16];
-  char movement_unit[8];
-  const char *movement_label;
-  char gps_text[32];
-  bool paused = g_pacelet.activity_state == ActivityStatePaused;
-
-  draw_top_bar(ctx, bounds);
-
-  format_elapsed(
-      pacelet_elapsed_s(), elapsed_text, sizeof(elapsed_text));
-  draw_duration_band(
-      ctx, bounds, duration_y, duration_h, elapsed_text, paused);
-
-  format_distance_parts(
-      g_pacelet.distance_m,
-      distance_value, sizeof(distance_value),
-      distance_unit, sizeof(distance_unit));
-  if (g_pacelet.activity_type == ActivityTypeWalking) {
-    movement_label = "STEPS";
-    if (g_pacelet.current_steps_available) {
-      snprintf(movement_value, sizeof(movement_value), "%ld",
-               (long)g_pacelet.current_steps);
-    } else {
-      snprintf(movement_value, sizeof(movement_value), "%s", "--");
-    }
-    movement_unit[0] = '\0';
-  } else if (pacelet_activity_uses_speed()) {
-    movement_label = "SPEED";
-    format_speed_parts(
-        g_pacelet.current_speed_centi_mps,
-        movement_value, sizeof(movement_value),
-        movement_unit, sizeof(movement_unit));
-  } else {
-    movement_label = "PACE";
-    format_pace_parts(
-        g_pacelet.current_pace_s_per_km,
-        movement_value, sizeof(movement_value),
-        movement_unit, sizeof(movement_unit));
+static void begin_motion(Effect effect,uint32_t duration) {
+  cancel_motion();if(effect==FxNone)return;
+  if(!s_ui.focused||s_ui.view.model.motion_mode==MotionOff)return;
+  if(s_ui.view.model.low_battery||s_ui.view.model.motion_mode==MotionKeyMoments) {
+    if(effect!=FxLock&&effect!=FxCount&&effect!=FxStart&&effect!=FxSheet&&effect!=FxSplitOut&&effect!=FxSave)return;
   }
-
-  draw_metric_row(
-      ctx, bounds, distance_y, row_h,
-      "DIST", distance_value, distance_unit);
-  draw_metric_row(
-      ctx, bounds, movement_y, row_h,
-      movement_label, movement_value, movement_unit);
-  draw_hr_row(
-      ctx, bounds, hr_y, row_h, g_pacelet.last_hr_bpm);
-
-  graphics_context_set_text_color(
-      ctx, g_pacelet.phone_connected ? color_muted() : color_bad());
-  if (!g_pacelet.phone_connected) {
-    snprintf(gps_text, sizeof(gps_text), "PHONE DISCONNECTED");
-  } else if (g_pacelet.gps_state == GpsStateLocked &&
-      g_pacelet.gps_accuracy_m >= 0) {
-    snprintf(gps_text, sizeof(gps_text), "GPS %ld M",
-             (long)g_pacelet.gps_accuracy_m);
-  } else if (g_pacelet.gps_state == GpsStateSearching &&
-             g_pacelet.gps_accuracy_m >= 0) {
-    snprintf(gps_text, sizeof(gps_text), "GPS %ld M / NEED %d M",
-             (long)g_pacelet.gps_accuracy_m,
-             PACELET_GPS_LOCK_ACCURACY_M);
-  } else if (g_pacelet.gps_state == GpsStateError &&
-             g_pacelet.gps_error[0] != '\0') {
-    snprintf(gps_text, sizeof(gps_text), "%s", g_pacelet.gps_error);
-  } else {
-    snprintf(gps_text, sizeof(gps_text), "GPS --");
-  }
-
-  graphics_draw_text(ctx, gps_text, font_label(),
-                     GRect(8, bounds.size.h - 23, right - 8, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-
-  if (paused) {
-    draw_action_rail(
-        ctx, bounds, ActionIconPlay, ActionIconStop, ActionIconNone);
-  } else {
-    draw_action_rail(
-        ctx, bounds, ActionIconPause, ActionIconNone, ActionIconNone);
-  }
+  s_ui.effect=effect;s_ui.duration=duration;s_ui.began=clock_ms();s_ui.progress=0;s_ui.timer=app_timer_register(33,frame,NULL);
 }
-
-static void draw_recovery_discard_confirm_screen(GContext *ctx,
-                                                 GRect bounds) {
-  int right = content_right(bounds);
-  int third = right / 3;
-  char clock_text[8];
-  char elapsed_text[16];
-
-  graphics_context_set_fill_color(ctx, color_pause_bg());
-  graphics_fill_rect(ctx, GRect(0, 0, right, bounds.size.h),
-                     0, GCornerNone);
-  format_clock(clock_text, sizeof(clock_text));
-  graphics_context_set_text_color(ctx, GColorBlack);
-  graphics_draw_text(
-      ctx, pacelet_activity_short_label(g_pacelet.activity_type),
-      font_status(), GRect(8, 5, third - 8, 18),
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, clock_text, font_status(),
-                     GRect(third, 5, third, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-  graphics_draw_text(ctx, "DELETE?", font_status(),
-                     GRect(third * 2, 5, right - third * 2 - 4, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentRight, NULL);
-
-  graphics_context_set_fill_color(ctx, GColorBlack);
-  graphics_fill_rect(ctx, GRect(right / 2 - 17, 47, 34, 34),
-                     2, GCornersAll);
-  graphics_context_set_text_color(ctx, GColorBlack);
-  graphics_draw_text(ctx, "DISCARD PARTIAL?", font_value(),
-                     GRect(4, 91, right - 8, 30),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-  graphics_draw_text(ctx, "THIS CANNOT BE UNDONE", font_status(),
-                     GRect(4, 126, right - 8, 20),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-  format_elapsed(g_pacelet.recovery_moving_s,
-                 elapsed_text, sizeof(elapsed_text));
-  graphics_draw_text(ctx, elapsed_text, font_timer(),
-                     GRect(0, 151, right, 45),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-  draw_action_rail_colors(
-      ctx, bounds, ActionIconCheck, ActionIconNone, ActionIconClose,
-      GColorBlack, GColorWhite);
-}
-
-static void draw_recovery_screen(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  char elapsed_text[16];
-  char distance_value[16];
-  char distance_unit[8];
-
-  if (g_pacelet.discard_confirm_visible) {
-    draw_recovery_discard_confirm_screen(ctx, bounds);
-    return;
-  }
-
-  draw_top_bar(ctx, bounds);
-  graphics_context_set_text_color(ctx, color_warning());
-  graphics_draw_text(ctx, "PARTIAL ACTIVITY", font_value(),
-                     GRect(4, 32, right - 8, 30),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-  graphics_context_set_text_color(ctx, color_muted());
-  graphics_draw_text(ctx, pacelet_activity_label(g_pacelet.activity_type),
-                     font_status(), GRect(4, 60, right - 8, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-
-  format_elapsed(g_pacelet.recovery_moving_s,
-                 elapsed_text, sizeof(elapsed_text));
-  format_distance_parts(g_pacelet.distance_m,
-                        distance_value, sizeof(distance_value),
-                        distance_unit, sizeof(distance_unit));
-  draw_metric_row(ctx, bounds, 82, 42, "TIME", elapsed_text, "");
-  draw_metric_row(ctx, bounds, 124, 42, "DIST",
-                  distance_value, distance_unit);
-
-  graphics_context_set_text_color(
-      ctx, g_pacelet.recovery_phone_draft_available ?
-          color_muted() : color_bad());
-  graphics_draw_text(
-      ctx,
-      g_pacelet.recovery_message[0] != '\0' ?
-          g_pacelet.recovery_message : "READY TO RECOVER",
-      font_status(), GRect(4, 169, right - 8, 18),
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-
-  graphics_context_set_text_color(ctx, color_text());
-  graphics_draw_text(
-      ctx,
-      g_pacelet.recovery_phone_draft_available ?
-          "UP RESUME  SEL FINISH\nDOWN DISCARD" :
-          "PHONE DATA UNAVAILABLE\nDOWN DISCARD",
-      font_label(), GRect(4, 189, right - 8, 36),
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-
-  draw_action_rail(
-      ctx, bounds,
-      g_pacelet.recovery_phone_draft_available ?
-          ActionIconPlay : ActionIconNone,
-      g_pacelet.recovery_phone_draft_available ?
-          ActionIconStop : ActionIconNone,
-      ActionIconClose);
-}
-
-static void draw_finish_confirm_screen(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  int third = right / 3;
-  int stop_size = 34;
-  int stop_y = 47;
-  int title_y = 91;
-  int activity_y = 126;
-  int elapsed_y = 146;
-  char clock_text[8];
-  char elapsed_text[16];
-
-  graphics_context_set_fill_color(ctx, color_pause_bg());
-  graphics_fill_rect(ctx, GRect(0, 0, right, bounds.size.h),
-                     0, GCornerNone);
-
-  format_clock(clock_text, sizeof(clock_text));
-  graphics_context_set_text_color(ctx, GColorBlack);
-  graphics_draw_text(
-      ctx, pacelet_activity_short_label(g_pacelet.activity_type),
-      font_status(), GRect(8, 5, third - 8, 18),
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, clock_text, font_status(),
-                     GRect(third, 5, third, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-  graphics_draw_text(ctx, "END?", font_status(),
-                     GRect(third * 2, 5, right - third * 2 - 4, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentRight, NULL);
-
-  graphics_context_set_fill_color(ctx, GColorBlack);
-  graphics_fill_rect(
-      ctx,
-      GRect(right / 2 - stop_size / 2, stop_y, stop_size, stop_size),
-      2, GCornersAll);
-
-  graphics_context_set_text_color(ctx, GColorBlack);
-  graphics_draw_text(ctx, "END ACTIVITY?", font_value(),
-                     GRect(5, title_y, right - 10, 30),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-  graphics_draw_text(
-      ctx, pacelet_activity_label(g_pacelet.activity_type),
-      font_metric_label(), GRect(5, activity_y, right - 10, 20),
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
-
-  format_elapsed(
-      pacelet_elapsed_s(), elapsed_text, sizeof(elapsed_text));
-  graphics_draw_text(ctx, elapsed_text, font_timer(),
-                     GRect(0, elapsed_y, right, 45),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-
-  draw_action_rail_colors(
-      ctx, bounds, ActionIconCheck, ActionIconNone, ActionIconClose,
-      GColorBlack, GColorWhite);
-}
-
-static void draw_finished_screen(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  int band_y = 27;
-  int band_h = 84;
-  int row_h = 45;
-  int time_y = band_y + band_h + 1;
-  int distance_y = time_y + row_h;
-  int32_t distance_m =
-      g_pacelet.summary_distance_m > 0 ?
-          g_pacelet.summary_distance_m : g_pacelet.distance_m;
-  char elapsed_text[16];
-  char distance_value[16];
-  char distance_unit[8];
-  char points_text[24];
-
-  draw_top_bar(ctx, bounds);
-
-  graphics_context_set_fill_color(ctx, color_accent());
-  graphics_fill_rect(ctx, GRect(0, band_y, right, band_h),
-                     0, GCornerNone);
-
-  graphics_context_set_stroke_width(ctx, 3);
-  graphics_context_set_stroke_color(ctx, color_on_accent());
-  graphics_draw_line(ctx, GPoint(22, band_y + band_h / 2),
-                     GPoint(34, band_y + band_h / 2 + 12));
-  graphics_draw_line(ctx, GPoint(34, band_y + band_h / 2 + 12),
-                     GPoint(53, band_y + band_h / 2 - 12));
-
-  graphics_context_set_text_color(ctx, color_on_accent());
-  graphics_draw_text(ctx, "SAVED", font_value(),
-                     GRect(62, band_y + 11, right - 68, 30),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
-  graphics_draw_text(
-      ctx, pacelet_activity_label(g_pacelet.activity_type),
-      font_metric_label(),
-      GRect(62, band_y + band_h - 29, right - 68, 20),
-      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
-
-  format_elapsed(
-      pacelet_elapsed_s(), elapsed_text, sizeof(elapsed_text));
-  format_distance_parts(
-      distance_m, distance_value, sizeof(distance_value),
-      distance_unit, sizeof(distance_unit));
-  draw_metric_row(
-      ctx, bounds, time_y, row_h, "TIME", elapsed_text, "");
-  draw_metric_row(
-      ctx, bounds, distance_y, row_h,
-      "DIST", distance_value, distance_unit);
-
-  if (g_pacelet.summary_points > 0) {
-    snprintf(points_text, sizeof(points_text), "%ld GPS PTS",
-             (long)g_pacelet.summary_points);
-    graphics_context_set_text_color(ctx, color_muted());
-    graphics_draw_text(ctx, points_text, font_label(),
-                       GRect(8, bounds.size.h - 23, right - 8, 18),
-                       GTextOverflowModeTrailingEllipsis,
-                       GTextAlignmentCenter, NULL);
-  }
-
-  draw_action_rail(
-      ctx, bounds, ActionIconPlay, ActionIconNone, ActionIconType);
-}
-
-static GColor history_status_color(HistoryStravaStatus status) {
-  switch (status) {
-    case HistoryStravaUploaded:
-      return color_accent();
-    case HistoryStravaUploading:
-    case HistoryStravaProcessing:
-      return color_warning();
-    case HistoryStravaFailed:
-      return color_bad();
-    case HistoryStravaSkipped:
-    case HistoryStravaNotUploaded:
-    case HistoryStravaUnknown:
-    default:
-      return color_muted();
-  }
-}
-
-static void format_history_distance(int32_t meters, char *buffer,
-                                    size_t buffer_size) {
-  if (meters >= 1000) {
-    snprintf(buffer, buffer_size, "%ld.%02ld km",
-             (long)(meters / 1000), (long)((meters % 1000) / 10));
-  } else {
-    snprintf(buffer, buffer_size, "%ld m", (long)meters);
-  }
-}
-
-static void format_history_compact_distance(int32_t meters, char *buffer,
-                                            size_t buffer_size) {
-  if (meters >= 1000) {
-    snprintf(buffer, buffer_size, "%ld.%02ldkm",
-             (long)(meters / 1000), (long)((meters % 1000) / 10));
-  } else {
-    snprintf(buffer, buffer_size, "%ldm", (long)meters);
-  }
-}
-
-static const char *history_status_short_label(HistoryStravaStatus status) {
-  switch (status) {
-    case HistoryStravaNotUploaded:
-      return "NEW";
-    case HistoryStravaUploading:
-      return "UP";
-    case HistoryStravaProcessing:
-      return "PROC";
-    case HistoryStravaUploaded:
-      return "OK";
-    case HistoryStravaFailed:
-      return "FAIL";
-    case HistoryStravaSkipped:
-      return "SKIP";
-    case HistoryStravaUnknown:
-    default:
-      return "--";
-  }
-}
-
-static void format_history_movement(ActivityType type, int32_t distance_m,
-                                    int32_t moving_s, char *value,
-                                    size_t value_size, char *unit,
-                                    size_t unit_size) {
-  if (distance_m <= 0 || moving_s <= 0) {
-    snprintf(value, value_size, "--");
-    snprintf(unit, unit_size, type == ActivityTypeCycling ? "km/h" : "/km");
-    return;
-  }
-
-  if (type == ActivityTypeCycling) {
-    int32_t centi_mps = distance_m * 100 / moving_s;
-    format_speed_parts(centi_mps, value, value_size, unit, unit_size);
-  } else {
-    int32_t pace_s_per_km = moving_s * 1000 / distance_m;
-    format_pace_parts(pace_s_per_km, value, value_size, unit, unit_size);
-  }
-}
-
-static void format_history_compact_movement(ActivityType type,
-                                            int32_t distance_m,
-                                            int32_t moving_s,
-                                            char *buffer,
-                                            size_t buffer_size) {
-  char value[16];
-  char unit[8];
-
-  format_history_movement(type, distance_m, moving_s, value, sizeof(value),
-                          unit, sizeof(unit));
-  snprintf(buffer, buffer_size, "%s%s", value, unit);
-}
-
-static void draw_history_list_row(GContext *ctx, GRect bounds, int row_index,
-                                  int y, int height, bool selected) {
-  int right = content_right(bounds);
-  char title[32];
-  char detail[48];
-  char distance_text[16];
-  char elapsed_text[16];
-  char movement_text[24];
-  HistoryItem *item = &g_pacelet.history_items[row_index];
-  GColor title_color = selected ? color_on_accent() : color_text();
-  GColor detail_color = selected ? color_on_accent() :
-      history_status_color(item->strava_status);
-
-  graphics_context_set_fill_color(ctx, selected ? color_accent() : color_bg());
-  graphics_fill_rect(ctx, GRect(0, y, right, height), 0, GCornerNone);
-
-  if (!selected) {
-    draw_dotted_separator(ctx, right, y + height - 1, color_muted());
-  }
-
-  format_elapsed(item->moving_s, elapsed_text, sizeof(elapsed_text));
-  format_history_compact_distance(item->distance_m, distance_text,
-                                  sizeof(distance_text));
-  format_history_compact_movement(item->activity_type, item->distance_m,
-                                  item->moving_s, movement_text,
-                                  sizeof(movement_text));
-  snprintf(title, sizeof(title), "%ld %s  %s",
-           (long)(row_index + 1),
-           pacelet_activity_short_label(item->activity_type),
-           elapsed_text);
-  snprintf(detail, sizeof(detail), "%s  %s  %s", distance_text,
-           movement_text, history_status_short_label(item->strava_status));
-
-  graphics_context_set_text_color(ctx, title_color);
-  graphics_draw_text(ctx, title, font_metric_label(),
-                     GRect(8, y + 1, right - 16, 16),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
-
-  graphics_context_set_text_color(ctx, detail_color);
-  graphics_draw_text(ctx, detail, font_label(),
-                     GRect(8, y + 15, right - 16, 16),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
-}
-
-static void draw_history_back_row(GContext *ctx, GRect bounds, int y,
-                                  int height, bool selected) {
-  int right = content_right(bounds);
-  GColor ink = selected ? color_on_accent() : color_text();
-
-  graphics_context_set_fill_color(ctx, selected ? color_accent() : color_bg());
-  graphics_fill_rect(ctx, GRect(0, y, right, height), 0, GCornerNone);
-
-  graphics_context_set_text_color(ctx, ink);
-  graphics_draw_text(ctx, "Back", font_menu(),
-                     GRect(8, y + (height - 24) / 2, right - 16, 24),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-}
-
-static void draw_history_list_screen(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  int title_y = 28;
-  int row_y = 55;
-  int row_h = 31;
-  int visible_rows = 5;
-  int total_rows = g_pacelet.history_count + 1;
-  int selected = (int)pacelet_clamp_i32(
-      g_pacelet.history_selected_index, 0, total_rows - 1);
-  int start = selected - 2;
-  int max_start = total_rows > visible_rows ? total_rows - visible_rows : 0;
-
-  if (start < 0) {
-    start = 0;
-  } else if (start > max_start) {
-    start = max_start;
-  }
-
-  draw_top_bar(ctx, bounds);
-
-  graphics_context_set_text_color(ctx, color_text());
-  graphics_draw_text(ctx, "Activity History", font_menu(),
-                     GRect(8, title_y, right - 16, 24),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-
-  if (g_pacelet.history_loading) {
-    graphics_context_set_text_color(ctx, color_muted());
-    graphics_draw_text(ctx, "Loading from phone", font_label(),
-                       GRect(8, 93, right - 16, 18),
-                       GTextOverflowModeTrailingEllipsis,
-                       GTextAlignmentCenter, NULL);
-  } else if (g_pacelet.history_count == 0) {
-    graphics_context_set_text_color(ctx, color_muted());
-    graphics_draw_text(ctx, "No saved activities", font_label(),
-                       GRect(8, 83, right - 16, 18),
-                       GTextOverflowModeTrailingEllipsis,
-                       GTextAlignmentCenter, NULL);
-    if (g_pacelet.history_message[0] != '\0') {
-      graphics_draw_text(ctx, g_pacelet.history_message, font_label(),
-                         GRect(8, 104, right - 16, 34),
-                         GTextOverflowModeTrailingEllipsis,
-                         GTextAlignmentCenter, NULL);
-    }
-  }
-
-  if (!g_pacelet.history_loading) {
-    for (int row = 0; row < visible_rows && start + row < total_rows; row++) {
-      int index = start + row;
-      bool row_selected = index == selected;
-      if (index < g_pacelet.history_count) {
-        draw_history_list_row(ctx, bounds, index, row_y + row * row_h,
-                              row_h, row_selected);
-      } else {
-        draw_history_back_row(ctx, bounds, row_y + row * row_h,
-                              row_h, row_selected);
-      }
-    }
-  }
-
-  draw_action_rail(ctx, bounds, ActionIconUp, ActionIconCheck,
-                   ActionIconDown);
-}
-
-static void draw_history_detail_screen(GContext *ctx, GRect bounds) {
-  int right = content_right(bounds);
-  int index = (int)pacelet_clamp_i32(
-      g_pacelet.history_selected_index, 0,
-      g_pacelet.history_count > 0 ? g_pacelet.history_count - 1 : 0);
-  HistoryItem *item = &g_pacelet.history_items[index];
-  char title[32];
-  char elapsed_text[16];
-  char distance_text[16];
-  char movement_value[16];
-  char movement_unit[8];
-  const char *movement_label =
-      item->activity_type == ActivityTypeCycling ? "SPEED" : "PACE";
-
-  draw_top_bar(ctx, bounds);
-
-  format_elapsed(item->moving_s, elapsed_text, sizeof(elapsed_text));
-  format_history_distance(item->distance_m, distance_text,
-                          sizeof(distance_text));
-  format_history_movement(item->activity_type, item->distance_m,
-                          item->moving_s, movement_value,
-                          sizeof(movement_value), movement_unit,
-                          sizeof(movement_unit));
-  snprintf(title, sizeof(title), "%s %ld/%ld",
-           pacelet_activity_label(item->activity_type),
-           (long)(index + 1), (long)g_pacelet.history_count);
-
-  graphics_context_set_fill_color(ctx, color_accent());
-  graphics_fill_rect(ctx, GRect(0, 27, right, 48), 0, GCornerNone);
-  graphics_context_set_text_color(ctx, color_on_accent());
-  graphics_draw_text(ctx, title, font_menu(),
-                     GRect(8, 31, right - 16, 24),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
-  graphics_draw_text(ctx, distance_text, font_metric_label(),
-                     GRect(8, 53, right - 16, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
-
-  draw_metric_row(ctx, bounds, 76, 29, "TIME", elapsed_text, "");
-  draw_metric_row(ctx, bounds, 105, 29, "DIST", distance_text, "");
-  draw_metric_row(ctx, bounds, 134, 29, movement_label, movement_value,
-                  movement_unit);
-
-  draw_dotted_separator(ctx, right, 163, color_muted());
-  graphics_context_set_text_color(ctx, color_muted());
-  graphics_draw_text(ctx, "STRAVA", font_metric_label(),
-                     GRect(8, 171, 56, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
-  graphics_context_set_text_color(ctx, history_status_color(
-      item->strava_status));
-  graphics_draw_text(ctx, pacelet_history_status_label(item->strava_status),
-                     font_menu(), GRect(66, 168, right - 72, 24),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentRight, NULL);
-
-  graphics_context_set_text_color(ctx, color_text());
-  graphics_draw_text(ctx, "UP TCX  SEL STRAVA", font_label(),
-                     GRect(8, 193, right - 16, 18),
-                     GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
-
-  if (g_pacelet.history_message[0] != '\0') {
-    graphics_context_set_text_color(ctx, color_muted());
-    graphics_draw_text(ctx, g_pacelet.history_message, font_label(),
-                       GRect(8, 211, right - 16, 16),
-                       GTextOverflowModeTrailingEllipsis,
-                       GTextAlignmentCenter, NULL);
-  }
-
-  draw_action_rail(ctx, bounds, ActionIconFile, ActionIconRefresh,
-                   ActionIconClose);
-}
-
-static void canvas_update_proc(Layer *layer, GContext *ctx) {
-  GRect bounds = layer_get_bounds(layer);
-
-  graphics_context_set_fill_color(ctx, color_bg());
-  graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-
-  switch (g_pacelet.activity_state) {
-    case ActivityStateChoose:
-      draw_choose_screen(ctx, bounds);
-      break;
-    case ActivityStateGps:
-    case ActivityStateReady:
-      draw_gps_screen(ctx, bounds);
-      break;
-    case ActivityStateCountdown:
-      draw_countdown_screen(ctx, bounds);
-      break;
-    case ActivityStateActive:
-      if (g_pacelet.split_visible) {
-        draw_split_screen(ctx, bounds);
-      } else {
-        draw_activity_screen(ctx, bounds);
-      }
-      break;
-    case ActivityStateFinished:
-      draw_finished_screen(ctx, bounds);
-      break;
-    case ActivityStateHistoryList:
-      draw_history_list_screen(ctx, bounds);
-      break;
-    case ActivityStateHistoryDetail:
-      draw_history_detail_screen(ctx, bounds);
-      break;
-    case ActivityStateRecovery:
-      draw_recovery_screen(ctx, bounds);
-      break;
-    case ActivityStatePaused:
-    default:
-      if (g_pacelet.finish_confirm_visible) {
-        draw_finish_confirm_screen(ctx, bounds);
-      } else {
-        draw_activity_screen(ctx, bounds);
-      }
-      break;
-  }
-}
-
-static void load_activity_icons(void) {
-  for (int variant = 0; variant < 2; variant++) {
-    s_heart_icons[variant] =
-        gbitmap_create_with_resource(HEART_ICON_RESOURCE_IDS[variant]);
-    s_measuring_heart_icons[variant] = gbitmap_create_with_resource(
-        MEASURING_HEART_ICON_RESOURCE_IDS[variant]);
-  }
-
-  for (int type = 0; type < 3; type++) {
-    for (int variant = 0; variant < 2; variant++) {
-      s_activity_icons[type][variant] = gbitmap_create_with_resource(
-          ACTIVITY_ICON_RESOURCE_IDS[type][variant]);
-      s_countdown_icons[type][variant] = gbitmap_create_with_resource(
-          COUNTDOWN_ICON_RESOURCE_IDS[type][variant]);
-    }
-  }
-}
-
-static void unload_activity_icons(void) {
-  for (int variant = 0; variant < 2; variant++) {
-    if (s_heart_icons[variant]) {
-      gbitmap_destroy(s_heart_icons[variant]);
-      s_heart_icons[variant] = NULL;
-    }
-    if (s_measuring_heart_icons[variant]) {
-      gbitmap_destroy(s_measuring_heart_icons[variant]);
-      s_measuring_heart_icons[variant] = NULL;
-    }
-  }
-
-  for (int type = 0; type < 3; type++) {
-    for (int variant = 0; variant < 2; variant++) {
-      if (s_activity_icons[type][variant]) {
-        gbitmap_destroy(s_activity_icons[type][variant]);
-        s_activity_icons[type][variant] = NULL;
-      }
-      if (s_countdown_icons[type][variant]) {
-        gbitmap_destroy(s_countdown_icons[type][variant]);
-        s_countdown_icons[type][variant] = NULL;
-      }
-    }
-  }
-}
-
-void watch_ui_load(Window *window) {
-  Layer *window_layer = window_get_root_layer(window);
-  GRect bounds = layer_get_bounds(window_layer);
-
-  s_window = window;
-  watch_ui_apply_theme();
-  load_activity_icons();
-
-  s_canvas_layer = layer_create(bounds);
-  layer_set_update_proc(s_canvas_layer, canvas_update_proc);
-  layer_add_child(window_layer, s_canvas_layer);
-}
-
-void watch_ui_unload(void) {
-  if (s_canvas_layer) {
-    layer_destroy(s_canvas_layer);
-    s_canvas_layer = NULL;
-  }
-  unload_activity_icons();
-  s_window = NULL;
-}
-
-void watch_ui_apply_theme(void) {
-  if (s_window) {
-    window_set_background_color(s_window, color_bg());
-  }
-}
-
 void watch_ui_mark_dirty(void) {
-  if (s_canvas_layer) {
-    layer_mark_dirty(s_canvas_layer);
+  if(!s_ui.loaded)return;
+  WatchView *next=&s_ui.pending;capture_view(next);
+  s_ui.previous=s_ui.view;
+  const WatchView *previous=&s_ui.previous;
+  if(next->model.motion_mode!=previous->model.motion_mode ||
+     (next->model.low_battery&&!previous->model.low_battery)) cancel_motion();
+  Effect effect=FxNone;uint32_t duration=240;
+  bool state_change=next->model.activity_state!=previous->model.activity_state;
+  bool overlay_change=next->model.overlay!=previous->model.overlay;
+  if(state_change||next->scene!=previous->scene||overlay_change||next->model.choose_index!=previous->model.choose_index||next->model.countdown_value!=previous->model.countdown_value) {
+    int picker_y=s_ui.effect==FxPick?pb_lerp(s_ui.picker_from_y,37+previous->model.choose_index*44,pb_ease(s_ui.progress)):37+previous->model.choose_index*44;
+    if(s_ui.effect==FxOrbit||(s_ui.effect==FxFix&&clock_ms()-s_ui.gps_began<15000))s_ui.orbit_angle=(clock_ms()-s_ui.gps_began)%10200*360/10200;
+    s_ui.from=*previous;s_ui.picker_from_y=picker_y;
+    if(next->scene==SceneGps&&previous->scene!=SceneGps){s_ui.gps_began=clock_ms();effect=next->model.gps_state==GpsStateLocked?FxLock:FxOrbit;duration=next->model.gps_state==GpsStateLocked?480:15000;}
+    else if(next->scene==SceneGps&&next->model.gps_state==GpsStateSearching&&previous->model.gps_state!=GpsStateSearching){s_ui.gps_began=clock_ms();effect=FxOrbit;duration=15000;}
+    else if(next->scene==SceneGps&&next->model.gps_state==GpsStateLocked&&previous->model.gps_state!=GpsStateLocked){effect=FxLock;duration=480;}
+    else if(next->model.overlay!=OverlayNone){effect=FxSheet;duration=next->model.overlay==OverlaySplit?280:240;}
+    else if(previous->model.overlay==OverlaySplit&&!state_change){effect=FxSplitOut;duration=240;}
+    else if(next->scene==SceneUpload){effect=FxUpload;duration=720;}
+    else if(next->scene==SceneCountdown){effect=FxCount;duration=280;}
+    else if(next->model.activity_state==ActivityStateActive&&previous->scene==SceneCountdown){effect=FxStart;duration=440;}
+    else if(next->scene==SceneRecap&&next->model.pending_command==0&&previous->model.pending_command!=0){effect=FxSave;duration=760;}
+    else if(next->scene==ScenePicker&&previous->scene==ScenePicker){effect=FxPick;duration=240;}
+    else if(live_state(next->model.activity_state)&&live_state(previous->model.activity_state)&&state_change){effect=FxPause;duration=200;}
+    else if(next->scene!=previous->scene){effect=FxPush;duration=240;}
+    s_ui.view=*next;s_ui.radius_from=gps_radius(previous->model.gps_accuracy_m);s_ui.radius_to=gps_radius(next->model.gps_accuracy_m);begin_motion(effect,duration);
+  }else {
+    s_ui.view=*next;
+    if(next->scene==SceneGps&&next->model.gps_state!=previous->model.gps_state){s_ui.from=*previous;s_ui.radius_from=gps_radius(previous->model.gps_accuracy_m);if(next->model.gps_state==GpsStateSearching){s_ui.gps_began=clock_ms();begin_motion(FxOrbit,15000);}
+      else begin_motion(next->model.gps_state==GpsStateLocked?FxLock:FxNone,480);}
+    else if(next->scene==SceneGps&&next->model.gps_state==GpsStateSearching&&next->model.gps_accuracy_m!=previous->model.gps_accuracy_m&&optional_motion()){s_ui.radius_from=gps_radius(previous->model.gps_accuracy_m);s_ui.radius_to=gps_radius(next->model.gps_accuracy_m);begin_motion(FxFix,320);}
+    else if(next->scene==SceneRecap&&previous->model.pending_command&&!next->model.pending_command){s_ui.from=*previous;begin_motion(FxSave,760);}
+    else if(s_ui.effect==FxNone&&next->scene==SceneLive&&next->model.display_zone!=previous->model.display_zone){s_ui.from=*previous;begin_motion(FxZone,320);}
+    else if(s_ui.effect==FxNone&&next->scene==SceneLive&&next->model.last_hr_update_at!=previous->model.last_hr_update_at&&next->model.last_hr_bpm>0)begin_motion(FxHr,120);
   }
+  dirty_layers();layer_mark_dirty(s_ui.header);layer_mark_dirty(s_ui.rail);
+}
+void watch_ui_set_focus(bool focused) {
+  s_ui.focused=focused;cancel_motion();if(focused&&s_ui.loaded){capture_view(&s_ui.view);dirty_layers();}
+}
+void watch_ui_apply_theme(void){if(s_ui.window)window_set_background_color(s_ui.window,PB_PAPER);watch_ui_mark_dirty();}
+void watch_ui_load(Window*window) {
+  memset(&s_ui,0,sizeof(s_ui));s_ui.window=window;s_ui.focused=true;s_ui.progress=1000;capture_view(&s_ui.view);
+  Layer*root=window_get_root_layer(window);
+  s_ui.content=layer_create(GRect(0,22,180,206));layer_set_update_proc(s_ui.content,draw_content);layer_add_child(root,s_ui.content);
+  s_ui.overlay=layer_create(GRect(0,22,180,206));layer_set_update_proc(s_ui.overlay,draw_overlay);layer_add_child(root,s_ui.overlay);
+  s_ui.header=layer_create(GRect(0,0,180,22));layer_set_update_proc(s_ui.header,draw_header);layer_add_child(root,s_ui.header);
+  s_ui.rail=layer_create(GRect(0,0,200,228));layer_set_update_proc(s_ui.rail,draw_rail);layer_add_child(root,s_ui.rail);
+  s_ui.loaded=true;watch_ui_apply_theme();
+}
+void watch_ui_unload(void) {
+  s_ui.loaded=false;cancel_motion();layer_destroy(s_ui.rail);layer_destroy(s_ui.header);layer_destroy(s_ui.overlay);layer_destroy(s_ui.content);s_ui.window=NULL;
 }

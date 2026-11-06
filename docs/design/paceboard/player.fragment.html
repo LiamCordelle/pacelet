@@ -1,0 +1,201 @@
+<div id="paceboard-full-preview" aria-label="Paceboard redesign and motion">
+  <style>
+    #paceboard-full-preview{display:grid;gap:calc(var(--font-size-base)*1)}
+    #paceboard-full-preview .pb-heading{display:grid;gap:calc(var(--font-size-base)*.25);padding-right:90px}
+    #paceboard-full-preview .pb-controls{display:flex;flex-wrap:wrap;align-items:end;gap:calc(var(--font-size-base)*.65)}
+    #paceboard-full-preview .pb-screen-field{display:grid;gap:calc(var(--font-size-base)*.25);flex:1 1 210px;max-width:330px}
+    #paceboard-full-preview .pb-stage{display:flex;justify-content:center;padding:18px 0}
+    #paceboard-full-preview .pb-product{position:relative;width:min(100%,446px);padding-right:46px;box-sizing:border-box;--pb-paper:#fff;--pb-ink:#005555;--pb-mist:#aaffff}
+    #paceboard-full-preview .pb-product canvas{display:block;width:100%;height:auto;aspect-ratio:200/228;image-rendering:pixelated;background:var(--pb-paper)}
+    #paceboard-full-preview .pb-hardware{position:absolute;right:0;width:36px;height:36px;border:0;border-radius:7px;background:#005555;color:#fff;font:500 11px system-ui;transform:translateY(-50%);padding:0}
+    #paceboard-full-preview .pb-up{top:25%}#paceboard-full-preview .pb-select{top:50%}#paceboard-full-preview .pb-down{top:75%}
+    #paceboard-full-preview .pb-phone{font:400 15px/1.45 system-ui;color:#24514f;background:#fff;width:min(100%,400px);margin:0 auto;padding:24px;box-sizing:border-box;--phone-mist:#d7f3f1;--phone-rule:#d5e2e0;--phone-ink:#24514f}
+    #paceboard-full-preview .pb-phone header{padding-bottom:20px;border-bottom:2px solid #64a9a5}
+    #paceboard-full-preview .pb-phone h2{font:500 26px/1.2 system-ui;margin:0 0 6px}
+    #paceboard-full-preview .pb-phone h3{font:500 17px/1.3 system-ui;margin:0 0 12px}
+    #paceboard-full-preview .pb-phone p{font:400 14px/1.5 system-ui;margin:6px 0;color:#526e6b}
+    #paceboard-full-preview .pb-phone section{padding:20px 0;border-bottom:1px solid var(--phone-rule)}
+    #paceboard-full-preview .pb-phone label{display:block;font:500 14px/1.4 system-ui;margin:12px 0 5px}
+    #paceboard-full-preview .pb-phone input,#paceboard-full-preview .pb-phone select{font:400 16px system-ui;width:100%;padding:10px 12px;border:1px solid #9dbcb8;border-radius:6px;background:#fff;color:var(--phone-ink);box-sizing:border-box}
+    #paceboard-full-preview .pb-phone input:disabled{color:#526e6b;opacity:1;background:#f1f6f5}
+    #paceboard-full-preview .pb-phone .pb-zones{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    #paceboard-full-preview .pb-phone button{font:500 15px system-ui;border:0;border-radius:6px;padding:12px 16px;background:var(--phone-ink);color:#fff;margin-top:12px}
+    #paceboard-full-preview .pb-phone summary{font-weight:500;padding:8px 0}
+    #paceboard-full-preview .pb-phone .pb-recent{display:flex;justify-content:space-between;gap:12px;margin:12px 0}
+    #paceboard-full-preview [hidden]{display:none!important}
+  </style>
+  <div class="pb-heading"><h2>Paceboard</h2><p class="text-muted text-small">One sea-glass palette · sample activity · native Emery screens</p></div>
+  <div class="nav nav-pills" role="tablist" aria-label="Redesign preview">
+    <button class="nav-link active" id="paceboard-watch-tab" role="tab" aria-controls="paceboard-watch" aria-selected="true" type="button">Watch</button>
+    <button class="nav-link" id="paceboard-phone-tab" role="tab" aria-controls="paceboard-phone" aria-selected="false" type="button">Phone settings</button>
+  </div>
+  <div id="paceboard-watch" role="tabpanel" aria-labelledby="paceboard-watch-tab">
+    <div class="pb-controls">
+      <label class="pb-screen-field"><span class="form-label">Screen</span><select class="form-select" id="pb-screen" aria-label="Preview screen"></select></label>
+      <button class="btn" id="pb-replay" type="button">Replay transition</button>
+      <button class="btn" id="pb-gps-demo" type="button">Play GPS start</button>
+      <button class="btn btn-primary" id="pb-tour" type="button">Play full flow</button>
+      <button class="btn" id="pb-stop" type="button">Stop</button>
+    </div>
+    <div class="pb-stage viz-dotted-background">
+      <div class="pb-product" aria-label="Paceboard watch preview">
+        <canvas id="pb-canvas" width="200" height="228" role="img" aria-label="Paceboard running dashboard, pace 5:02 per kilometre, distance 4.62 kilometres, elapsed 23:14, last kilometre 5:07, heart rate 152"></canvas>
+        <button class="pb-hardware pb-up cursor-interaction" id="pb-up" type="button" aria-label="UP watch button">UP</button>
+        <button class="pb-hardware pb-select cursor-interaction" id="pb-select" type="button" aria-label="SELECT watch button">SEL</button>
+        <button class="pb-hardware pb-down cursor-interaction" id="pb-down" type="button" aria-label="DOWN watch button">DOWN</button>
+      </div>
+    </div>
+    <div class="viz-row">
+      <button class="btn" id="pb-back" type="button">BACK</button>
+      <span class="text-small text-muted" id="pb-status" aria-live="polite">Running</span>
+    </div>
+  </div>
+  <div id="paceboard-phone" role="tabpanel" aria-labelledby="paceboard-phone-tab" hidden>
+    <form class="pb-phone" id="pb-settings-form" aria-label="Pacelet settings preview">
+      <header><h2>Pacelet</h2><p>Your next outing, ready when you are.</p></header>
+      <section><h3>Motion</h3><label for="pb-motion">Animations</label><select id="pb-motion"><option value="full">Full</option><option value="key">Key moments</option><option value="off">Off</option></select><p>Brief transitions when something changes.</p></section>
+      <section><h3>Heart-rate zones</h3><p>Choose where each zone begins.</p><div class="pb-zones"><label>Z1<input value="100" inputmode="numeric" aria-label="Zone 1 starts at BPM" readonly></label><label>Z2<input value="130" inputmode="numeric" aria-label="Zone 2 starts at BPM" readonly></label><label>Z3<input value="160" inputmode="numeric" aria-label="Zone 3 starts at BPM" readonly></label></div><p>Beats per minute</p></section>
+      <section><h3>Strava</h3><p>Send completed activities using your own Strava API client.</p><details><summary>Personal Strava setup</summary><p>Use your own Strava API client. The client secret and tokens are stored in Pebble app settings on your phone.</p><label>Client ID<input placeholder="Your client ID" disabled></label><label>Client secret<input placeholder="Saved on your phone" type="password" disabled></label><label>Refresh token<input placeholder="Saved on your phone" type="password" disabled></label></details></section>
+      <section><h3>Recent activities</h3><div class="pb-recent"><div>Running<p>4.62 km · 23:14</p></div><span>Uploaded</span></div><div class="pb-recent"><div>Cycling<p>18.74 km · 31:36</p></div><span>Saved</span></div></section>
+      <p id="pb-settings-notice" aria-live="polite">Design preview · settings stay unchanged.</p><button type="submit">Save settings</button>
+    </form>
+  </div>
+  <script>
+  (() => {
+    const root = document.getElementById('paceboard-full-preview');
+    const data = __PACEBOARD_DATA__;
+    const canvas = root.querySelector('#pb-canvas');
+    const ctx = canvas.getContext('2d');
+    const selector = root.querySelector('#pb-screen');
+    const status = root.querySelector('#pb-status');
+    const atlas = new Image();
+    const labels = Object.fromEntries(data.screens.map(s => [s.key, s.label]));
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const saved = window.openai?.widgetState?.privateContent || {};
+    const state = { current: labels[saved.screen] ? saved.screen : 'run', motion: saved.motion || (reduced ? 'off' : 'full'), tour: false };
+    let generation = 0, lastClip = null, returnPage = 'run';
+    const initial = () => { show(state.current, false); };
+    function frame(index) {
+      ctx.imageSmoothingEnabled = false;
+      ctx.clearRect(0,0,200,228);
+      ctx.drawImage(atlas,(index%data.cols)*200,Math.floor(index/data.cols)*228,200,228,0,0,200,228);
+    }
+    function persist() {
+      window.openai?.setWidgetState?.({ modelContent: { design:'Paceboard', palette:'Sea glass', screen:state.current, motion:state.motion }, privateContent:{screen:state.current,motion:state.motion} }).catch?.(()=>{});
+    }
+    function announce(message) { status.textContent = message || labels[state.current]; }
+    function show(key, save=true) {
+      state.current = key; selector.value = key; frame(data.static[key]);
+      canvas.setAttribute('aria-label',labels[key]+' · illustrative Pacelet activity');
+      root.querySelector('#pb-replay').disabled = !(defaultClip[key] || key.startsWith('choose-'));
+      announce(); if(save)persist();
+    }
+    function stop() { generation++;state.tour=false;show(state.current,false); }
+    function sleep(ms, token) { return new Promise(resolve=>setTimeout(()=>resolve(token===generation),ms)); }
+    const keyMoments = new Set(['gps-lock','beat-three','beat-two','beat-one','start','split-in','split-out','saved']);
+    async function clip(name, token=generation) {
+      const item=data.clips[name];if(!item)return;
+      lastClip=name;state.current=item.target;selector.value=item.target;
+      announce(labels[item.target]);
+      if(state.motion==='off'||(state.motion==='key'&&!keyMoments.has(name))){show(item.target,false);return;}
+      const start=performance.now();
+      await new Promise(resolve=>{
+        function tick(now){
+          if(token!==generation){resolve();return;}
+          const p=Math.min(1,(now-start)/item.ms);
+          frame(item.frames[Math.min(item.frames.length-1,Math.floor(p*(item.frames.length-1)))]);
+          if(p<1)requestAnimationFrame(tick);else{show(item.target,false);resolve();}
+        }
+        requestAnimationFrame(tick);
+      });
+    }
+    function begin(){stop();return generation;}
+    async function go(key,motion){const token=begin();if(motion)await clip(motion,token);else show(key,false);if(token===generation)persist();}
+    async function acquire(){
+      const token=begin();await clip('open-gps',token);
+      if(token!==generation)return;await clip('gps-orbit',token);
+      if(token!==generation)return;await clip('gps-fix',token);
+      if(token!==generation)return;await clip('gps-orbit-close',token);
+      if(token!==generation)return;await clip('gps-lock',token);persist();
+    }
+    async function countdown(){
+      const token=begin();
+      for(const n of ['three','two','one']){
+        await clip('beat-'+n,token);if(token!==generation)return;
+        if(!await sleep(state.motion==='off'?600:720,token))return;
+      }
+      await clip('start',token);if(token===generation)persist();
+    }
+    async function splitDemo(){
+      const token=begin();await clip('split-in',token);if(token!==generation)return;
+      if(!await sleep(6000,token))return;await clip('split-out',token);if(token===generation)persist();
+    }
+    async function tour(){
+      const token=begin();state.tour=true;show('choose-run',false);
+      const steps=[['hold',650],['clip','pick-ride'],['hold',400],['clip','pick-history'],['hold',400],['show','choose-run'],['clip','open-gps'],['clip','gps-orbit'],['clip','gps-fix'],['clip','gps-orbit-close'],['clip','gps-lock'],['hold',600],['clip','beat-three'],['hold',720],['clip','beat-two'],['hold',720],['clip','beat-one'],['hold',720],['clip','start'],['hold',1200],['clip','split-in'],['hold',1400],['clip','split-out'],['hold',800],['clip','page-laps'],['hold',850],['clip','page-zones'],['hold',850],['clip','page-heart'],['hold',1000],['clip','pause'],['hold',800],['clip','resume'],['hold',700],['clip','pause'],['clip','finish-sheet'],['hold',900],['clip','saved'],['hold',1500],['clip','upload'],['hold',1000],['show','exit'],['hold',1500]];
+      for(const [kind,value] of steps){
+        if(token!==generation)return;
+        if(kind==='hold'){if(!await sleep(value,token))return;}
+        else if(kind==='show')show(value,false);else await clip(value,token);
+      }
+      state.tour=false;persist();announce('Full flow complete · use the buttons or choose a screen');
+    }
+    function hardware(button){
+      const key=state.current;
+      if(key.startsWith('choose-')){
+        const choices=['choose-walk','choose-run','choose-ride','choose-history'];
+        if(button==='up'||button==='down'){
+          const next=(choices.indexOf(key)+(button==='up'?3:1))%4;
+          go(choices[next],button==='down'?'pick-'+choices[next].slice(7):null);
+        }else if(button==='select'){if(key==='choose-history')go('history','open-history');else acquire();}
+        return;
+      }
+      if(['gps','gps-improving','gps-error'].includes(key)){if(button==='back')go('choose-run');else acquire();return;}
+      if(key==='ready'){if(button==='select')countdown();else if(button==='back')go('choose-run');else acquire();return;}
+      if(['three','two','one','go'].includes(key)){if(button==='back')go('ready');return;}
+      if(['run','walk','ride','first','offline','no-hr','long','zone-high','after-split'].includes(key)){
+        if(button==='up'||button==='back')go('paused','pause');else if(button==='down'){returnPage=key;go('laps','page-laps');}return;
+      }
+      if(['laps','zones','heart'].includes(key)){
+        if(button==='up')go('paused','pause');else if(button==='down')go(key==='laps'?'zones':key==='zones'?'heart':returnPage,key==='laps'?'page-zones':key==='zones'?'page-heart':null);
+        else go(returnPage);return;
+      }
+      if(key==='split'){if(button==='up'||button==='back')go('paused','pause');else go('after-split','split-out');return;}
+      if(key==='paused'){if(button==='up')go('run','resume');else if(button==='select')go('confirm','finish-sheet');else if(button==='down'){returnPage='paused';go('laps');}return;}
+      if(key==='confirm'){if(button==='up')go('saved','saved');else if(button==='down'||button==='back')go('paused');return;}
+      if(key==='saved'){if(button==='up')acquire();else if(button==='select'){returnPage='saved';go('zones');}else go('choose-run');return;}
+      if(key==='upload'){if(button==='back'||button==='down')go('exit');return;}
+      if(key==='exit'){if(button==='up')go('choose-run');else go('upload');return;}
+      if(key==='history'){if(button==='select')go('detail');else if(button==='back')go('choose-run');else announce('History navigation preview · Running selected');return;}
+      if(key==='detail'){if(button==='select')go('upload','upload');else if(button==='back'||button==='down')go('history');else announce('TCX prepared · collect it from phone settings');return;}
+      if(key==='recovery'){if(button==='up')go('run','resume');else if(button==='select')go('saved','saved');else if(button==='down')go('discard');return;}
+      if(key==='discard'){if(button==='up')go('choose-run');else go('recovery');}
+    }
+    data.screens.forEach(item=>{const option=document.createElement('option');option.value=item.key;option.textContent=item.label;selector.append(option);});
+    selector.value=state.current;
+    selector.addEventListener('change',()=>{
+      const key=selector.value;
+      if(key==='split'){splitDemo();return;}
+      go(key);
+    });
+    ['up','select','down','back'].forEach(button=>root.querySelector('#pb-'+button).addEventListener('click',()=>hardware(button)));
+    root.querySelector('#pb-tour').addEventListener('click',tour);
+    root.querySelector('#pb-gps-demo').addEventListener('click',acquire);
+    root.querySelector('#pb-stop').addEventListener('click',()=>{stop();persist();});
+    const defaultClip={'gps':'gps-orbit','gps-improving':'gps-orbit-close','ready':'gps-lock','run':'start','three':'beat-three','two':'beat-two','one':'beat-one','split':'split-in','after-split':'split-out','paused':'pause','laps':'page-laps','zones':'page-zones','heart':'page-heart','confirm':'finish-sheet','saved':'saved','zone-high':'zone-change','upload':'upload'};
+    root.querySelector('#pb-replay').addEventListener('click',async()=>{const token=begin();await clip(defaultClip[state.current]||('pick-'+state.current.slice(7)),token);if(token===generation)persist();});
+    root.querySelector('#pb-motion').value=state.motion;
+    root.querySelector('#pb-motion').addEventListener('change',e=>{state.motion=e.target.value;stop();persist();});
+    root.querySelector('#pb-settings-form').addEventListener('submit',e=>{e.preventDefault();root.querySelector('#pb-settings-notice').textContent='Preview only · settings are not sent to the watch.';});
+    window.addEventListener('openai:set_globals',event=>{
+      const incoming=event.detail?.globals?.widgetState?.privateContent;
+      if(!incoming)return;
+      if(['full','key','off'].includes(incoming.motion))state.motion=incoming.motion;
+      root.querySelector('#pb-motion').value=state.motion;
+      if(labels[incoming.screen]&&incoming.screen!==state.current){generation++;state.current=incoming.screen;if(atlas.complete&&atlas.naturalWidth)show(state.current,false);}
+    });
+    atlas.onload=initial;atlas.src=data.atlas;
+    if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:()=>{root.querySelector('#pb-motion').value=state.motion;stop();persist();}});tweak.addSelect(state,'motion',{label:'Motion',options:[{label:'Full',value:'full'},{label:'Key moments',value:'key'},{label:'Off',value:'off'}]});}
+  })();
+  </script>
+</div>

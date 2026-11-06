@@ -105,20 +105,19 @@ def _patch_geolocation(_geo):
             return
 
         point = simulated_position()
-        coords = _geo.Coordinates(
-            self.runtime,
-            point['longitude'],
-            point['latitude'],
-            point['accuracy']
-        )
-        coords.altitude = point['altitude']
-        # Match the phone bridge by default: no fix timestamp is supplied.
-        if os.environ.get('PEBBLE_TRACKER_SIM_TIMESTAMP') == 'milliseconds':
-            # STPyV8 converts Python ints through a signed 32-bit bridge.
-            # A float preserves the full JavaScript millisecond timestamp.
-            position = _geo.Position(self.runtime, coords, float(round(time.time() * 1000)))
+        timestamp = os.environ.get('PEBBLE_TRACKER_SIM_TIMESTAMP') == 'milliseconds'
+        if hasattr(_geo, 'Coordinates'):
+            # Older pypkjs uses Python wrapper objects crossing the V8 bridge.
+            coords = _geo.Coordinates(self.runtime, point['longitude'],
+                                      point['latitude'], point['accuracy'])
+            coords.altitude = point['altitude']
+            position = (_geo.Position(self.runtime, coords, float(round(time.time() * 1000)))
+                        if timestamp else _geo.Position(self.runtime, coords))
         else:
-            position = _geo.Position(self.runtime, coords)
+            # QuickJS pypkjs crosses the boundary as JSON-native dictionaries.
+            position = {'coords': point}
+            if timestamp:
+                position['timestamp'] = round(time.time() * 1000)
         self.runtime.enqueue(success, position)
 
     def single_position(self, success, failure=None, options=None):

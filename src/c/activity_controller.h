@@ -4,6 +4,7 @@
 
 void activity_controller_deinit(void);
 
+void activity_controller_handle_back(void);
 void activity_controller_handle_select(void);
 void activity_controller_handle_up(void);
 void activity_controller_handle_down(void);

@@ -16,9 +16,9 @@ display.
 - Guided watch flow: choose activity from a compact menu, wait for GPS lock, run
   a 3-second countdown, then record.
 - Phone GPS lock required before starting an activity.
-- Walking and Running screens show elapsed time, distance, smoothed pace, and
-  heart rate.
-- Cycling screen shows elapsed time, distance, smoothed speed in km/h, and
+- Walking shows elapsed time, distance, steps, and heart rate.
+- Running leads with smoothed pace, with distance, elapsed time and heart rate.
+- Cycling leads with smoothed speed in km/h, with distance, elapsed time and
   heart rate.
 - The top status bar keeps the current clock visible throughout the app.
 - Each completed kilometre triggers a vibration and a six-second split summary
@@ -36,7 +36,12 @@ display.
   configuration page.
 - Watch-side Activity History menu for recent activity status, TCX export, and
   Strava retry actions.
-- Light/dark watch display mode, defaulting to light mode.
+- Paceboard's soft aqua and deep teal palette, with pace first for Running.
+- Last completed kilometre and change from the previous split.
+- Focused kilometre, time-in-zone and rolling-minute HR pages.
+- Smooth GPS acquisition and short transition animations, with Full / Key moments /
+  Off motion settings. Optional motion reduces at low battery.
+- Safe BACK behavior and confirmation before leaving a pending save or upload.
 - Deterministic Node test harness for the core tracking logic.
 
 ## Watch Controls
@@ -52,8 +57,13 @@ display.
   finishes the checkpointed activity, and `DOWN` opens discard confirmation.
 - Discard confirmation: `UP` permanently discards the matching draft and
   `DOWN` cancels.
-- Saved: `UP` starts another activity of the same type and `DOWN` returns to
-  the activity picker.
+- Active/Paused: `DOWN` cycles dashboard, kilometres, zones and HR history.
+  `SELECT` returns from a secondary page; pages return after 20 seconds.
+- BACK pauses Active, cancels a countdown or confirmation sheet, and keeps a
+  paused/interrupted activity open. During a save/upload it offers Leave / Stay;
+  Strava may still complete an upload after leaving.
+- Saved: `UP` starts another activity, `SELECT` opens history, and `DOWN` returns
+  to the picker. These actions wait for the phone's save acknowledgement.
 - Activity History: `UP` and `DOWN` choose a saved activity or Back; `SELECT`
   opens the detail screen. In detail, `UP` opens TCX export on the phone,
   `SELECT` retries Strava, and `DOWN` returns to the list.
@@ -74,9 +84,11 @@ Choose Activity -> GPS lock status -> 3,2,1 countdown -> Activity started
 - `src/c/activity_controller.c`: Button actions, activity transitions, timers,
   kilometre splits, and watch-side HR sampling.
 - `src/c/watch_services.c`: Persisted settings and AppMessage transport.
-- `src/c/watch_ui.c`: Emery renderer, theme, screen layouts, and bitmap assets.
+- `src/c/watch_ui.c`: Snapshot-based Emery renderer, layers and burst motion.
 - `docs/watch-architecture.md`: Watch module boundaries, state flow, and a
   guide to where changes belong.
+- `docs/design/paceboard/README.md`: Selected design, full preview and motion
+  specification. Earlier studies are retained under `docs/design/`.
 - `src/pkjs/index.js`: PebbleKit JS entry point and event coordination.
 - `src/pkjs/activity_store.js`: Settings and saved-activity persistence.
 - `src/pkjs/activity_recovery.js`: Draft checkpoint, restore, and
@@ -111,7 +123,8 @@ Choose Activity -> GPS lock status -> 3,2,1 countdown -> Activity started
   to `emery`.
 - `tools/pypkjs_gps_sim/sitecustomize.py`: Local `pypkjs` geolocation shim used
   only by the emulator harnesses.
-- `tools/render_screenshots.js`: Emery screenshot mock renderer.
+- `tools/render_watch.py`: Renders the shipping C UI with native PebbleOS fonts
+  and graphics, and checks every transition end frame.
 - `screenshots/`: Generated SVG/PNG design mockups. Real emulator captures go
   under `screenshots/emulator/` and are ignored by git.
 
@@ -176,8 +189,9 @@ activity summaries. Each activity detail has:
 
 The Pebble/Rebble configuration page still shows recent activity status, but
 history actions live on the watch because configuration applets close when they
-return a response. The configuration page also has an Appearance section with a
-dark-mode toggle for the watch app.
+return a response. The configuration page also controls watch motion and HR
+thresholds. Paceboard uses one fixed palette; existing history/settings survive
+the removal of the former theme toggle.
 
 From version 0.6.0, newly recorded activities include GPS diagnostics in the
 Pacelet TCX: recording app/filter version, point accuracy, original coordinates
@@ -231,15 +245,19 @@ npm run screenshots:emulator:all
 The screenshot renderer uses Emery's native 200x228 screen, matching the manual
 emulator harness and Pacelet's only supported watch platform.
 
-PNG rendering uses a custom software renderer: it draws the native Pebble screen
-into a pixel buffer, then writes a 2x nearest-neighbor PNG so individual watch
-pixels are easy to inspect. No external renderer is required.
+The fast renderer compiles the actual `watch_ui.c` against the sibling
+`../pebble-watchface-agent-skill/watchface-lab/renderer` PebbleOS graphics engine.
+Run `pebble build` first to generate SDK headers/resources. The sibling's compiled
+firmware objects are read-only inputs; app objects stay in a temporary directory.
+It writes 2× PNGs, SVG wrappers, a full overview, and motion GIFs. Each transition's
+last frame must exactly match its static target. `tools/render_screenshots.js`
+remains the historical software mock renderer.
 
 The emulator screenshot harness builds and installs the PBW, drives the app to a
 selected screen or the main app flow, and saves real captures under
 `screenshots/emulator/`. The all-screens mode captures choose, GPS searching,
-GPS ready, countdown, activity, kilometre split, and paused states with ordered
-filenames. Unless `--reuse-emulator` is supplied, the harness wipes the
+GPS ready, countdown, activity, split, paused/finish, upload exit, three data
+pages, history/detail and recovery/discard states with ordered filenames. Unless `--reuse-emulator` is supplied, the harness wipes the
 disposable emulator state before installing; all-screens mode does this for
 every capture so previous watch persistence and phone localStorage cannot leak
 into the next screenshot.
@@ -334,3 +352,15 @@ Strava client secret is not shipped inside the Pebble app bundle.
 ## License
 
 MIT. See `LICENSE.md`.
+
+## Paceboard release
+
+![Shipping renderer overview](screenshots/paceboard-overview.png)
+
+[Full design and motion study](docs/design/paceboard/README.md) ·
+[Next iteration](docs/roadmap.md)
+
+Production releases keep the store UUID. After validation and a Conventional
+Commit/version/changelog update, push the commit and run the authenticated
+`pebble publish` CLI with release notes and the Emery store screenshots.
+No production bundle is installed on a physical watch by this workflow.

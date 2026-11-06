@@ -612,3 +612,110 @@ run('Strava service logs upload HTTP failures', function() {
   assert.strictEqual(updates[1].activityId, 'upload-403');
   assert.strictEqual(updates[1].patch.stravaStatus, 'failed');
 });
+
+run('saved diagnostics survive storage and both export paths', function() {
+  var store = createStore(createMemoryStorage());
+  var a = sampleActivity('diagnostics');
+  a.gpsDiagnostics = { version: 1, counters: { accepted: 2 }, events: [] };
+  assert.strictEqual(store.saveActivity(a), true);
+  var saved = store.getActivity(a.id);
+  assert.deepStrictEqual(saved.gpsDiagnostics, a.gpsDiagnostics);
+  var ConfigPage = require('../src/pkjs/config_page');
+  var tcx = require('../src/pkjs/tcx');
+  assert.ok(tcx.generateTcx(saved).indexOf('<pacelet:Diagnostics>') >= 0);
+  assert.ok(ConfigPage.buildExportHtml(saved).indexOf(JSON.stringify(a.gpsDiagnostics)) >= 0);
+});
+
+run('HR storage is compact and old object samples still load', function() {
+  var storage = createMemoryStorage();
+  var store = createStore(storage);
+  var a = sampleActivity('compact');
+  store.saveActivity(a);
+  assert.deepStrictEqual(JSON.parse(storage.getItem(ActivityStore.ACTIVITIES_KEY))[0].hrSamples[0], [a.hrSamples[0].t, 140]);
+  assert.deepStrictEqual(store.getActivity(a.id).hrSamples, a.hrSamples);
+  store.saveActiveActivity(a, 123);
+  assert.deepStrictEqual(store.getActiveActivityDraft().activity.hrSamples, a.hrSamples);
+  storage.setItem(ActivityStore.ACTIVITIES_KEY, JSON.stringify([a]));
+  assert.deepStrictEqual(store.getActivity(a.id).hrSamples, a.hrSamples);
+});
+
+run('quota recovery frees oldest uploaded raw data and preserves unsynced tracks', function() {
+  var storage = createMemoryStorage();
+  var limit = Infinity;
+  var set = storage.setItem;
+  storage.setItem = function(key, value) {
+    if (String(value).length > limit) { throw new Error('QuotaExceededError'); }
+    set(key, value);
+  };
+  var store = createStore(storage);
+  var a = sampleActivity('uploaded');
+  a.points = Array(40).fill(a.points[0]);
+  store.saveActivity(a);
+  store.updateActivity(a.id, { stravaStatus: 'uploaded', stravaActivityId: 42 });
+  store.saveActivity(sampleActivity('unsynced'));
+  limit = 1900;
+  assert.strictEqual(store.saveActivity(sampleActivity('new')), true);
+  assert.strictEqual(store.getActivity('uploaded').rawDataPruned, true);
+  assert.strictEqual(store.getActivity('uploaded').distanceM, 200);
+  assert.strictEqual(store.getActivity('uploaded').stravaActivityId, 42);
+  assert.strictEqual(store.getActivity('unsynced').points.length, 1);
+  assert.strictEqual(store.getActivity('new').points.length, 1);
+});
+
+function configuredUploadStore() {
+  var store = createStore(createMemoryStorage());
+  store.setSettings({stravaEnabled:true,stravaClientId:'123',stravaClientSecret:'secret',stravaAccessToken:'access',stravaRefreshToken:'refresh',stravaExpiresAt:9999999999,stravaScope:'activity:write'});
+  store.saveActivity(sampleActivity('pending'));
+  return store;
+}
+
+run('polling resumes a stored upload, survives a network failure, and never reposts it', function() {
+  var store = configuredUploadStore();
+  store.updateActivity('pending', {stravaStatus:'processing',stravaUploadId:42});
+  var timers = [], requests = [];
+  var service = StravaService.createStravaService({
+    store:store,
+    setTimeoutFn:function(fn){timers.push(fn);},
+    request:function(options,cb){
+      requests.push(options);
+      if(requests.length===1){cb(new Error('offline'));}
+      else {cb(null,{status:200,text:JSON.stringify({activity_id:9001})});}
+    }
+  });
+  service.resumePendingUploads();service.resumePendingUploads();
+  service.retryActivity(store.getActivity('pending'));
+  assert.strictEqual(timers.length,1);
+  timers.shift()();assert.strictEqual(timers.length,1);
+  timers.shift()();
+  assert.deepStrictEqual(requests.map(function(r){return r.method;}),['GET','GET']);
+  assert.strictEqual(store.getActivity('pending').stravaActivityId,9001);
+});
+
+run('polling stays bounded and restart can continue processing', function() {
+  var store=configuredUploadStore(), count=0;
+  store.updateActivity('pending',{stravaStatus:'processing',stravaUploadId:42});
+  var service=StravaService.createStravaService({store:store,setTimeoutFn:function(fn){fn();},request:function(o,cb){count++;cb(new Error('offline'));}});
+  service.resumePendingUploads();assert.strictEqual(count,10);
+  assert.strictEqual(store.getActivity('pending').stravaStatus,'processing');
+  service.resumePendingUploads();assert.strictEqual(count,20);
+});
+
+run('Strava duplicate response retires pending uploads without another POST', function() {
+  var store=configuredUploadStore();
+  store.updateActivity('pending',{stravaStatus:'processing',stravaUploadId:42});
+  var service=StravaService.createStravaService({store:store,setTimeoutFn:function(fn){fn();},request:function(o,cb){
+    assert.strictEqual(o.method,'GET');cb(null,{status:200,text:JSON.stringify({error:'duplicate of activity 9001',activity_id:9001})});
+  }});
+  service.resumePendingUploads();assert.strictEqual(store.getActivity('pending').stravaStatus,'uploaded');
+  assert.strictEqual(store.getActivity('pending').stravaActivityId,9001);
+});
+
+run('token response preserves settings saved during the request', function() {
+  var store=configuredUploadStore(), respond;
+  var service=StravaService.createStravaService({store:store,request:function(o,cb){respond=cb;}});
+  service.refreshToken(function(err){assert.ifError(err);});
+  store.setSettings(Object.assign({},store.getSettings(),{darkMode:true,stravaAutoUpload:false,hrZone2Bpm:145}));
+  respond(null,{status:200,text:JSON.stringify({access_token:'new',refresh_token:'new-refresh',expires_at:9999999999})});
+  assert.strictEqual(store.getSettings().darkMode,true);assert.strictEqual(store.getSettings().hrZone2Bpm,145);
+  assert.strictEqual(store.getSettings().stravaAccessToken,'new');
+});

@@ -17,3 +17,4 @@ void watch_services_send_command(uint32_t command_key);
 void watch_services_send_history_action(uint32_t command_key,
                                         int32_t history_index);
 bool watch_services_send_hr_bpm(int32_t bpm);
+bool watch_services_send_hr_batch(void);

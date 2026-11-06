@@ -1,0 +1,3 @@
+#pragma once
+#include "paceboard_catalog.h"
+#define LAB_DESIGNS(X) X(pulse_live) X(aperture_live) X(pulse_dark) X(aperture_dark) X(pulse_long) X(aperture_long) X(pulse_walk) X(aperture_walk) X(pulse_stale) X(aperture_stale) X(pulse_split) X(aperture_split) X(pulse_paused) X(aperture_paused) X(countdown) X(saved) X(upload) X(split_iris1) X(split_iris2) X(split_iris3) X(workout_main) X(workout_dark) X(workout_long) X(workout_walk) X(workout_stale) X(workout_split) X(workout_paused) X(workout_metrics) X(workout_zones) X(workout_heart) X(splitline_light) X(paceboard_light) X(sidecar_light) X(splitline_dark) X(paceboard_dark) X(sidecar_dark) X(splitline_stress) X(paceboard_stress) X(sidecar_stress) PACEBOARD_DESIGNS(X)

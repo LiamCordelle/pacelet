@@ -1,0 +1,22 @@
+{
+  "name": "pacelet-design-comparison",
+  "author": "Liam Cordelle",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Pacelet Study",
+    "uuid": "97CBC9FA-480C-42BE-BB3D-FBD7E2060FE3",
+    "sdkVersion": "3",
+    "targetPlatforms": [
+      "emery"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [],
+    "resources": {
+      "media": []
+    }
+  }
+}

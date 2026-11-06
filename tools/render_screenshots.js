@@ -80,6 +80,7 @@ function splitRowHeight() {
 }
 
 var screens = [
+  { name: 'upload-exit', kind: 'upload-exit', activity: 'RUNNING' },
   { name: 'choose-running', kind: 'choose', activity: 'RUNNING' },
   {
     name: 'history-list',
@@ -1246,7 +1247,20 @@ function renderFinished(screen) {
   ].join('\n'));
 }
 
+function renderUploadExit(screen) {
+  return base([
+    '<text x="90" y="15" class="status" fill="' + THEME.text + '" text-anchor="middle">10:09</text>',
+    '<text x="8" y="57" class="menu" fill="' + THEME.text + '">Upload in progress</text>',
+    '<text x="8" y="119" class="menu" fill="' + THEME.text + '">Leave anyway?</text>',
+    '<text x="8" y="140" class="status" fill="' + THEME.text + '">Status checks may pause.</text>',
+    '<text x="8" y="161" class="status" fill="' + THEME.text + '">Strava may still finish.</text>',
+    '<text x="8" y="213" class="status" fill="' + THEME.text + '">UP: LEAVE  DOWN: STAY</text>',
+    actionRail('close', null, 'down')
+  ].join('\n'));
+}
+
 function render(screen) {
+  if (screen.kind === 'upload-exit') { return renderUploadExit(screen); }
   if (screen.kind === 'choose') {
     return renderChoose(screen);
   }
@@ -1600,7 +1614,16 @@ function renderPixel(screen) {
   var centerX = Math.round(RIGHT / 2);
   canvas.clear(THEME.bg);
 
-  if (screen.kind === 'choose') {
+  if (screen.kind === 'upload-exit') {
+    canvas.text('10:09', centerX, 6, 1, THEME.text, 'center', true);
+    pixelTextFit(canvas, 'Upload in progress', 8, 44, RIGHT - 16, 2, THEME.text, 'left', true);
+    canvas.text('Leave anyway?', 8, 107, 1, THEME.text, 'left', true);
+    canvas.text('Status checks may', 8, 129, 1, THEME.text, 'left', false);
+    canvas.text('pause.', 8, 145, 1, THEME.text, 'left', false);
+    canvas.text('Strava may still finish.', 8, 167, 1, THEME.text, 'left', false);
+    canvas.text('UP: LEAVE  DOWN: STAY', 8, 204, 1, THEME.text, 'left', true);
+    pixelActionRail(canvas, 'close', null, 'down');
+  } else if (screen.kind === 'choose') {
     pixelTopBar(canvas, screen.activity, 'CHOOSE', THEME.muted);
     pixelMenuItem(canvas, 'WALKING', screen.activity === 'WALKING',
                   chooseRowY(0));

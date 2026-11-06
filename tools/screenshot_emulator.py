@@ -16,14 +16,16 @@ SIM_PATH = ROOT / 'tools' / 'pypkjs_gps_sim'
 EMULATOR = 'emery'
 SCREENS = ['choose', 'gps-search', 'gps-ready', 'countdown', 'activity',
            'split', 'paused', 'end-confirm', 'finished', 'recovery',
-           'recovery-discard']
+           'recovery-discard', 'upload-exit', 'kilometres', 'zones', 'heart-history',
+           'history', 'history-detail']
 ALL_SCREEN_SEQUENCE = ['choose', 'gps-search', 'gps-ready', 'countdown',
                        'activity', 'split', 'paused', 'end-confirm',
-                       'finished']
+                       'finished', 'upload-exit', 'kilometres', 'zones', 'heart-history',
+                       'history', 'history-detail', 'recovery', 'recovery-discard']
 ACTIVITY_DOWN_CLICKS = {
     'running': 0,
     'cycling': 1,
-    'walking': 2,
+    'walking': 3,
 }
 
 
@@ -36,6 +38,8 @@ def build_parser():
     )
     parser.add_argument('--screen', default='choose', choices=SCREENS,
                         help='Screen to drive to before capture. Default: choose.')
+    parser.add_argument('--dark-mode', action='store_true',
+                        help='Send the ignored legacy DARK_MODE flag for compatibility QA.')
     parser.add_argument('--all-screens', action='store_true',
                         help='Capture the main app flow in one command.')
     parser.add_argument('--activity', default='running',
@@ -192,8 +196,19 @@ def wait(seconds, dry_run):
     time.sleep(max(0.0, seconds))
 
 
+def send_metric(args, env, key, value):
+    if not args.dry_run:
+        appinfo = json.loads((ROOT / 'build' / 'appinfo.json').read_text())
+        key = appinfo['appKeys'][key]
+    run(['pebble', 'send-app-message', '--emulator', EMULATOR,
+         '--int', '{}={}'.format(key, value)], env=env,
+        dry_run=args.dry_run, args=args)
+
+
 def drive_to_screen(args, env, lock_delay):
     wait(args.settle_s, args.dry_run)
+    if args.dark_mode:
+        send_metric(args, env, 'DARK_MODE', 1)
     press_activity_buttons(args, env)
 
     if args.screen == 'choose':
@@ -223,8 +238,7 @@ def drive_to_screen(args, env, lock_delay):
         # relaunch the watch app. PebbleKit JS restarts with the app and should
         # offer the persisted draft instead of silently starting over.
         wait(16.0, args.dry_run)
-        click(args, 'back', env)
-        wait(1.0, args.dry_run)
+        # BACK now pauses safely. Reinstall directly to interrupt/relaunch.
         # Reinstalling the same UUID relaunches the app without clearing its
         # persisted watch or PebbleKit JS data. This avoids depending on the
         # launcher's post-exit selection, which varies after an emulator wipe.
@@ -235,30 +249,86 @@ def drive_to_screen(args, env, lock_delay):
             wait(0.5, args.dry_run)
         return
 
+    if args.screen in ('kilometres', 'zones', 'heart-history'):
+        for _ in range(('kilometres', 'zones', 'heart-history').index(args.screen) + 1):
+            click(args, 'down', env)
+            wait(0.35, args.dry_run)
+        return
+
     if args.screen == 'split':
         # Exercise the watch's split UI with an explicit metric. Racing the
         # GPS simulator at 250 m/s only exercises outlier rejection.
-        key = 'DISTANCE_M'
-        if not args.dry_run:
-            appinfo = json.loads((ROOT / 'build' / 'appinfo.json').read_text())
-            key = appinfo['appKeys']['DISTANCE_M']
-        run(['pebble', 'send-app-message', '--emulator', EMULATOR,
-             '--int', '{}=1000'.format(key)], env=env,
-            dry_run=args.dry_run, args=args)
+        send_metric(args, env, 'DISTANCE_M', 1000)
         wait(0.25, args.dry_run)
         return
 
-    if args.screen in ('paused', 'end-confirm', 'finished'):
+    if args.screen in ('paused', 'end-confirm', 'finished', 'upload-exit', 'history', 'history-detail'):
         click(args, 'up', env)
         wait(0.5, args.dry_run)
 
-    if args.screen in ('end-confirm', 'finished'):
+    if args.screen in ('end-confirm', 'finished', 'upload-exit', 'history', 'history-detail'):
         click(args, 'select', env)
         wait(0.5, args.dry_run)
 
-    if args.screen == 'finished':
+    if args.screen in ('finished', 'upload-exit', 'history', 'history-detail'):
         click(args, 'up', env)
         wait(1.0, args.dry_run)
+
+    if args.screen in ('history', 'history-detail'):
+        click(args, 'select', env)
+        wait(2.0, args.dry_run)
+        if args.screen == 'history-detail':
+            click(args, 'select', env)
+            wait(0.5, args.dry_run)
+        return
+
+    if args.screen == 'upload-exit':
+        send_metric(args, env, 'UPLOAD_PENDING', 1)
+        click(args, 'back', env)
+        wait(0.5, args.dry_run)
+
+
+def verify_capture(args, output):
+    from PIL import Image
+    # Stable native-colour regions distinguish real controller states from a
+    # GPS-wait screen. Text/clock/data values intentionally vary between runs.
+    checks = {
+        'gps-ready': ('gps-ready', (78, 85)),
+        'countdown': ('countdown', (90, 140)),
+        'activity': ('activity', (170, 100)),
+        'split': ('split', (170, 100)),
+        'paused': ('paused', (170, 100)),
+        'finished': ('finished', (170, 100)),
+        'end-confirm': ('end-confirm', (10, 40)),
+        'upload-exit': ('upload-exit', (10, 40)),
+        'recovery': ('recovery', (10, 100)),
+        'recovery-discard': ('recovery-discard', (10, 40)),
+        'history': ('history', (10, 45)),
+        'history-detail': ('history-detail', (170, 100)),
+    }
+    if args.screen not in checks and args.screen not in ('kilometres', 'zones', 'heart-history'):
+        return
+    reference, point = checks.get(args.screen, (args.screen, (0, 22)))
+    actual = Image.open(output).convert('RGB')
+    expected = Image.open(ROOT/'screenshots'/(reference+'.png')).convert('RGB')
+    def pixel(image):
+        scale = image.width / 200
+        return image.getpixel((round(point[0]*scale), round(point[1]*scale)))
+    if args.screen in checks and sum(abs(a-b) for a,b in zip(pixel(actual),pixel(expected))) > 30:
+        raise RuntimeError('Capture did not reach '+args.screen+'; inspect '+str(output))
+    regions = {
+        'paused': (120, 1, 174, 19), 'finished': (120, 1, 174, 19),
+        'end-confirm': (8, 57, 172, 125), 'upload-exit': (8, 57, 172, 125),
+        'recovery': (8, 34, 172, 72), 'recovery-discard': (8, 57, 172, 125),
+        'kilometres': (8, 27, 172, 62), 'zones': (8, 27, 172, 62),
+        'heart-history': (8, 27, 172, 62),
+    }
+    if args.screen in regions:
+        box = regions[args.screen]
+        a = actual.resize((200, 228), Image.Resampling.NEAREST).crop(box).tobytes()
+        b = expected.resize((200, 228), Image.Resampling.NEAREST).crop(box).tobytes()
+        if sum(abs(x-y)>10 for x,y in zip(a,b))/len(a) > 0.01:
+            raise RuntimeError('Capture label does not match '+args.screen+'; inspect '+str(output))
 
 
 def capture(args, base_env, output):
@@ -284,6 +354,8 @@ def capture(args, base_env, output):
     if code != 0:
         raise subprocess.CalledProcessError(code, command)
 
+    if not args.dry_run:
+        verify_capture(args, output)
     print('Saved emulator screenshot to {}'.format(output))
     if args.all_screens:
         wait(args.post_capture_s, args.dry_run)
@@ -298,6 +370,7 @@ def capture_all_screens(args, sim_env, base_env, lock_delay):
         for screen in ALL_SCREEN_SEQUENCE:
             args.screen = screen
             screen_env = sim_env.copy()
+            if screen == 'gps-search': screen_env['PEBBLE_TRACKER_SIM_DELAY_S'] = '30'
             screen_output = all_output_path(args, screen, index)
             for attempt in range(2):
                 try:

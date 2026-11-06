@@ -10,6 +10,7 @@ var DEFAULT_HR_ZONE_3_BPM = 160;
 
 var DEFAULT_SETTINGS = {
   darkMode: false,
+  motionMode: 0,
   hrZone1Bpm: DEFAULT_HR_ZONE_1_BPM,
   hrZone2Bpm: DEFAULT_HR_ZONE_2_BPM,
   hrZone3Bpm: DEFAULT_HR_ZONE_3_BPM,
@@ -43,6 +44,7 @@ function copyDefaults(value) {
 }
 
 function normalizeSettings(value) {
+  value.motionMode = clampInt(value.motionMode, 0, 2, 0);
   value.darkMode = value.darkMode === true ||
       value.darkMode === 'true' || value.darkMode === 1 ||
       value.darkMode === '1' || value.darkMode === 'on';

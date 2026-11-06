@@ -1,0 +1,17 @@
+{
+  "name": "pacelet-route-preview",
+  "description": "Isolated Emery design proof for Pacelet Route Ribbon.",
+  "author": "Liam Cordelle",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "pebble": {
+    "displayName": "Route Preview",
+    "uuid": "87A914F5-6C5C-4CB5-A623-1A9D82278EB8",
+    "sdkVersion": "3",
+    "targetPlatforms": ["emery"],
+    "watchapp": {"watchface": false},
+    "resources": {"media": []},
+    "messageKeys": []
+  }
+}

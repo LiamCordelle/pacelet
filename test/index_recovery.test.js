@@ -3,10 +3,12 @@ var ActivityStore = require('../src/pkjs/activity_store');
 
 function run(name, fn) {
   var originalNow = Date.now;
+  var originalTimeout = global.setTimeout;
   try {
     fn();
   } finally {
     Date.now = originalNow;
+    global.setTimeout = originalTimeout;
   }
   console.log('ok - ' + name);
 }
@@ -41,6 +43,8 @@ function launchRuntime(storage, options) {
   options = options || {};
   var listeners = {};
   var messages = [];
+  var timers = [];
+  var failures = options.sendFailures || 0;
   var position = {
     coords: {
       latitude: 51.5074,
@@ -72,12 +76,16 @@ function launchRuntime(storage, options) {
   global.XMLHttpRequest = function() {};
   global.setInterval = function() { return 12; };
   global.clearInterval = function() {};
+  if (options.sendFailures) {
+    global.setTimeout = function(fn) { timers.push(fn); };
+  }
   global.Pebble = {
     addEventListener: function(name, callback) {
       listeners[name] = callback;
     },
-    sendAppMessage: function(dictionary, success) {
+    sendAppMessage: function(dictionary, success, failure) {
       messages.push(dictionary);
+      if (failures > 0) { failures -= 1; failure(); return; }
       if (success) {
         success();
       }
@@ -90,6 +98,7 @@ function launchRuntime(storage, options) {
 
   return {
     messages: messages,
+    retryNext: function() { timers.shift()(); },
     fix: function(timestamp, source) {
       // Match the phone bridge, whose successful callbacks contain only coords.
       var fix = { coords: position.coords };
@@ -140,6 +149,8 @@ run('runtime refuses to start when a timestamp-less fix has aged out', function(
   assert.strictEqual(latestMessageWith(runtime.messages, 'GPS_STATUS').GPS_STATUS, 1);
   assert.strictEqual(latestMessageWith(runtime.messages, 'ACTIVITY_STATE', 1), null);
   assert.strictEqual(storage.getItem(ActivityStore.ACTIVE_ACTIVITY_KEY), null);
+  assert.strictEqual(runtime.messages[runtime.messages.length - 1].RECOVERY_MESSAGE, 'GPS LOST');
+  assert.strictEqual(runtime.messages[runtime.messages.length - 1].ACTIVITY_STATE, 0);
 });
 
 run('runtime restores, resumes, and idempotently finishes a draft', function() {
@@ -242,4 +253,35 @@ run('runtime discards only the matching recovered draft', function() {
   });
   assert.strictEqual(storage.getItem(ActivityStore.ACTIVE_ACTIVITY_KEY), null);
   assert.ok(latestMessageWith(restarted.messages, 'ACTIVITY_STATE', 0));
+});
+
+run('runtime retries failed state sends in order before newer upload state',function(){
+  var runtime=launchRuntime(createMemoryStorage(),{sendFailures:2});
+  runtime.ready();assert.strictEqual(runtime.messages.length,1);
+  runtime.retryNext();assert.strictEqual(runtime.messages.length,2);
+  runtime.retryNext();assert.strictEqual(runtime.messages.length,4);
+  assert.deepStrictEqual(runtime.messages[0],runtime.messages[2]);
+  assert.strictEqual(runtime.messages[3].UPLOAD_PENDING,0);
+});
+
+run('runtime echoes pause snapshots, makes target states idempotent, and protects session IDs',function(){
+  var clock=1800000000000;Date.now=function(){return clock;};
+  var runtime=launchRuntime(createMemoryStorage());runtime.ready();
+  runtime.send({REQUEST_GPS:1});runtime.send({START_ACTIVITY:1,ACTIVITY_TYPE:1});
+  var started=latestMessageWith(runtime.messages,'ACTIVITY_STATE',1);
+  clock+=15000;
+  function packet(start,end){var bytes=[];[start,end].forEach(function(stamp){for(var i=0;i<6;i++){bytes.push(stamp%256);stamp=Math.floor(stamp/256);}});return bytes;}
+  var paused=packet(clock-10000,0);
+  runtime.send({PAUSE_ACTIVITY:1,ACTIVITY_ID:started.ACTIVITY_ID,PAUSE_WINDOWS:paused});
+  var reply=runtime.messages[runtime.messages.length-1];
+  assert.strictEqual(reply.ACTIVITY_STATE,2);assert.strictEqual(reply.ACTIVITY_MOVING_S,5);assert.deepStrictEqual(reply.PAUSE_WINDOWS,paused);
+  var resumed=packet(clock-10000,clock-5000);
+  runtime.send({RESUME_ACTIVITY:1,ACTIVITY_ID:started.ACTIVITY_ID,PAUSE_WINDOWS:resumed});
+  runtime.send({RESUME_ACTIVITY:1,ACTIVITY_ID:started.ACTIVITY_ID,PAUSE_WINDOWS:resumed});
+  reply=runtime.messages[runtime.messages.length-1];assert.strictEqual(reply.ACTIVITY_STATE,1);assert.strictEqual(reply.ACTIVITY_MOVING_S,10);
+  runtime.send({RESUME_ACTIVITY:1,ACTIVITY_ID:started.ACTIVITY_ID,PAUSE_WINDOWS:[1,2,3]});
+  assert.strictEqual(runtime.messages[runtime.messages.length-1].RECOVERY_MESSAGE,'PAUSE SYNC FAILED');
+  assert.strictEqual(runtime.messages[runtime.messages.length-1].PAUSE_WINDOWS,undefined);
+  runtime.send({PAUSE_ACTIVITY:1,ACTIVITY_ID:'wrong',PAUSE_WINDOWS:paused});
+  assert.strictEqual(runtime.messages[runtime.messages.length-1].RECOVERY_MESSAGE,'SESSION CHANGED');
 });

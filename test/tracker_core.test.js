@@ -511,3 +511,93 @@ run('diagnostics remain bounded and survive checkpoints with segment distances',
   assert.strictEqual(diagnostics.appVersion, 'test');
   assert.strictEqual(restored.getActiveActivity().points[0].distanceM, 0);
 });
+
+run('HR batches retain sample times, reject malformed data, and deduplicate retries', function() {
+  var clock=1000000;
+  var tracker=TrackerCore.createTrackerCore({nowMs:function(){return clock;}});
+  tracker.startActivity(pointAtMetersEast(START,0,clock,8),1);
+  clock+=6000;
+  var bytes=[];
+  for(var i=1;i<=5;i++){
+    var stamp=1000+i;
+    bytes.push(stamp%256,Math.floor(stamp/256)%256,Math.floor(stamp/65536)%256,Math.floor(stamp/16777216)%256,140+i);
+  }
+  assert.strictEqual(tracker.recordHrBatch(bytes),true);
+  var samples=tracker.getActiveActivity().hrSamples;
+  assert.deepStrictEqual(samples.map(function(s){return s.t;}),[1001000,1002000,1003000,1004000,1005000]);
+  tracker.recordHrBatch(bytes);assert.strictEqual(samples.length,5);
+  assert.strictEqual(tracker.recordHrBatch([1,2,3]),false);
+  assert.strictEqual(tracker.recordHrBatch([1,2,3,4,-1]),false);
+  clock+=70000;tracker.recordHrBatch(bytes);assert.strictEqual(samples.length,5);
+});
+
+function pausePacket(windows) {
+  var bytes=[];
+  windows.forEach(function(window) { window.forEach(function(stamp) {
+    for(var i=0;i<6;i++){bytes.push(stamp%256);stamp=Math.floor(stamp/256);}
+  }); });
+  return bytes;
+}
+
+run('offline pause/resume snapshots exclude paused time, GPS legs and HR, idempotently',function(){
+  var clock=1000000, tracker=TrackerCore.createTrackerCore({nowMs:function(){return clock;}});
+  tracker.startActivity(pointAtMetersEast(START,0,clock,8),1);
+  for(var i=1;i<=14;i++){
+    clock=1000000+i*5000;
+    tracker.recordPosition(pointAtMetersEast(START,i*10,clock,8));tracker.recordHr(140);
+  }
+  var windows=[[1015000,1035000],[1040000,1050000]];
+  assert.strictEqual(tracker.reconcileWatchState(pausePacket(windows),false),true);
+  assert.strictEqual(tracker.getMetrics().movingS,40);
+  assertWithin(tracker.getMetrics().distanceM,60,2,'distance excluding paused legs');
+  var a=tracker.getActiveActivity();
+  assert.ok(a.points.every(function(p){return !(p.t>=1015000&&p.t<1035000)&&!(p.t>=1040000&&p.t<1050000);}));
+  assert.ok(a.points.filter(function(p){return p.segmentStart;}).length>=3);
+  assert.ok(a.hrSamples.every(function(p){return !(p.t>=1015000&&p.t<1035000)&&!(p.t>=1040000&&p.t<1050000);}));
+  var distance=a.distanceM;
+  tracker.reconcileWatchState(pausePacket(windows),false);
+  assert.strictEqual(a.distanceM,distance);assert.strictEqual(tracker.getMetrics().movingS,40);
+  clock=1080000;
+  assert.strictEqual(tracker.reconcileWatchState(pausePacket([[1075000,0]]),true),true);
+  assert.strictEqual(tracker.getMetrics().movingS,45);
+  clock=1090000;
+  assert.strictEqual(tracker.reconcileWatchState(pausePacket([[1075000,1085000]]),false),true);
+  assert.strictEqual(tracker.getMetrics().movingS,50);
+  assert.strictEqual(tracker.reconcileWatchState(pausePacket([[1075000,0]]),true),false);
+  assert.strictEqual(a.paused,false,'stale pause cannot reopen a closed interval');
+});
+
+run('subsecond pause windows survive recovery without double-counting prior pauses',function(){
+  var clock=1000000,tracker=TrackerCore.createTrackerCore({nowMs:function(){return clock;}});
+  tracker.startActivity(pointAtMetersEast(START,0,clock,8),1);
+  clock=1010000;
+  var bytes=pausePacket([[1001100,1001400],[1001800,1001900]]);
+  assert.strictEqual(tracker.reconcileWatchState(bytes,false),true);
+  assert.strictEqual(tracker.getActiveActivity().pausedMs,400);
+  var snapshot=JSON.parse(JSON.stringify(tracker.getActiveActivity()));
+  var restored=TrackerCore.createTrackerCore({nowMs:function(){return clock;}});
+  restored.restoreActivity(snapshot,clock);
+  clock+=10000;restored.resumeActivity(null);
+  var pausedMs=restored.getActiveActivity().pausedMs;
+  restored.reconcileWatchState(bytes,false);
+  assert.strictEqual(restored.getActiveActivity().pausedMs,pausedMs);
+  assert.strictEqual(restored.reconcileWatchState([1,2,3],false),false);
+  assert.strictEqual(restored.reconcileWatchState([NaN,0,0,0,0,0,0,0,0,0,0,0],false),false);
+  assert.strictEqual(restored.reconcileWatchState(pausePacket([[clock+10000,0]]),true),false);
+});
+
+run('delayed watch pauses overlapping phone-runtime recovery exclude time only once',function(){
+  var clock=1000000,tracker=TrackerCore.createTrackerCore({nowMs:function(){return clock;}});
+  tracker.startActivity(pointAtMetersEast(START,0,clock,8),1);
+  for(var i=1;i<=6;i++){clock+=5000;tracker.recordPosition(pointAtMetersEast(START,i*10,clock,8));}
+  var snapshot=JSON.parse(JSON.stringify(tracker.getActiveActivity())), checkpoint=clock;
+  clock=1070000;
+  var restored=TrackerCore.createTrackerCore({nowMs:function(){return clock;}});
+  restored.restoreActivity(snapshot,checkpoint);restored.resumeActivity(null);
+  assert.strictEqual(restored.getMetrics().movingS,30);
+  assert.strictEqual(restored.reconcileWatchState(pausePacket([[1015000,1035000]]),false),true);
+  assert.strictEqual(restored.getMetrics().movingS,15);
+  assert.ok(restored.getActiveActivity().points.every(function(p){return p.t<1015000;}));
+  restored.reconcileWatchState(pausePacket([[1015000,1035000]]),false);
+  assert.strictEqual(restored.getMetrics().movingS,15);
+});

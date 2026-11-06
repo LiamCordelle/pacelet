@@ -18,8 +18,8 @@ Core behavior:
 - The user can choose Walking, Running, or Cycling before starting.
 - The watch uses a guided start flow: choose activity from a compact menu, wait
   for phone GPS lock, show a 3-second countdown, then start recording.
-- Walking and Running show elapsed time, distance, smoothed pace, and heart
-  rate.
+- Walking shows elapsed time, distance, steps, and heart rate.
+- Running shows elapsed time, distance, smoothed pace, and heart rate.
 - Cycling shows elapsed time, distance, smoothed speed in km/h, and heart rate.
 - The top status bar shows the current time on every watch screen.
 - Each completed kilometre displays a six-second watch-side split summary with
@@ -31,8 +31,9 @@ Core behavior:
   configuration page. This is intentionally personal-use only.
 - Recent saved activities are surfaced in the configuration page for TCX export
   and Strava retry.
-- The configuration page also controls the watch dark/light display flag. Light
-  mode is the default for new installs/settings.
+- Paceboard uses one fixed soft aqua / deep teal palette. The configuration page
+  controls Full / Key moments / Off motion and HR thresholds. The former
+  DARK_MODE protocol slot remains for compatibility but does not affect drawing.
 
 ## Important Files
 
@@ -85,8 +86,9 @@ Core behavior:
   `emery` and can drive the app to choose/GPS/countdown/activity/paused screens.
 - `tools/pypkjs_gps_sim/sitecustomize.py`: Local `pypkjs` geolocation shim
   loaded only by the emulator harnesses via `PYTHONPATH`.
-- `tools/render_screenshots.js`: Generates Emery SVG/PNG design screenshots
-  into `screenshots/`.
+- `tools/render_watch.py` and `tools/watch_preview.c`: Native fixtures for the
+  shipping UI, motion lifecycle checks and screenshot generation.
+- `tools/render_screenshots.js`: Historical software mock renderer.
 
 ## Architecture Notes
 
@@ -102,8 +104,7 @@ Keep watch-side and phone-side responsibilities separate:
   drawing in `watch_ui.c`.
 - Watch screens use a right-side action rail with small icons aligned to the
   hardware `UP`, `SELECT`, and `DOWN` buttons instead of footer button text.
-  The rail should contrast with the theme: dark in light mode, light in dark
-  mode.
+  The rail uses deep teal with pale action icons in the fixed Paceboard palette.
 - Phone JS should own GPS acquisition, GPS point filtering, distance math,
   smoothed speed/pace calculations, persistence, and sync integrations.
 - Pure logic that can be tested without Pebble runtime should live in
@@ -118,10 +119,10 @@ Any new watch-phone message must be added there before use in C or JS.
 
 Current settings message flow:
 
-- Phone sends `DARK_MODE` to the watch on ready, on settings save, and when the
-  watch sends `REQUEST_SETTINGS`.
-- Watch persists `DARK_MODE` in Pebble persistent storage and applies it to the
-  drawing palette.
+- Phone sends `MOTION_MODE` and HR thresholds on ready, settings save, and
+  `REQUEST_SETTINGS`; the watch persists them in version 3 settings.
+- Old version 2 thresholds migrate; the old `DARK_MODE` slot is retained/ignored.
+  Do not renumber message keys or clear activity history for appearance changes.
 
 ## Activity Type Mapping
 
@@ -157,8 +158,9 @@ Current defaults:
 - Preserve segment boundaries, cumulative distance, accuracy, and original
   coordinates of smoothed points in storage and both TCX export paths.
 
-For Walking and Running, the watch displays `CURRENT_PACE` as seconds per km.
-For Cycling, the watch displays `CURRENT_SPEED` as centi-metres per second,
+Running displays `CURRENT_PACE` as seconds per km. Walking intentionally shows
+Pebble Health steps in the live movement row; its kilometre split still shows
+split pace. Cycling displays `CURRENT_SPEED` as centi-metres per second,
 formatted as km/h.
 
 ## Strava Notes
@@ -227,16 +229,18 @@ Capture the main emulator app flow in one command:
 npm run screenshots:emulator:all
 ```
 
-PNG rendering uses the custom software pixel renderer in
-`tools/render_screenshots.js`; it uses the `emery` native 200x228 screen buffer
-and writes a 2x nearest-neighbor PNG. No external renderer is required.
+Fast screenshot rendering uses `tools/render_watch.py` and the sibling
+`../pebble-watchface-agent-skill/watchface-lab/renderer` compiled PebbleOS graphics
+objects. Run `pebble build` first. It compiles the shipping renderer in a temporary
+project and writes native 200×228 images at 2×, SVG wrappers, motion GIFs and an
+overview. It also checks motion cancellation/modes and exact final frames.
 
 `npm run screenshots:emulator` uses `tools/screenshot_emulator.py`. It builds
 and installs the PBW in the `emery` emulator, saves PNGs under
 `screenshots/emulator/`, and kills/restarts existing emulators unless
 `--reuse-emulator` is passed. Use `npm run screenshots:emulator:all` after UI
 changes to capture choose, GPS searching, GPS ready, countdown, activity,
-kilometre split, and paused states. All-screens mode starts from a fresh install
+kilometre split, paused/finish, live pages, history and recovery. All-screens mode starts from a fresh install
 for each screen so state does not leak between captures.
 
 Run the manual `emery` emulator GPS harness:

@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pacelet Route Ribbon motion study</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #f4f5f3;
+      color: #000;
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+    }
+    h1 {
+      font-size: 24px;
+      margin: 0 0 8px;
+    }
+    p {
+      max-width: 760px;
+      line-height: 1.5;
+      margin: 0 0 24px;
+    }
+    main {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 28px;
+    }
+    figure {
+      margin: 0;
+    }
+    .watch {
+      width: 400px;
+      height: 456px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, .16);
+      background: #fff;
+    }
+    .watch img,
+    .countdown-progress {
+      width: 400px;
+      height: 456px;
+      display: block;
+    }
+    .gps-dot {
+      position: absolute;
+      left: 172px;
+      top: 132px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #aaff00;
+      transform-origin: 8px 92px;
+      animation: orbit 1.2s steps(8, end) infinite;
+    }
+    .countdown-progress {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    #progressArc {
+      stroke-dasharray: 346;
+      animation: countdown 1s steps(10, end) infinite;
+    }
+    figcaption {
+      margin-top: 10px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .detail {
+      max-width: 400px;
+      font-size: 13px;
+      line-height: 1.4;
+      color: #555;
+      margin-top: 4px;
+    }
+    @keyframes orbit {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes countdown {
+      from { stroke-dashoffset: 346; }
+      to { stroke-dashoffset: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .gps-dot { animation: none; }
+      #progressArc { animation: none; stroke-dashoffset: 0; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Route Ribbon motion study</h1>
+  <p>Watch frames are 200×228, shown at 2×. The moving marks use only
+    simple drawing primitives and Emery palette colors. Timing is an intent
+    preview; the watch implementation should use bounded AppTimer redraws
+    and stop each loop when its state ends.</p>
+  <main>
+    <figure>
+      <div class="watch" aria-label="GPS search orbit animation">
+        <img src="motion-gps-base.svg" alt="Pacelet GPS search screen">
+        <span class="gps-dot" aria-hidden="true"></span>
+      </div>
+      <figcaption>GPS acquisition</figcaption>
+      <div class="detail">Eight endpoint positions per orbit, with a lower
+        redraw rate after a long search. The endpoint settles in the center
+        on lock.</div>
+    </figure>
+    <figure>
+      <div class="watch" aria-label="Three second countdown animation">
+        <img id="countdownFrame" src="04-countdown.svg"
+             alt="Pacelet start countdown at three">
+        <svg class="countdown-progress" viewBox="0 0 200 228"
+             aria-hidden="true">
+          <circle id="progressArc" cx="90" cy="123" r="55"
+                  fill="none" stroke="#aaff00" stroke-width="3"
+                  transform="rotate(-90 90 123)"></circle>
+        </svg>
+      </div>
+      <figcaption>Start countdown</figcaption>
+      <div class="detail">Ten small ring steps per second; the numeral
+        changes only on the actual controller countdown tick.</div>
+    </figure>
+  </main>
+  <script>
+    (function () {
+      var reduced = window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (reduced) {
+        return;
+      }
+      var frame = document.getElementById('countdownFrame');
+      var arc = document.getElementById('progressArc');
+      var files = ['04-countdown.svg', 'motion-countdown-2.svg',
+                   'motion-countdown-1.svg'];
+      var labels = ['three', 'two', 'one'];
+      var index = 0;
+      window.setInterval(function () {
+        index = (index + 1) % files.length;
+        frame.src = files[index];
+        frame.alt = 'Pacelet start countdown at ' + labels[index];
+        arc.style.animation = 'none';
+        void arc.getBoundingClientRect();
+        arc.style.animation = '';
+      }, 1000);
+    }());
+  </script>
+</body>
+</html>

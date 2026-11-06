@@ -23,20 +23,38 @@ function hrZoneThresholdsFromSettings(settings) {
   ];
 }
 
-function sendMessage(dictionary, successMessage, failureMessage) {
-  Pebble.sendAppMessage(
-    dictionary,
-    function() {
-      if (successMessage) {
-        log(successMessage);
-      }
-    },
-    function() {
-      if (failureMessage) {
-        log(failureMessage);
-      }
+var outbound = [];
+var sending = false;
+
+function sendNextMessage() {
+  if (sending || !outbound.length) { return; }
+  sending = true;
+  var next = outbound[0];
+  Pebble.sendAppMessage(next.dictionary, function() {
+    if (next.success) { log(next.success); }
+    outbound.shift();
+    sending = false;
+    sendNextMessage();
+  }, function() {
+    next.attempt += 1;
+    if (next.attempt < 3) {
+      setTimeout(function() {
+        sending = false;
+        sendNextMessage();
+      }, 300 * next.attempt);
+    } else {
+      if (next.failure) { log(next.failure); }
+      outbound.shift();
+      sending = false;
+      sendNextMessage();
     }
-  );
+  });
+}
+
+function sendMessage(dictionary, successMessage, failureMessage) {
+  outbound.push({ dictionary: dictionary, success: successMessage,
+    failure: failureMessage, attempt: 0 });
+  sendNextMessage();
 }
 
 var store = ActivityStore.createActivityStore({
@@ -86,14 +104,24 @@ var strava = StravaService.createStravaService({
   onActivityUpdate: function(activityId) {
     var activity = store.getActivity(activityId);
     log('Strava activity updated: ' + activityId);
+    sendUploadStateToWatch();
     sendHistoryToWatch(HistoryMessages.activityStatusMessage(activity));
   }
 });
 
+function sendUploadStateToWatch() {
+  var pending = store.getActivities().some(function(activity) {
+    return activity.stravaStatus === 'uploading' ||
+      activity.stravaStatus === 'processing';
+  });
+  sendMessage({ UPLOAD_PENDING: pending ? 1 : 0 });
+}
+
 function sendSettingsToWatch() {
   var settings = store.getSettings();
   sendMessage({
-    DARK_MODE: settings.darkMode ? 1 : 0,
+    DARK_MODE: 0,
+    MOTION_MODE: settings.motionMode,
     HR_ZONE_1_BPM: settings.hrZone1Bpm,
     HR_ZONE_2_BPM: settings.hrZone2Bpm,
     HR_ZONE_3_BPM: settings.hrZone3Bpm
@@ -102,15 +130,17 @@ function sendSettingsToWatch() {
 
 function addSettingsToDictionary(dictionary) {
   var settings = store.getSettings();
-  dictionary.DARK_MODE = settings.darkMode ? 1 : 0;
+  dictionary.DARK_MODE = 0;
+  dictionary.MOTION_MODE = settings.motionMode;
   dictionary.HR_ZONE_1_BPM = settings.hrZone1Bpm;
   dictionary.HR_ZONE_2_BPM = settings.hrZone2Bpm;
   dictionary.HR_ZONE_3_BPM = settings.hrZone3Bpm;
   return dictionary;
 }
 
-function sendActivityStateToWatch(message, includeSettings) {
+function sendActivityStateToWatch(message, includeSettings, pauseWindows) {
   var dictionary = recovery.stateDictionary(message);
+  if (pauseWindows) { dictionary.PAUSE_WINDOWS = pauseWindows; }
   if (includeSettings) {
     addSettingsToDictionary(dictionary);
   }
@@ -121,12 +151,14 @@ function startActivity(typeValue) {
   var position = gps.getLatestPosition();
   var started;
   if (tracker.getActiveActivity()) {
-    sendActivityStateToWatch('RECOVERY REQUIRED');
+    sendActivityStateToWatch(recovery.isRecoveryPending() ?
+      'RECOVERY REQUIRED' : '');
     return;
   }
   if (!tracker.canStartFromPosition(position)) {
     gps.start();
     gps.sendGpsStatus(true);
+    sendActivityStateToWatch('GPS LOST');
     return;
   }
 
@@ -140,28 +172,49 @@ function startActivity(typeValue) {
   sendActivityStateToWatch('');
 }
 
-function pauseActivity(activityId) {
+function pauseActivity(activityId, pauseWindows) {
   if (!recovery.matchesActivity(activityId)) {
     sendActivityStateToWatch('SESSION CHANGED');
     return;
   }
-  if (tracker.pauseActivity()) {
+  if (recovery.isRecoveryPending()) {
+    sendActivityStateToWatch('RECOVERY REQUIRED');
+    return;
+  }
+  var applied = pauseWindows ? tracker.reconcileWatchState(pauseWindows, true) :
+      tracker.pauseActivity();
+  if (pauseWindows && !applied) {
+    sendActivityStateToWatch('PAUSE SYNC FAILED');
+    return;
+  }
+  if (applied) {
     recovery.recordPaused();
     gps.sendActivityUpdate(true);
-    sendActivityStateToWatch('');
   }
+  sendActivityStateToWatch('', false, pauseWindows);
 }
 
-function resumeActivity(activityId) {
+function resumeActivity(activityId, pauseWindows) {
   if (!recovery.matchesActivity(activityId)) {
     sendActivityStateToWatch('SESSION CHANGED');
     return;
   }
-  if (tracker.resumeActivity(gps.getLatestPosition())) {
+  if (recovery.isRecoveryPending()) {
+    sendActivityStateToWatch('RECOVERY REQUIRED');
+    return;
+  }
+  var applied = pauseWindows ?
+      tracker.reconcileWatchState(pauseWindows, false) :
+      tracker.resumeActivity(gps.getLatestPosition());
+  if (pauseWindows && !applied) {
+    sendActivityStateToWatch('PAUSE SYNC FAILED');
+    return;
+  }
+  if (applied) {
     recovery.recordResumed();
     gps.sendActivityUpdate(true);
-    sendActivityStateToWatch('');
   }
+  sendActivityStateToWatch('', false, pauseWindows);
 }
 
 function resumeRecoveredActivity(activityId) {
@@ -200,6 +253,7 @@ function sendFinishedSummary(finishedActivity, saved) {
     SUMMARY_DISTANCE_M: finishedActivity.summaryDistanceM ||
       finishedActivity.distanceM || 0,
     SUMMARY_MOVING_S: finishedActivity.movingTimeS || 0,
+    SUMMARY_HR: HistoryMessages.hrSummaryString(finishedActivity),
     SUMMARY_POINTS: finishedActivity.points ?
       finishedActivity.points.length : 0,
     ACTIVITY_ID: finishedActivity.id,
@@ -209,7 +263,7 @@ function sendFinishedSummary(finishedActivity, saved) {
   'Activity summary send failed');
 }
 
-function finishActivity(activityId) {
+function finishActivity(activityId, pauseWindows) {
   var finishedActivity =
       tracker.getActiveActivity();
   var saved;
@@ -225,6 +279,12 @@ function finishActivity(activityId) {
   }
   if (activityId && finishedActivity.id !== activityId) {
     sendActivityStateToWatch('SESSION CHANGED');
+    return;
+  }
+
+  if (pauseWindows && !recovery.isRecoveryPending() &&
+      !tracker.reconcileWatchState(pauseWindows, true)) {
+    sendActivityStateToWatch('PAUSE SYNC FAILED');
     return;
   }
 
@@ -254,6 +314,7 @@ function sendHistoryToWatch(notice) {
   sendMessage({
     HISTORY_COUNT: payload.count,
     HISTORY_ITEMS: payload.items,
+    HISTORY_HR: payload.hr,
     HISTORY_MESSAGE: payload.message
   }, null, 'History send failed');
 }
@@ -262,6 +323,13 @@ function openConfiguration(notice) {
   var pendingExport = store.getPendingTcxExportActivity();
   var url;
   var pendingId = store.getPendingTcxExportActivityId();
+
+  if (pendingExport && pendingExport.rawDataPruned) {
+    store.clearPendingTcxExport();
+    pendingExport = null;
+    pendingId = '';
+    notice = 'Track archived to Strava. Export it from Strava.';
+  }
 
   if (pendingExport) {
     url = ConfigPage.buildExportUrl(pendingExport);
@@ -292,6 +360,10 @@ function prepareActivityTcx(activity, source) {
       ok: false,
       message: 'TCX export failed: activity not found.'
     };
+  }
+
+  if (activity.rawDataPruned) {
+    return { ok: false, message: 'Track archived to Strava. Export it from Strava.' };
   }
 
   store.setPendingTcxExport(activity.id);
@@ -337,7 +409,8 @@ function retryHistoryStrava(index) {
 }
 
 function hasSettingsPayload(payload) {
-  return typeof payload.darkMode !== 'undefined' ||
+  return typeof payload.motionMode !== 'undefined' ||
+      typeof payload.darkMode !== 'undefined' ||
       typeof payload.hrZone1Bpm !== 'undefined' ||
       typeof payload.stravaEnabled !== 'undefined' ||
       typeof payload.stravaClientId !== 'undefined';
@@ -415,6 +488,7 @@ function handleAppMessage(payload) {
     sendSettingsToWatch();
   }
   if (payload.REQUEST_ACTIVITY_STATE) {
+    recovery.checkpoint();
     sendActivityStateToWatch('', !!payload.REQUEST_SETTINGS);
   }
   if (payload.REQUEST_HISTORY) {
@@ -425,13 +499,13 @@ function handleAppMessage(payload) {
     startActivity(payload.ACTIVITY_TYPE);
   }
   if (payload.PAUSE_ACTIVITY) {
-    pauseActivity(payload.ACTIVITY_ID);
+    pauseActivity(payload.ACTIVITY_ID, payload.PAUSE_WINDOWS);
   }
   if (payload.RESUME_ACTIVITY) {
-    resumeActivity(payload.ACTIVITY_ID);
+    resumeActivity(payload.ACTIVITY_ID, payload.PAUSE_WINDOWS);
   }
   if (payload.FINISH_ACTIVITY) {
-    finishActivity(payload.ACTIVITY_ID);
+    finishActivity(payload.ACTIVITY_ID, payload.PAUSE_WINDOWS);
   }
   if (payload.RECOVER_ACTIVITY) {
     resumeRecoveredActivity(payload.ACTIVITY_ID);
@@ -448,6 +522,10 @@ function handleAppMessage(payload) {
   if (typeof payload.HR_BPM !== 'undefined') {
     tracker.recordHr(payload.HR_BPM);
   }
+  if (payload.HR_BPM_BATCH && payload.ACTIVITY_ID &&
+      recovery.matchesActivity(payload.ACTIVITY_ID)) {
+    tracker.recordHrBatch(payload.HR_BPM_BATCH);
+  }
 }
 
 Pebble.addEventListener('ready', function() {
@@ -456,6 +534,8 @@ Pebble.addEventListener('ready', function() {
     gps.start();
   }
   sendActivityStateToWatch('', true);
+  sendUploadStateToWatch();
+  strava.resumePendingUploads();
 });
 
 Pebble.addEventListener('showConfiguration', function() {

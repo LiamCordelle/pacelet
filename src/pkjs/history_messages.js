@@ -137,11 +137,20 @@ function selectedActivity(activities, index) {
   return activities[index];
 }
 
+function hrSummaryString(activity) {
+  activity = activity || {};
+  var zones = activity.hrZoneTimeS || [];
+  return [boundedHistoryValue(activity.avgHrBpm, 250),
+    boundedHistoryValue(zones[0], 999999), boundedHistoryValue(zones[1], 999999),
+    boundedHistoryValue(zones[2], 999999), boundedHistoryValue(zones[3], 999999)].join(',');
+}
+
 function buildHistoryPayload(activities, notice) {
   activities = activities || [];
   var count = Math.min(activities.length, MAX_WATCH_HISTORY_ITEMS);
   return {
     count: count,
+    hr: activities.slice(0, count).map(hrSummaryString).join(';'),
     items: historyItemsString(activities, MAX_WATCH_HISTORY_ITEMS),
     message: shortMessage(notice || (
       count ? activityStatusMessage(activities[0]) : 'No saved activities'
@@ -150,6 +159,7 @@ function buildHistoryPayload(activities, notice) {
 }
 
 module.exports = {
+  hrSummaryString: hrSummaryString,
   MAX_WATCH_HISTORY_ITEMS: MAX_WATCH_HISTORY_ITEMS,
   STATUS_UNKNOWN: STATUS_UNKNOWN,
   STATUS_NOT_UPLOADED: STATUS_NOT_UPLOADED,

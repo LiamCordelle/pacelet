@@ -505,6 +505,20 @@ function createTrackerCore(options) {
       pausedAt: snapshot.paused && Number(snapshot.pausedAt) >= startedAt ?
         Number(snapshot.pausedAt) : checkpoint,
       pausedMs: Math.max(0, Number(snapshot.pausedMs) || 0),
+      watchPauseMs: Math.max(0, Number(snapshot.watchPauseMs) || 0),
+      recoveryPaused: true,
+      recoveryPauseWindows: Array.isArray(snapshot.recoveryPauseWindows) ?
+        snapshot.recoveryPauseWindows.filter(function(w) {
+          return Array.isArray(w) && w.length === 2 &&
+            isFinite(w[0]) && isFinite(w[1]) && w[1] >= w[0];
+        }) : [],
+      watchPauseWindows: Array.isArray(snapshot.watchPauseWindows) ?
+        snapshot.watchPauseWindows.filter(function(w) {
+          return Array.isArray(w) && w.length === 2 &&
+            typeof w[0] === 'number' && typeof w[1] === 'number' &&
+            isFinite(w[0]) && isFinite(w[1]) && w[0] > 0 &&
+            (w[1] === 0 || w[1] >= w[0]);
+        }) : [],
       distanceM: Math.max(0, Number(snapshot.distanceM) || 0),
       points: points,
       lastPoint: points.length ? points[points.length - 1] : null,
@@ -558,7 +572,25 @@ function createTrackerCore(options) {
       return false;
     }
     activeActivity.pausedMs += now() - activeActivity.pausedAt;
+    if (activeActivity.recoveryPaused) {
+      var recoveries = activeActivity.recoveryPauseWindows || [];
+      var last = recoveries[recoveries.length - 1];
+      if (last && last[1] >= activeActivity.pausedAt) { last[1] = now(); }
+      else { recoveries.push([activeActivity.pausedAt, now()]); }
+      activeActivity.recoveryPauseWindows = recoveries;
+    }
+    var windows = activeActivity.watchPauseWindows || [];
+    for (var i = 0; i < windows.length; i += 1) {
+      if (!windows[i][1]) {
+        windows[i][1] = now();
+        if (!activeActivity.recoveryPaused) {
+          activeActivity.watchPauseMs = (activeActivity.watchPauseMs || 0) +
+            windows[i][1] - windows[i][0];
+        }
+      }
+    }
     activeActivity.paused = false;
+    activeActivity.recoveryPaused = false;
     activeActivity.pausedAt = 0;
     GpsDiagnostics.record(activeActivity, 'resume', now());
     resetGpsSegment(activeActivity);
@@ -568,6 +600,109 @@ function createTrackerCore(options) {
       recordPoint(activeActivity, normalizePoint(position, now), currentHrBpm, now());
     }
     return true;
+  }
+
+  // Reconcile the watch's target state, including pause intervals accumulated
+  // offline. Repeated packets are idempotent; gaps never become GPS legs.
+  function reconcileWatchState(bytes, paused) {
+    if (!activeActivity || !bytes || bytes.length % 12 || bytes.length > 60) {
+      return false;
+    }
+    var activity = activeActivity;
+    var windows = (activity.watchPauseWindows || []).map(function(w) {
+      return [w[0], w[1]];
+    });
+    var i, j, start, end;
+    function stamp(offset) {
+      var value = 0;
+      for (var k = 5; k >= 0; k -= 1) { value = value * 256 + bytes[offset + k]; }
+      return value;
+    }
+    for (i = 0; i < bytes.length; i += 1) {
+      if (typeof bytes[i] !== 'number' || bytes[i] < 0 || bytes[i] > 255 ||
+          bytes[i] % 1 !== 0) { return false; }
+    }
+    for (i = 0; i < bytes.length; i += 12) {
+      start = stamp(i); end = stamp(i + 6);
+      if (start < activity.startedAt - 1000 || start > now() + 2000 ||
+          (end && (end < start || end > now() + 2000))) { return false; }
+      start = Math.max(start, activity.startedAt);
+      for (j = 0; j < windows.length && windows[j][0] !== start; j += 1) {}
+      if (j === windows.length) { windows.push([start, end]); }
+      else if (end) { windows[j][1] = end; } // A retry cannot reopen a closed pause.
+    }
+    windows.sort(function(a, b) { return a[0] - b[0]; });
+    var closedMs = 0, openAt = 0;
+    for (i = 0; i < windows.length; i += 1) {
+      if (i && (!windows[i - 1][1] || windows[i][0] < windows[i - 1][1])) {
+        return false;
+      }
+      if (windows[i][1]) {
+        closedMs += windows[i][1] - windows[i][0];
+        // Recovery already excludes the phone-runtime downtime. A delayed
+        // watch pause may overlap it; charge that overlap only once.
+        var recoveries = activity.recoveryPauseWindows || [];
+        for (j = 0; j < recoveries.length; j += 1) {
+          closedMs -= Math.max(0, Math.min(windows[i][1], recoveries[j][1]) -
+            Math.max(windows[i][0], recoveries[j][0]));
+        }
+      }
+      else { openAt = windows[i][0]; }
+    }
+    if (paused !== !!openAt) { return false; }
+    if (activity.paused === paused &&
+        JSON.stringify(windows) === JSON.stringify(activity.watchPauseWindows || [])) {
+      return true;
+    }
+    function crossesPause(a, b) {
+      for (var k = 0; k < windows.length; k += 1) {
+        if (b >= windows[k][0] && a < (windows[k][1] || now() + 1)) {
+          return true;
+        }
+      }
+      return false;
+    }
+    var points = activity.points, kept = [], distance = 0, previous;
+    for (i = 0; i < points.length; i += 1) {
+      var point = points[i];
+      var originalDistance = point.distanceM;
+      if (!crossesPause(point.t, point.t)) {
+        var broken = !previous || point.segmentStart ||
+          crossesPause(previous.t, point.t);
+        if (previous && !broken) {
+          distance += typeof originalDistance === 'number' &&
+            typeof previous.distanceM === 'number' ?
+              Math.max(0, originalDistance - previous.distanceM) :
+              haversineMeters(previous, point);
+        }
+        kept.push(copyPausePoint(point, distance, broken));
+      }
+      previous = point;
+    }
+    activity.points = kept;
+    activity.distanceM = distance;
+    activity.hrSamples = activity.hrSamples.filter(function(sample) {
+      return !crossesPause(sample.t, sample.t);
+    });
+    activity.pausedMs = Math.max(0, activity.pausedMs -
+      (activity.watchPauseMs || 0) + closedMs);
+    activity.watchPauseMs = closedMs;
+    activity.watchPauseWindows = windows;
+    activity.paused = paused;
+    activity.pausedAt = openAt;
+    resetGpsSegment(activity);
+    activity.lastFixAt = null;
+    return true;
+  }
+
+  function copyPausePoint(point, distance, broken) {
+    var copy = {}, key;
+    for (key in point) {
+      if (point.hasOwnProperty(key)) { copy[key] = point[key]; }
+    }
+    copy.distanceM = distance;
+    copy.segmentStart = broken || undefined;
+    return copy;
   }
 
   function finishActivity(position) {
@@ -599,25 +734,58 @@ function createTrackerCore(options) {
     return finished;
   }
 
-  function recordHr(value) {
+  function recordHr(value, sampledAt) {
     var bpm = parseInt(value, 10);
+    var timestamp = typeof sampledAt === 'number' ? sampledAt : now();
     if (isNaN(bpm) || bpm < 0 || bpm > 250) {
       return false;
     }
+    if (!isFinite(timestamp) || timestamp > now() + 2000 ||
+        timestamp < now() - 60000) {
+      return false;
+    }
 
-    currentHrBpm = bpm;
     if (bpm === 0) {
+      currentHrBpm = 0;
       return true;
     }
-    if (activeActivity && !activeActivity.paused) {
+    var historical = typeof sampledAt === 'number';
+    if (activeActivity && (!activeActivity.paused ||
+        (historical && timestamp < activeActivity.pausedAt))) {
+      var samples = activeActivity.hrSamples;
+      if (timestamp < activeActivity.startedAt ||
+          (activeActivity.watchPauseWindows || []).some(function(window) {
+            return timestamp >= window[0] && (!window[1] || timestamp < window[1]);
+          }) ||
+          (samples.length && timestamp <= samples[samples.length - 1].t)) {
+        return false;
+      }
       activeActivity.hrSamples.push({
-        t: now(),
+        t: timestamp,
         bpm: bpm
       });
 
       if (activeActivity.lastPoint) {
         activeActivity.lastPoint.hr = bpm;
       }
+    }
+    currentHrBpm = bpm;
+    return true;
+  }
+
+  // Each sample is a little-endian UTC uint32 (seconds), then one BPM byte.
+  function recordHrBatch(bytes) {
+    if (!bytes || bytes.length > 50 || bytes.length % 5 !== 0) {
+      return false;
+    }
+    var i;
+    for (i = 0; i < bytes.length; i += 1) {
+      if (typeof bytes[i] !== 'number' || bytes[i] < 0 ||
+          bytes[i] > 255 || bytes[i] % 1 !== 0) { return false; }
+    }
+    for (i = 0; i < bytes.length; i += 5) {
+      recordHr(bytes[i + 4], (bytes[i] + bytes[i + 1] * 256 +
+        bytes[i + 2] * 65536 + bytes[i + 3] * 16777216) * 1000);
     }
     return true;
   }
@@ -636,8 +804,10 @@ function createTrackerCore(options) {
     recordPosition: recordPosition,
     pauseActivity: pauseActivity,
     resumeActivity: resumeActivity,
+    reconcileWatchState: reconcileWatchState,
     finishActivity: finishActivity,
     recordHr: recordHr,
+    recordHrBatch: recordHrBatch,
     setHrZoneThresholds: function(value) {
       hrZoneThresholds = normalizeHrZoneThresholds(value);
     },

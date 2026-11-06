@@ -95,6 +95,10 @@ function renderExportPage(activity) {
 
 run('settings normalize booleans and token expiry', function() {
   assert.strictEqual(Strava.copyDefaults({}).darkMode, false);
+  assert.strictEqual(Strava.copyDefaults({}).motionMode, 0);
+  assert.strictEqual(Strava.copyDefaults({motionMode:'2'}).motionMode, 2);
+  assert.strictEqual(Strava.copyDefaults({motionMode:99}).motionMode, 2);
+  assert.strictEqual(Strava.copyDefaults({motionMode:'bad'}).motionMode, 0);
 
   var settings = Strava.copyDefaults({
     darkMode: 'false',
@@ -262,7 +266,8 @@ run('config page URL embeds settings, history status, OAuth guidance, and notice
 
   assert.ok(url.indexOf('data:text/html;charset=utf-8,') === 0);
   assert.ok(html.indexOf('Pacelet') !== -1);
-  assert.ok(html.indexOf('darkMode') !== -1);
+  assert.ok(html.indexOf('id="darkMode"') === -1);
+  assert.ok(html.indexOf('motionMode') !== -1);
   assert.ok(html.indexOf('hrZone1Bpm') !== -1);
   assert.ok(html.indexOf('145 bpm avg') !== -1);
   assert.ok(html.indexOf('Z2 0:06') !== -1);

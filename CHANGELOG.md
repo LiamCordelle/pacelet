@@ -7,6 +7,47 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-06
+
+### Added
+
+- Ship Paceboard: a soft aqua/teal interface with pace-first Running, speed-first
+  Cycling, DIST. KM, Last KM/delta and a precise, configurable HR-zone strip.
+- Add focused kilometre, time-in-zone and rolling-minute HR pages, including
+  pause/gap handling and compact restart checkpoints. Saved/history recaps use
+  authoritative phone HR summaries.
+- Add smooth, bounded GPS orbit/fix/lock motion, countdown/GO, picker/page/split,
+  pause/confirmation, save and upload cues, with Full / Key moments / Off.
+  Cancel motion on focus loss/unload and reduce optional effects at low battery.
+- Replace the theme toggle with motion settings; preserve existing settings,
+  personal Strava credentials and activity history.
+- Add native screenshots of the shipping renderer, exact animation-end checks,
+  motion lifecycle checks, and full Emery-flow QA tooling.
+- Separate native-font Pulse, Aperture and Pebble Workout-inspired design
+  comparisons, with long-value checks and focused HR/zone page proposals.
+- Host-compiled tests of the real watch controller, model and transport.
+- Confirm before leaving during a save or Strava upload. Leaving may pause
+  status checks; it does not promise cancellation at Strava.
+
+### Fixed
+
+- Reject stale-GPS starts explicitly and retain START until the phone replies.
+- Reconcile offline pause intervals idempotently, removing paused GPS/HR and
+  excluding overlaps with phone-runtime recovery downtime only once.
+- BACK pauses a recording, cancels countdown/confirmation, and navigates back
+  in history. Paused and interrupted recordings require an explicit finish.
+- Keep walking step totals across midnight, including while paused.
+- Resume saved Strava upload polling on startup, retry transient polling errors,
+  recognize duplicate uploads, and preserve settings saved during token refresh.
+- Preserve GPS diagnostics in saved activities and both TCX export paths.
+- Compact stored HR samples; on storage pressure reclaim only raw data from
+  uploaded activities, retain summaries, and explain unavailable local exports.
+- Batch timestamped watch HR samples every five seconds, retain failed sends,
+  and serialize/retry phone-to-watch messages and watch GPS/history requests.
+- Light the split screen and checkpoint at low battery without ending a run.
+- Keep paused pace/speed visible and prevent navigation from resetting a save
+  before its phone acknowledgement.
+
 ## [0.6.2] - 2026-09-22
 
 ### Changed

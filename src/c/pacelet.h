@@ -58,15 +58,39 @@ typedef enum {
   HistoryStravaSkipped = 6
 } HistoryStravaStatus;
 
+typedef enum { OverlayNone, OverlaySplit, OverlayFinish, OverlayDiscard, OverlayExit } PaceletOverlay;
+typedef enum { MotionFull, MotionKeyMoments, MotionOff } MotionMode;
+#define PACELET_RECENT_SPLITS 8
+
 typedef struct {
   ActivityType activity_type;
   int32_t distance_m;
   int32_t moving_s;
   HistoryStravaStatus strava_status;
+  uint16_t avg_hr;
+  int32_t zone_s[4];
 } HistoryItem;
 
 typedef struct {
-  bool dark_mode;
+  bool dark_mode; // Legacy storage/protocol slot, ignored by Paceboard.
+  MotionMode motion_mode;
+  PaceletOverlay overlay;
+  uint8_t page; // 0 dashboard, 1 kilometres, 2 zones, 3 HR history.
+  time_t page_opened_at;
+  int32_t recent_splits[PACELET_RECENT_SPLITS]; // Newest first, seconds per km.
+  int32_t previous_split_s;
+  int32_t best_split_s;
+  int32_t zone_s[4];
+  uint32_t hr_sum, hr_count;
+  uint16_t summary_avg_hr;
+  uint8_t hr_history[60]; // Timestamp-indexed rolling minute; zero means no sample.
+  time_t metrics_at;
+  bool metrics_was_active;
+  int8_t metrics_zone;
+  int32_t zone_stint_s;
+  int8_t display_zone;
+  int8_t zone_candidate;
+  uint8_t zone_candidate_ticks;
 
   ActivityState activity_state;
   GpsState gps_state;
@@ -79,6 +103,7 @@ typedef struct {
   time_t paused_at;
   int32_t total_paused_s;
   int32_t activity_start_steps_today;
+  int32_t last_steps_today;
   int32_t pause_start_steps_today;
   int32_t total_paused_steps;
   int32_t finished_elapsed_s;
@@ -86,6 +111,8 @@ typedef struct {
   int32_t distance_m;
   int32_t current_pace_s_per_km;
   int32_t current_speed_centi_mps;
+  int32_t paused_pace_s_per_km;
+  int32_t paused_speed_centi_mps;
   int32_t current_steps;
   bool current_steps_available;
   int32_t gps_accuracy_m;
@@ -112,12 +139,17 @@ typedef struct {
   int32_t last_split_elapsed_s;
   int32_t split_elapsed_s;
   int32_t split_number;
-  bool split_visible;
-  bool finish_confirm_visible;
 
   bool phone_connected;
+  bool upload_pending;
+  bool low_battery;
+  uint8_t hr_batch[50];
+  uint8_t hr_batch_size;
+  time_t hr_batch_sampled_at;
+  // Five unacknowledged pause intervals: uint48 UTC milliseconds per endpoint.
+  uint8_t pause_windows[60];
+  uint8_t pause_windows_size;
   bool recovery_phone_draft_available;
-  bool discard_confirm_visible;
   int32_t recovery_moving_s;
   int32_t activity_checkpointed_at;
   uint32_t pending_command;

@@ -70,9 +70,16 @@ New watch-phone fields must first be declared in `package.json`.
 
 ### `watch_ui.c`
 
-Owns all Emery drawing and bitmap lifetimes. It reads the model but does not
-change activity state. Screen layouts, colors, fonts, labels, and action-rail
-icons belong here.
+Owns Emery drawing and short animation bursts. `WatchView` captures model/time
+snapshots; drawing and frame callbacks never change recording state. Four layers
+separate content, temporary overlays, header and action rail. The rail is a
+transparent full-screen-coordinate layer which only draws its right-hand strip.
+
+The UI owns one 33 ms frame timer, active only during effects. GPS orbiting has a
+15-second budget; later fixes get a brief radius response. Focus loss, unload,
+motion Off or an obsolete transition cancels its timer. Key moments / low battery
+suppress optional effects. Buffers are fixed UI storage so copies do not overflow
+the legacy Pebble app's 2 KiB stack. No generated animation atlas ships in the PBW.
 
 The renderer is deliberately a larger cohesive file: splitting each screen
 would create many tiny modules without reducing shared drawing context.
@@ -91,15 +98,48 @@ Choose -> GPS -> Ready -> Countdown -> Active <-> Paused -> Finished
 ```
 
 The finish confirmation, recovery discard confirmation, and kilometre split
-are temporary overlays represented by flags on the model rather than separate
-activity states. Recovery is a first-class activity state because it may
-survive process and watch-app restarts.
+are one exclusive `PaceletOverlay` enum rather than separate activity states.
+All activity changes use `pacelet_set_state`; it clears pages/overlays.
+`pacelet_set_overlay` returns focus to the dashboard for a new sheet. Recovery
+is a first-class activity state because it may survive process and watch-app
+restarts.
 
 The watch saves compact activity metadata on state changes, every 30 seconds
 while active, and during app teardown. It never attempts to reconstruct the
 GPS track; the phone checkpoint is authoritative. Commands that change an
 activity carry its ID and are retried when transport fails, preventing a
 delayed command from mutating a newer session.
+
+START, pause/resume, finish, recovery and discard now wait for a phone state
+reply. Pause/resume additionally require the exact echoed pause snapshot.
+Unacknowledged pause intervals use a separate versioned persistence key tagged
+with the activity ID, preserving the existing recovery format. At most five
+unacknowledged pauses fit in a packet; if that fills while disconnected, the
+watch stays paused and displays `SYNC PHONE TO RESUME` until acknowledged.
+
+BACK pauses Active, cancels Countdown and confirmation sheets, navigates
+history, and keeps Paused/Recovery open. Outside recording states, an upload or
+pending save opens an explicit leave/stay sheet. The platform can still close
+or kill an app independently of this button handler. Low battery triggers an
+immediate watch/phone checkpoint request and a status warning, not auto-finish.
+
+HR samples are buffered in the model and normally sent every five seconds;
+failed sends retain the bytes until transport acknowledgement. The phone
+retains original timestamps and deduplicates retries. Split/GPS-lock haptics
+also enable the backlight.
+
+DOWN cycles the dashboard and three focused pages. SELECT returns from a data
+page; a 20-second controller timeout also returns to the dashboard. The model
+keeps eight recent splits, four active HR-zone second counters, a debounced
+visual zone, and a timestamp-indexed 60-byte HR ring. Missing/paused seconds are
+empty columns. A separate versioned, activity-ID-tagged metric checkpoint
+preserves splits/totals through a restart; the phone owns saved HR summaries.
+A paused hero captures the last pace/speed instead of clearing it with phone
+stop updates. Saving navigation waits for the phone acknowledgement.
+
+`npm test` now host-compiles the actual controller/model and transport against
+the small SDK fake under `test/watch_stubs/`. It covers recording/exit controls,
+midnight steps, HR batching, ACK filtering, persistence and retry behavior.
 
 ## Change Guide
 

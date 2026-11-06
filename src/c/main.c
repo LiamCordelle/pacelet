@@ -22,7 +22,12 @@ static void down_click_handler(ClickRecognizerRef recognizer,
   activity_controller_handle_down();
 }
 
+static void back_click_handler(ClickRecognizerRef recognizer, void *context) {
+  activity_controller_handle_back();
+}
+
 static void click_config_provider(void *context) {
+  window_single_click_subscribe(BUTTON_ID_BACK, back_click_handler);
   window_single_click_subscribe(BUTTON_ID_SELECT, select_click_handler);
   window_single_click_subscribe(BUTTON_ID_UP, up_click_handler);
   window_single_click_subscribe(BUTTON_ID_DOWN, down_click_handler);
@@ -44,6 +49,8 @@ static void health_event_handler(HealthEventType event, void *context) {
   activity_controller_handle_health_event(event);
 }
 
+static void focus_handler(bool focused) { watch_ui_set_focus(focused); }
+
 static void init(void) {
   pacelet_model_init();
   watch_services_load_settings();
@@ -56,6 +63,7 @@ static void init(void) {
     .unload = main_window_unload
   });
 
+  app_focus_service_subscribe(focus_handler);
   watch_services_init();
   tick_timer_service_subscribe(SECOND_UNIT, tick_handler);
 #if defined(PBL_HEALTH)
@@ -67,6 +75,7 @@ static void init(void) {
 }
 
 static void deinit(void) {
+  app_focus_service_unsubscribe();
   activity_controller_deinit();
   tick_timer_service_unsubscribe();
 #if defined(PBL_HEALTH)

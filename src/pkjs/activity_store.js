@@ -17,22 +17,60 @@ function createActivityStore(options) {
   var maxActivities = options.maxActivities || MAX_STORED_ACTIVITIES;
   var settings = loadSettings();
 
+  // Compact HR on disk while preserving the existing runtime/export shape.
+  // The reader accepts old {t,bpm} samples and compact [t,bpm] rows.
+  function storageReplacer(key, value) {
+    if (key === 'hrSamples' && Array.isArray(value)) {
+      return value.map(function(sample) { return [sample.t, sample.bpm]; });
+    }
+    return value;
+  }
+
+  function storageReviver(key, value) {
+    if (key === 'hrSamples' && Array.isArray(value)) {
+      return value.map(function(sample) {
+        return Array.isArray(sample) ? { t: sample[0], bpm: sample[1] } : sample;
+      });
+    }
+    return value;
+  }
+
   function readJson(key, fallback, label) {
     try {
       var raw = storage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
+      return raw ? JSON.parse(raw, storageReviver) : fallback;
     } catch (e) {
       log(label + ' read failed: ' + e);
       return fallback;
     }
   }
 
-  function writeJson(key, value, label) {
+  function writeJson(key, value, label, retry) {
     try {
-      storage.setItem(key, JSON.stringify(value));
+      storage.setItem(key, JSON.stringify(value, storageReplacer));
       return true;
     } catch (e) {
       log(label + ' write failed: ' + e);
+      // Reclaim only raw data already backed up to Strava. Keep summaries and
+      // unsynced recordings, including the active draft, intact.
+      if (!retry && key !== SETTINGS_KEY) {
+        var history = key === ACTIVITIES_KEY ? value : getActivities();
+        var i;
+        for (i = history.length - 1; i >= 0; i -= 1) {
+          if (history[i].stravaStatus === 'uploaded' &&
+              !history[i].rawDataPruned) {
+            history[i].points = [];
+            history[i].hrSamples = [];
+            history[i].rawDataPruned = true;
+            if (writeJson(ACTIVITIES_KEY, history, 'Compacted history', true)) {
+              if (key === ACTIVITIES_KEY ||
+                  writeJson(key, value, label, true)) {
+                return true;
+              }
+            }
+          }
+        }
+      }
       return false;
     }
   }
@@ -99,7 +137,8 @@ function createActivityStore(options) {
         stravaStatus: history[i].stravaStatus,
         stravaError: history[i].stravaError,
         stravaActivityId: history[i].stravaActivityId,
-        stravaUploadStatus: history[i].stravaUploadStatus
+        stravaUploadStatus: history[i].stravaUploadStatus,
+        rawDataPruned: !!history[i].rawDataPruned
       });
     }
     return summaries;
@@ -119,6 +158,7 @@ function createActivityStore(options) {
       avgHrBpm: activity.avgHrBpm,
       hrZoneTimeS: activity.hrZoneTimeS,
       hrZoneThresholds: activity.hrZoneThresholds,
+      gpsDiagnostics: activity.gpsDiagnostics,
       speedCentiMps: activity.summarySpeedCentiMps,
       stravaStatus: 'not_uploaded'
     };
@@ -209,7 +249,7 @@ function createActivityStore(options) {
       if (!raw) {
         return null;
       }
-      draft = JSON.parse(raw);
+      draft = JSON.parse(raw, storageReviver);
       if (!draft || draft.version !== ACTIVE_ACTIVITY_VERSION ||
           typeof draft.checkpointedAt !== 'number' ||
           !draft.activity || !draft.activity.id) {

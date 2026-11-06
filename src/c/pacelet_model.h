@@ -17,3 +17,8 @@ const char *pacelet_hr_zone_label(HrZone zone);
 const char *pacelet_activity_label(ActivityType type);
 const char *pacelet_activity_short_label(ActivityType type);
 const char *pacelet_history_status_label(HistoryStravaStatus status);
+
+// State and overlays are changed here so navigation never leaks between flows.
+void pacelet_set_state(ActivityState state);
+void pacelet_set_overlay(PaceletOverlay overlay);
+void pacelet_record_metrics(time_t now);

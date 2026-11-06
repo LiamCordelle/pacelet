@@ -7,9 +7,18 @@
 #include <string.h>
 
 #define SETTINGS_KEY 1
-#define SETTINGS_VERSION 2
+#define SETTINGS_VERSION 3
+#define METRICS_KEY 4
 #define ACTIVITY_STATE_KEY 2
 #define ACTIVITY_STATE_VERSION 1
+#define ACTIVITY_PAUSES_KEY 3
+
+typedef struct {
+  uint8_t version;
+  uint8_t size;
+  uint8_t windows[60];
+  char activity_id[24];
+} PersistedPauses;
 
 typedef struct {
   uint8_t version;
@@ -17,6 +26,11 @@ typedef struct {
   uint16_t hr_zone_1_bpm;
   uint16_t hr_zone_2_bpm;
   uint16_t hr_zone_3_bpm;
+} AppSettingsV2;
+
+typedef struct {
+  AppSettingsV2 legacy;
+  uint8_t motion_mode;
 } AppSettings;
 
 typedef struct {
@@ -41,8 +55,20 @@ typedef struct {
   char activity_id[24];
 } PersistedActivityState;
 
+typedef struct {
+  uint8_t version;
+  char activity_id[24];
+  int32_t splits[PACELET_RECENT_SPLITS];
+  int32_t previous_split_s, best_split_s, split_number;
+  int32_t zone_s[4];
+  uint32_t hr_sum, hr_count;
+} PersistedMetrics;
+
 static AppTimer *s_retry_timer;
 static bool s_initial_state_pending;
+static bool s_gps_pending;
+static bool s_history_pending;
+static uint8_t s_request_retries;
 
 static bool send_command(uint32_t command_key, bool mark_pending);
 static void schedule_retry(void);
@@ -68,6 +94,9 @@ static PhoneActivityState current_phone_activity_state(void) {
 
 void watch_services_clear_activity_state(void) {
   persist_delete(ACTIVITY_STATE_KEY);
+  persist_delete(ACTIVITY_PAUSES_KEY);
+  persist_delete(METRICS_KEY);
+  g_pacelet.pause_windows_size = 0;
   g_pacelet.pending_command = 0;
   g_pacelet.activity_id[0] = '\0';
 }
@@ -102,6 +131,18 @@ void watch_services_save_activity_state(void) {
   snprintf(state.activity_id, sizeof(state.activity_id), "%s",
            g_pacelet.activity_id);
   persist_write_data(ACTIVITY_STATE_KEY, &state, sizeof(state));
+  PersistedPauses pauses = {.version = 1, .size = g_pacelet.pause_windows_size};
+  memcpy(pauses.windows, g_pacelet.pause_windows, sizeof(pauses.windows));
+  snprintf(pauses.activity_id, sizeof(pauses.activity_id), "%s", g_pacelet.activity_id);
+  persist_write_data(ACTIVITY_PAUSES_KEY, &pauses, sizeof(pauses));
+  PersistedMetrics metrics = {.version = 1,
+    .previous_split_s = g_pacelet.previous_split_s,
+    .best_split_s = g_pacelet.best_split_s, .split_number = g_pacelet.split_number,
+    .hr_sum = g_pacelet.hr_sum, .hr_count = g_pacelet.hr_count};
+  memcpy(metrics.activity_id, state.activity_id, sizeof(metrics.activity_id));
+  memcpy(metrics.splits, g_pacelet.recent_splits, sizeof(metrics.splits));
+  memcpy(metrics.zone_s, g_pacelet.zone_s, sizeof(metrics.zone_s));
+  persist_write_data(METRICS_KEY, &metrics, sizeof(metrics));
 }
 
 void watch_services_load_activity_state(void) {
@@ -124,7 +165,7 @@ void watch_services_load_activity_state(void) {
 
   g_pacelet.activity_type = (ActivityType)state.activity_type;
   g_pacelet.choose_index = state.activity_type;
-  g_pacelet.activity_state = ActivityStateRecovery;
+  pacelet_set_state(ActivityStateRecovery);
   g_pacelet.recovery_moving_s = state.moving_s;
   g_pacelet.finished_elapsed_s = state.moving_s;
   g_pacelet.distance_m = state.distance_m;
@@ -142,6 +183,24 @@ void watch_services_load_activity_state(void) {
   state.activity_id[sizeof(state.activity_id) - 1] = '\0';
   snprintf(g_pacelet.activity_id, sizeof(g_pacelet.activity_id), "%s",
            state.activity_id);
+  PersistedPauses pauses;
+  if (persist_read_data(ACTIVITY_PAUSES_KEY, &pauses, sizeof(pauses)) == sizeof(pauses) &&
+      pauses.version == 1 && pauses.size <= sizeof(pauses.windows) &&
+      pauses.size % 12 == 0 &&
+      memcmp(pauses.activity_id, state.activity_id, sizeof(state.activity_id)) == 0) {
+    g_pacelet.pause_windows_size = pauses.size;
+    memcpy(g_pacelet.pause_windows, pauses.windows, sizeof(pauses.windows));
+  }
+  PersistedMetrics metrics;
+  if (persist_read_data(METRICS_KEY, &metrics, sizeof(metrics)) == sizeof(metrics) &&
+      metrics.version == 1 && memcmp(metrics.activity_id, state.activity_id, sizeof(state.activity_id)) == 0) {
+    memcpy(g_pacelet.recent_splits, metrics.splits, sizeof(metrics.splits));
+    memcpy(g_pacelet.zone_s, metrics.zone_s, sizeof(metrics.zone_s));
+    g_pacelet.previous_split_s = metrics.previous_split_s;
+    g_pacelet.best_split_s = metrics.best_split_s;
+    g_pacelet.split_number = metrics.split_number;
+    g_pacelet.hr_sum = metrics.hr_sum; g_pacelet.hr_count = metrics.hr_count;
+  }
   g_pacelet.recovery_phone_draft_available = false;
   snprintf(g_pacelet.recovery_message,
            sizeof(g_pacelet.recovery_message), "CHECKING PHONE");
@@ -149,38 +208,31 @@ void watch_services_load_activity_state(void) {
 
 static void save_settings(void) {
   AppSettings settings = {
-    .version = SETTINGS_VERSION,
-    .dark_mode = g_pacelet.dark_mode,
-    .hr_zone_1_bpm = (uint16_t)g_pacelet.hr_zone_1_bpm,
-    .hr_zone_2_bpm = (uint16_t)g_pacelet.hr_zone_2_bpm,
-    .hr_zone_3_bpm = (uint16_t)g_pacelet.hr_zone_3_bpm
+    .legacy = { .version = SETTINGS_VERSION, .dark_mode = false,
+      .hr_zone_1_bpm = g_pacelet.hr_zone_1_bpm,
+      .hr_zone_2_bpm = g_pacelet.hr_zone_2_bpm,
+      .hr_zone_3_bpm = g_pacelet.hr_zone_3_bpm },
+    .motion_mode = g_pacelet.motion_mode
   };
   persist_write_data(SETTINGS_KEY, &settings, sizeof(settings));
 }
 
 void watch_services_load_settings(void) {
-  int settings_size = persist_get_size(SETTINGS_KEY);
-  AppSettings settings;
-
-  if (settings_size == (int)sizeof(settings) &&
-      persist_read_data(SETTINGS_KEY, &settings, sizeof(settings)) ==
-          (int)sizeof(settings) &&
-      settings.version == SETTINGS_VERSION) {
-    g_pacelet.dark_mode = settings.dark_mode;
-    g_pacelet.hr_zone_1_bpm = settings.hr_zone_1_bpm;
-    g_pacelet.hr_zone_2_bpm = settings.hr_zone_2_bpm;
-    g_pacelet.hr_zone_3_bpm = settings.hr_zone_3_bpm;
-    pacelet_normalize_hr_zone_thresholds();
-  } else if (settings_size == (int)sizeof(AppSettingsV1)) {
-    AppSettingsV1 old_settings;
-    if (persist_read_data(SETTINGS_KEY, &old_settings,
-                          sizeof(old_settings)) ==
-            (int)sizeof(old_settings) &&
-        old_settings.version == 1) {
-      g_pacelet.dark_mode = old_settings.dark_mode;
-      save_settings();
-    }
-  }
+  int size = persist_get_size(SETTINGS_KEY);
+  AppSettings settings = {0};
+  if (size == sizeof(settings) &&
+      persist_read_data(SETTINGS_KEY, &settings, sizeof(settings)) == sizeof(settings) &&
+      settings.legacy.version == SETTINGS_VERSION) {
+    g_pacelet.motion_mode = pacelet_clamp_i32(settings.motion_mode, MotionFull, MotionOff);
+  } else if (size == sizeof(AppSettingsV2) &&
+      persist_read_data(SETTINGS_KEY, &settings.legacy, sizeof(AppSettingsV2)) == sizeof(AppSettingsV2) &&
+      settings.legacy.version == 2) {
+    // Thresholds survive removal of the old display preference.
+  } else { return; } // V1 has no thresholds; the model defaults are correct.
+  g_pacelet.hr_zone_1_bpm = settings.legacy.hr_zone_1_bpm;
+  g_pacelet.hr_zone_2_bpm = settings.legacy.hr_zone_2_bpm;
+  g_pacelet.hr_zone_3_bpm = settings.legacy.hr_zone_3_bpm;
+  pacelet_normalize_hr_zone_thresholds();
 }
 
 static bool send_command(uint32_t command_key, bool mark_pending) {
@@ -205,13 +257,34 @@ static bool send_command(uint32_t command_key, bool mark_pending) {
     dict_write_cstring(iter, MESSAGE_KEY_ACTIVITY_ID,
                        g_pacelet.activity_id);
   }
+  if (command_key == MESSAGE_KEY_PAUSE_ACTIVITY ||
+      command_key == MESSAGE_KEY_RESUME_ACTIVITY ||
+      command_key == MESSAGE_KEY_FINISH_ACTIVITY) {
+    dict_write_data(iter, MESSAGE_KEY_PAUSE_WINDOWS, g_pacelet.pause_windows,
+                    g_pacelet.pause_windows_size);
+  }
   result = app_message_outbox_send();
   return result == APP_MSG_OK;
 }
 
 void watch_services_send_command(uint32_t command_key) {
-  if (!send_command(command_key, true) &&
+  if (g_pacelet.pending_command == MESSAGE_KEY_START_ACTIVITY &&
+      !g_pacelet.activity_id[0] && command_key != MESSAGE_KEY_START_ACTIVITY &&
       is_reliable_command(command_key)) {
+    // Keep retrying START; the controller sends the current target on its ACK.
+    watch_services_save_activity_state();
+    schedule_retry();
+    return;
+  }
+  if (command_key == MESSAGE_KEY_REQUEST_GPS) {
+    s_gps_pending = true;
+    s_request_retries = 0;
+  } else if (command_key == MESSAGE_KEY_REQUEST_HISTORY) {
+    s_history_pending = true;
+    s_request_retries = 0;
+  }
+  if (!send_command(command_key, true) &&
+      (is_reliable_command(command_key) || s_gps_pending || s_history_pending)) {
     schedule_retry();
   }
 }
@@ -237,6 +310,17 @@ bool watch_services_send_hr_bpm(int32_t bpm) {
   }
 
   dict_write_int32(iter, MESSAGE_KEY_HR_BPM, bpm);
+  return app_message_outbox_send() == APP_MSG_OK;
+}
+
+bool watch_services_send_hr_batch(void) {
+  DictionaryIterator *iter;
+  if (!g_pacelet.hr_batch_size) { return true; }
+  if (!g_pacelet.activity_id[0] ||
+      app_message_outbox_begin(&iter) != APP_MSG_OK) { return false; }
+  dict_write_data(iter, MESSAGE_KEY_HR_BPM_BATCH, g_pacelet.hr_batch,
+                  g_pacelet.hr_batch_size);
+  dict_write_cstring(iter, MESSAGE_KEY_ACTIVITY_ID, g_pacelet.activity_id);
   return app_message_outbox_send() == APP_MSG_OK;
 }
 
@@ -311,6 +395,7 @@ static void parse_history_items(const char *items_text) {
 
   snprintf(buffer, sizeof(buffer), "%s", items_text);
   cursor = buffer;
+  memset(g_pacelet.history_items, 0, sizeof(g_pacelet.history_items));
 
   while (*cursor && parsed < PACELET_HISTORY_MAX) {
     int32_t type_value;
@@ -358,6 +443,20 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   bool settings_changed = false;
   Tuple *phone_activity_state =
       dict_find(iter, MESSAGE_KEY_ACTIVITY_STATE);
+  Tuple *pause_ack = dict_find(iter, MESSAGE_KEY_PAUSE_WINDOWS);
+  Tuple *reply_id = dict_find(iter, MESSAGE_KEY_ACTIVITY_ID);
+  if (phone_activity_state &&
+      (phone_activity_state->value->int32 == PhoneActivityStateActive ||
+       phone_activity_state->value->int32 == PhoneActivityStatePaused) &&
+      (g_pacelet.pending_command == MESSAGE_KEY_PAUSE_ACTIVITY ||
+       g_pacelet.pending_command == MESSAGE_KEY_RESUME_ACTIVITY) &&
+      (!reply_id || strcmp(reply_id->value->cstring, g_pacelet.activity_id) == 0) &&
+      (!pause_ack || pause_ack->length != g_pacelet.pause_windows_size ||
+       memcmp(pause_ack->value->data, g_pacelet.pause_windows,
+              g_pacelet.pause_windows_size) != 0)) {
+    // Wait for the ACK of this target snapshot, not an older state reply.
+    return;
+  }
 
   if (!g_pacelet.phone_connected) {
     activity_controller_handle_phone_connection(true);
@@ -365,6 +464,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
 
   Tuple *gps_status = dict_find(iter, MESSAGE_KEY_GPS_STATUS);
   if (gps_status) {
+    s_gps_pending = false;
     GpsState previous_gps_state = g_pacelet.gps_state;
     int32_t status = gps_status->value->int32;
     g_pacelet.gps_state = (GpsState)pacelet_clamp_i32(
@@ -372,12 +472,12 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     if (g_pacelet.gps_state == GpsStateLocked &&
         previous_gps_state != GpsStateLocked) {
       vibes_short_pulse();
+      light_enable_interaction();
     }
     if (g_pacelet.activity_state == ActivityStateGps ||
         g_pacelet.activity_state == ActivityStateReady) {
-      g_pacelet.activity_state =
-          g_pacelet.gps_state == GpsStateLocked ?
-              ActivityStateReady : ActivityStateGps;
+      pacelet_set_state(g_pacelet.gps_state == GpsStateLocked ?
+              ActivityStateReady : ActivityStateGps);
     }
   }
 
@@ -433,8 +533,8 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
 
   Tuple *activity_id = dict_find(iter, MESSAGE_KEY_ACTIVITY_ID);
   if (activity_id) {
-    if ((g_pacelet.pending_command == MESSAGE_KEY_FINISH_ACTIVITY ||
-         g_pacelet.pending_command == MESSAGE_KEY_DISCARD_ACTIVITY) &&
+    if (g_pacelet.pending_command != 0 &&
+        g_pacelet.pending_command != MESSAGE_KEY_START_ACTIVITY &&
         g_pacelet.activity_id[0] != '\0' &&
         strcmp(g_pacelet.activity_id, activity_id->value->cstring) != 0) {
       // The phone is reporting a different current activity. Retire the old
@@ -481,6 +581,23 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
              recovery_message->value->cstring);
   }
 
+  Tuple *motion_mode = dict_find(iter, MESSAGE_KEY_MOTION_MODE);
+  if (motion_mode) {
+    g_pacelet.motion_mode = pacelet_clamp_i32(motion_mode->value->int32, MotionFull, MotionOff);
+    settings_changed = true;
+  }
+  Tuple *summary_hr = dict_find(iter, MESSAGE_KEY_SUMMARY_HR);
+  if (summary_hr) {
+    const char *cursor = summary_hr->value->cstring;
+    int32_t value;
+    if (parse_history_number(&cursor, &value, ',')) {
+      g_pacelet.summary_avg_hr = pacelet_clamp_i32(value, 0, 250);
+      for (int i = 0; i < 4; i++) {
+        if (!parse_history_number(&cursor, &value, i == 3 ? '\0' : ',')) break;
+        g_pacelet.zone_s[i] = pacelet_clamp_i32(value, 0, 999999);
+      }
+    }
+  }
   Tuple *dark_mode = dict_find(iter, MESSAGE_KEY_DARK_MODE);
   if (dark_mode) {
     g_pacelet.dark_mode = dark_mode->value->int32 ? true : false;
@@ -508,6 +625,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
 
   Tuple *history_count = dict_find(iter, MESSAGE_KEY_HISTORY_COUNT);
   if (history_count) {
+    s_history_pending = false;
     g_pacelet.history_count = pacelet_clamp_i32(
         history_count->value->int32, 0, PACELET_HISTORY_MAX);
     g_pacelet.history_loading = false;
@@ -515,6 +633,7 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
 
   Tuple *history_items = dict_find(iter, MESSAGE_KEY_HISTORY_ITEMS);
   if (history_items) {
+    s_history_pending = false;
     APP_LOG(APP_LOG_LEVEL_INFO, "History items received: %s",
             history_items->value->cstring);
     parse_history_items(history_items->value->cstring);
@@ -539,16 +658,41 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     g_pacelet.history_loading = false;
   }
 
+  Tuple *history_hr = dict_find(iter, MESSAGE_KEY_HISTORY_HR);
+  if (history_hr) {
+    const char *cursor = history_hr->value->cstring;
+    for (int i = 0; i < g_pacelet.history_count && *cursor; i++) {
+      int32_t value;
+      if (!parse_history_number(&cursor, &value, ',')) break;
+      g_pacelet.history_items[i].avg_hr = pacelet_clamp_i32(value, 0, 250);
+      for (int z = 0; z < 4; z++) {
+        if (!parse_history_number(&cursor, &value, z == 3 ? '\0' : ',')) break;
+        g_pacelet.history_items[i].zone_s[z] = pacelet_clamp_i32(value, 0, 999999);
+      }
+      if (*cursor == ';') cursor++;
+    }
+  }
+
   if (settings_changed) {
     pacelet_normalize_hr_zone_thresholds();
     save_settings();
   }
 
   if (phone_activity_state) {
+    s_initial_state_pending = false;
     activity_controller_handle_phone_activity_state(
         (PhoneActivityState)pacelet_clamp_i32(
             phone_activity_state->value->int32,
             PhoneActivityStateNone, PhoneActivityStateRecovery));
+  }
+
+  Tuple *upload_pending = dict_find(iter, MESSAGE_KEY_UPLOAD_PENDING);
+  if (upload_pending) {
+    g_pacelet.upload_pending = upload_pending->value->int32 != 0;
+    if (!g_pacelet.upload_pending &&
+        g_pacelet.pending_command != MESSAGE_KEY_FINISH_ACTIVITY) {
+      if (g_pacelet.overlay == OverlayExit) pacelet_set_overlay(OverlayNone);
+    }
   }
 
   watch_ui_mark_dirty();
@@ -556,6 +700,8 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
 
 static void inbox_dropped_callback(AppMessageResult reason, void *context) {
   APP_LOG(APP_LOG_LEVEL_WARNING, "Inbox dropped: %d", reason);
+  s_initial_state_pending = true;
+  schedule_retry();
 }
 
 static void retry_timer_callback(void *context) {
@@ -569,33 +715,36 @@ static void retry_timer_callback(void *context) {
     }
   } else if (s_initial_state_pending) {
     watch_services_request_initial_state();
+  } else if ((s_gps_pending || s_history_pending) && s_request_retries < 5) {
+    s_request_retries++;
+    send_command(s_history_pending ? MESSAGE_KEY_REQUEST_HISTORY :
+                   MESSAGE_KEY_REQUEST_GPS, false);
+    schedule_retry();
+  } else if (s_history_pending) {
+    s_history_pending = false;
+    g_pacelet.history_loading = false;
+    snprintf(g_pacelet.history_message, sizeof(g_pacelet.history_message),
+             "Phone unavailable. Try again.");
+    watch_ui_mark_dirty();
   }
 }
 
 static void schedule_retry(void) {
   if (!s_retry_timer) {
-    s_retry_timer = app_timer_register(750, retry_timer_callback, NULL);
+    s_retry_timer = app_timer_register(1500, retry_timer_callback, NULL);
   }
-}
-
-static bool sent_command(DictionaryIterator *iter, uint32_t command_key) {
-  return command_key != 0 && dict_find(iter, command_key) != NULL;
 }
 
 static void outbox_sent_callback(DictionaryIterator *iter, void *context) {
-  if (dict_find(iter, MESSAGE_KEY_REQUEST_ACTIVITY_STATE) &&
-      dict_find(iter, MESSAGE_KEY_REQUEST_SETTINGS)) {
-    s_initial_state_pending = false;
+  Tuple *batch = dict_find(iter, MESSAGE_KEY_HR_BPM_BATCH);
+  if (batch && batch->length <= g_pacelet.hr_batch_size &&
+      memcmp(batch->value->data, g_pacelet.hr_batch, batch->length) == 0) {
+    g_pacelet.hr_batch_size -= batch->length;
+    memmove(g_pacelet.hr_batch, g_pacelet.hr_batch + batch->length,
+            g_pacelet.hr_batch_size);
   }
-
-  if (sent_command(iter, g_pacelet.pending_command) &&
-      g_pacelet.pending_command != MESSAGE_KEY_FINISH_ACTIVITY &&
-      g_pacelet.pending_command != MESSAGE_KEY_DISCARD_ACTIVITY) {
-    g_pacelet.pending_command = 0;
-    watch_services_save_activity_state();
-  }
-
-  if (g_pacelet.pending_command != 0 || s_initial_state_pending) {
+  if (g_pacelet.pending_command != 0 || s_initial_state_pending ||
+      s_gps_pending || s_history_pending) {
     schedule_retry();
   }
 }
@@ -604,7 +753,8 @@ static void outbox_failed_callback(DictionaryIterator *iter,
                                    AppMessageResult reason,
                                    void *context) {
   APP_LOG(APP_LOG_LEVEL_WARNING, "Outbox failed: %d", reason);
-  if (g_pacelet.pending_command != 0 || s_initial_state_pending) {
+  if (g_pacelet.pending_command != 0 || s_initial_state_pending ||
+      s_gps_pending || s_history_pending) {
     schedule_retry();
   }
   if (!connection_service_peek_pebble_app_connection()) {
@@ -631,7 +781,7 @@ void watch_services_init(void) {
   app_message_register_inbox_dropped(inbox_dropped_callback);
   app_message_register_outbox_sent(outbox_sent_callback);
   app_message_register_outbox_failed(outbox_failed_callback);
-  app_message_open(768, 128);
+  app_message_open(1280, 128);
   connection_service_subscribe((ConnectionHandlers) {
     .pebble_app_connection_handler = app_connection_handler
   });
