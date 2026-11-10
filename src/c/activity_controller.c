@@ -257,6 +257,13 @@ static void request_gps(void) {
   update_hr(false);
   pacelet_set_state(ActivityStateGps);
   g_pacelet.gps_state = GpsStateSearching;
+  time_t seconds;
+  uint16_t milliseconds;
+  time_ms(&seconds, &milliseconds);
+  uint32_t request_id = g_pacelet.gps_request_id ?
+      (uint32_t)g_pacelet.gps_request_id + 1 : (uint32_t)seconds * 1000 + milliseconds;
+  if (!request_id) request_id = 1;
+  g_pacelet.gps_request_id = (int32_t)request_id;
   g_pacelet.gps_accuracy_m = -1;
   g_pacelet.gps_error[0] = '\0';
   watch_services_send_command(MESSAGE_KEY_REQUEST_GPS);
@@ -754,8 +761,12 @@ void activity_controller_handle_down(void) {
   } else if (g_pacelet.activity_state == ActivityStateActive ||
              g_pacelet.activity_state == ActivityStatePaused) {
     hide_split_summary();
-    g_pacelet.page = (g_pacelet.page + 1) % 4;
+    g_pacelet.page = (g_pacelet.page + 1) % PageCount;
     g_pacelet.page_opened_at = time(NULL);
+    if (g_pacelet.page == PageRoute) {
+      g_pacelet.route_requested_at = watch_services_request_route() ?
+          g_pacelet.page_opened_at : 0;
+    }
     watch_ui_mark_dirty();
   } else if (g_pacelet.activity_state == ActivityStateFinished) {
     return_to_choose();
@@ -781,7 +792,14 @@ void activity_controller_handle_tick(void) {
   maybe_send_hr_clear();
   maybe_send_periodic_hr();
   pacelet_record_metrics(time(NULL));
-  if (g_pacelet.page && time(NULL) - g_pacelet.page_opened_at >= 20) g_pacelet.page = 0;
+  time_t now = time(NULL);
+  if (g_pacelet.page && now - g_pacelet.page_opened_at >= 20) {
+    g_pacelet.page = PageDashboard;
+  }
+  if (g_pacelet.page == PageRoute &&
+      now - g_pacelet.route_requested_at >= 5 && watch_services_request_route()) {
+    g_pacelet.route_requested_at = now;
+  }
   BatteryChargeState battery = battery_state_service_peek();
   bool low_battery = battery.charge_percent <= 10 && !battery.is_charging;
   if (low_battery && !g_pacelet.low_battery &&

@@ -7,6 +7,11 @@
 #define PACELET_DEFAULT_HR_ZONE_2_BPM 130
 #define PACELET_DEFAULT_HR_ZONE_3_BPM 160
 #define PACELET_HISTORY_MAX 10
+#define PACELET_ROUTE_BYTES 128
+#define PACELET_ROUTE_WIDTH 150
+#define PACELET_ROUTE_HEIGHT 124
+
+typedef enum { PageDashboard, PageLaps, PageZones, PageHeart, PageRoute, PageCount } ActivityPage;
 
 typedef enum {
   ActivityStateChoose = 0,
@@ -55,7 +60,8 @@ typedef enum {
   HistoryStravaProcessing = 3,
   HistoryStravaUploaded = 4,
   HistoryStravaFailed = 5,
-  HistoryStravaSkipped = 6
+  HistoryStravaSkipped = 6,
+  HistoryStravaUnconfirmed = 7
 } HistoryStravaStatus;
 
 typedef enum { OverlayNone, OverlaySplit, OverlayFinish, OverlayDiscard, OverlayExit } PaceletOverlay;
@@ -75,7 +81,7 @@ typedef struct {
   bool dark_mode; // Legacy storage/protocol slot, ignored by Paceboard.
   MotionMode motion_mode;
   PaceletOverlay overlay;
-  uint8_t page; // 0 dashboard, 1 kilometres, 2 zones, 3 HR history.
+  ActivityPage page;
   time_t page_opened_at;
   int32_t recent_splits[PACELET_RECENT_SPLITS]; // Newest first, seconds per km.
   int32_t previous_split_s;
@@ -116,6 +122,7 @@ typedef struct {
   int32_t current_steps;
   bool current_steps_available;
   int32_t gps_accuracy_m;
+  int32_t gps_request_id;
 
   int32_t last_hr_bpm;
   int32_t last_hr_sent_elapsed_s;
@@ -142,6 +149,12 @@ typedef struct {
 
   bool phone_connected;
   bool upload_pending;
+  HistoryStravaStatus finished_strava_status;
+  char finished_activity_id[24];
+  uint8_t route_points[PACELET_ROUTE_BYTES];
+  uint8_t route_size;
+  bool route_received;
+  time_t route_requested_at;
   bool low_battery;
   uint8_t hr_batch[50];
   uint8_t hr_batch_size;

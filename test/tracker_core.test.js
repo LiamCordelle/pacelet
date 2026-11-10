@@ -601,3 +601,25 @@ run('delayed watch pauses overlapping phone-runtime recovery exclude time only o
   restored.reconcileWatchState(pausePacket([[1015000,1035000]]),false);
   assert.strictEqual(restored.getMetrics().movingS,15);
 });
+
+run('breadcrumb previews keep segment breaks, endpoints and antimeridian scale', function() {
+  var projectRoute = require('../src/pkjs/route_preview');
+  var points = [];
+  for (var i = 0; i < 150; i++) {
+    points.push({
+      lat: 0,
+      lon: ((179.99 + i * 0.001 + 180) % 360) - 180,
+      segmentStart: i === 100
+    });
+  }
+  var route = projectRoute(points);
+  assert.strictEqual(route.length, 129);
+  assert.strictEqual(route[1], 0);
+  assert.strictEqual(route[127], 150);
+  assert.strictEqual(route[2], 128 + 62);
+  assert.strictEqual(route[128], 62);
+  assert.strictEqual(route.filter(function(value, index) {
+    return index > 0 && index % 2 === 0 && (value & 128);
+  }).length, 2);
+  assert.deepStrictEqual(projectRoute([]), [1]);
+});

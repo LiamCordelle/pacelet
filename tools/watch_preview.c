@@ -75,7 +75,7 @@ static void fixture(int index,GContext*c,int effect,int progress) {
     case 12:m->activity_state=ActivityStatePaused;m->paused_at=v->now-68;break;
     case 13:m->activity_state=ActivityStatePaused;m->overlay=OverlayFinish;break;
     case 14:m->activity_state=ActivityStateFinished;m->summary_distance_m=4620;m->summary_moving_s=1394;break;
-    case 15:m->activity_state=ActivityStateFinished;m->upload_pending=true;break;
+    case 15:m->activity_state=ActivityStateFinished;m->upload_pending=true;m->finished_strava_status=HistoryStravaUploading;break;
     case 16:m->activity_state=ActivityStateFinished;m->upload_pending=true;m->overlay=OverlayExit;break;
     case 17:m->activity_state=ActivityStateHistoryList;m->history_count=3;break;
     case 18:m->activity_state=ActivityStateHistoryDetail;m->history_count=3;break;
@@ -86,9 +86,26 @@ static void fixture(int index,GContext*c,int effect,int progress) {
     case 23:v->elapsed=46799;m->current_pace_s_per_km=5999;m->distance_m=128740;m->recent_splits[0]=3599;m->previous_split_s=2845;m->last_hr_bpm=188;m->display_zone=3;break;
     case 24:memset(m->recent_splits,0,sizeof(m->recent_splits));m->previous_split_s=0;m->last_split_elapsed_s=0;m->split_number=0;break;
     case 25:m->low_battery=true;break;
+    case 27: {
+      static const uint8_t route[] = {22, 212, 19, 51, 35, 22, 70, 12,
+        105, 25, 127, 53, 130, 87, 110, 110, 77, 113, 58, 94, 67, 70,
+        81, 183, 108, 59, 118, 77};
+      m->page = PageRoute;
+      m->route_size = sizeof(route);
+      memcpy(m->route_points, route, sizeof(route));
+      break;
+    }
+    case 28:
+      m->activity_state = ActivityStateFinished;
+      m->finished_strava_status = HistoryStravaFailed;
+      break;
+    case 29:
+      m->activity_state = ActivityStateFinished;
+      m->finished_strava_status = HistoryStravaUnconfirmed;
+      break;
     case 26:m->activity_state=ActivityStatePaused;m->paused_at=v->now-68;strcpy(m->recovery_message,"SYNC PHONE TO RESUME");break;
   }
-  for(int i=0;i<3;i++){HistoryItem*item=&m->history_items[i];item->activity_type=(i+1)%3;item->distance_m=i==0?4620:i==1?18740:2120;item->moving_s=i==0?1394:i==1?1896:1458;item->avg_hr=146;memcpy(item->zone_s,m->zone_s,sizeof(item->zone_s));item->strava_status=HistoryStravaUploaded;}
+  for(int i=0;i<3;i++){HistoryItem*item=&m->history_items[i];item->activity_type=(i+1)%3;item->distance_m=i==0?4620:i==1?18740:2120;item->moving_s=i==0?1394:i==1?1896:1458;item->avg_hr=146;memcpy(item->zone_s,m->zone_s,sizeof(item->zone_s));item->strava_status=i==0?HistoryStravaUploaded:i==1?HistoryStravaFailed:HistoryStravaProcessing;}
   strcpy(m->history_message,"Strava uploaded");
   v->model=*m;v->scene=scene_for(m);s_ui.from=*v;
   s_ui.radius_from=38;s_ui.radius_to=38;s_ui.gps_began=0;s_ui.picker_from_y=37;

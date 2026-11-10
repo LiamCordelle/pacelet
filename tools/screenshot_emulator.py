@@ -17,11 +17,11 @@ EMULATOR = 'emery'
 SCREENS = ['choose', 'gps-search', 'gps-ready', 'countdown', 'activity',
            'split', 'paused', 'end-confirm', 'finished', 'recovery',
            'recovery-discard', 'upload-exit', 'kilometres', 'zones', 'heart-history',
-           'history', 'history-detail']
+           'history', 'history-detail', 'route']
 ALL_SCREEN_SEQUENCE = ['choose', 'gps-search', 'gps-ready', 'countdown',
                        'activity', 'split', 'paused', 'end-confirm',
                        'finished', 'upload-exit', 'kilometres', 'zones', 'heart-history',
-                       'history', 'history-detail', 'recovery', 'recovery-discard']
+                       'history', 'history-detail', 'recovery', 'recovery-discard', 'route']
 ACTIVITY_DOWN_CLICKS = {
     'running': 0,
     'cycling': 1,
@@ -42,6 +42,8 @@ def build_parser():
                         help='Send the ignored legacy DARK_MODE flag for compatibility QA.')
     parser.add_argument('--all-screens', action='store_true',
                         help='Capture the main app flow in one command.')
+    parser.add_argument('--isolated', action='store_true',
+                        help='Boot a fresh emulator for each capture in all-screens mode.')
     parser.add_argument('--activity', default='running',
                         choices=['running', 'walking', 'cycling'],
                         help='Activity selected before capture. Default: running.')
@@ -70,7 +72,7 @@ def build_parser():
 
 def default_lock_delay(screen, all_screens):
     if all_screens:
-        return 3.0
+        return 5.0
     if screen == 'gps-search':
         return 30.0
     return 0.5
@@ -249,8 +251,9 @@ def drive_to_screen(args, env, lock_delay):
             wait(0.5, args.dry_run)
         return
 
-    if args.screen in ('kilometres', 'zones', 'heart-history'):
-        for _ in range(('kilometres', 'zones', 'heart-history').index(args.screen) + 1):
+    pages = ('kilometres', 'zones', 'heart-history', 'route')
+    if args.screen in pages:
+        for _ in range(pages.index(args.screen) + 1):
             click(args, 'down', env)
             wait(0.35, args.dry_run)
         return
@@ -306,7 +309,7 @@ def verify_capture(args, output):
         'history': ('history', (10, 45)),
         'history-detail': ('history-detail', (170, 100)),
     }
-    if args.screen not in checks and args.screen not in ('kilometres', 'zones', 'heart-history'):
+    if args.screen not in checks and args.screen not in ('gps-search', 'kilometres', 'zones', 'heart-history', 'route'):
         return
     reference, point = checks.get(args.screen, (args.screen, (0, 22)))
     actual = Image.open(output).convert('RGB')
@@ -322,6 +325,8 @@ def verify_capture(args, output):
         'recovery': (8, 34, 172, 72), 'recovery-discard': (8, 57, 172, 125),
         'kilometres': (8, 27, 172, 62), 'zones': (8, 27, 172, 62),
         'heart-history': (8, 27, 172, 62),
+        'route': (8, 27, 172, 62),
+        'gps-search': (8, 148, 172, 181),
     }
     if args.screen in regions:
         box = regions[args.screen]
@@ -361,6 +366,86 @@ def capture(args, base_env, output):
         wait(args.post_capture_s, args.dry_run)
 
 
+def capture_shared_flow(args, sim_env, base_env, lock_delay):
+    original_screen = args.screen
+    captured = set()
+
+    def shot(screen):
+        args.screen = screen
+        index = ALL_SCREEN_SEQUENCE.index(screen) + 1
+        capture(args, base_env, all_output_path(args, screen, index))
+        captured.add(screen)
+
+    def press(button, delay=0.35):
+        click(args, button, sim_env)
+        wait(delay, args.dry_run)
+
+    def start_recording():
+        press('select', lock_delay + 0.5)
+        press('select', 3.3)
+
+    try:
+        if not args.reuse_emulator:
+            reset_emulator(args, base_env)
+        install_app(args, sim_env)
+        wait(args.settle_s, args.dry_run)
+        if args.dark_mode:
+            send_metric(args, sim_env, 'DARK_MODE', 1)
+        press_activity_buttons(args, sim_env)
+        shot('choose')
+        started = time.monotonic()
+        press('select', 0.35)
+        shot('gps-search')
+        wait(lock_delay + 0.8 - (time.monotonic() - started), args.dry_run)
+        shot('gps-ready')
+        started = time.monotonic()
+        press('select', 0.25)
+        shot('countdown')
+        wait(3.6 - (time.monotonic() - started), args.dry_run)
+        shot('activity')
+
+        for page in ('kilometres', 'zones', 'heart-history', 'route'):
+            press('down')
+            shot(page)
+        press('select')
+        send_metric(args, sim_env, 'DISTANCE_M', 1000)
+        wait(0.35, args.dry_run)
+        shot('split')
+        press('up')
+        shot('paused')
+        press('select')
+        shot('end-confirm')
+        press('up', 1.1)
+        shot('finished')
+        send_metric(args, sim_env, 'UPLOAD_PENDING', 1)
+        press('back')
+        shot('upload-exit')
+        press('down')
+        send_metric(args, sim_env, 'UPLOAD_PENDING', 0)
+        press('select', 0.8)
+        shot('history')
+        press('select')
+        shot('history-detail')
+
+        # Recover a second recording. Reinstall on the same emulator so its
+        # watch checkpoint and phone draft survive the app/runtime restart.
+        press('back')
+        press('back')
+        start_recording()
+        # Pause/resume sends immediate phone checkpoints. This leaves an active
+        # draft to recover without waiting for the periodic checkpoint timer.
+        press('up', 0.8)
+        press('up', 0.8)
+        install_app(args, sim_env)
+        wait(3.0, args.dry_run)
+        shot('recovery')
+        press('down')
+        shot('recovery-discard')
+    finally:
+        args.screen = original_screen
+    print('Captured {} emulator screenshots in one session.'.format(len(captured)))
+
+
 def capture_all_screens(args, sim_env, base_env, lock_delay):
     original_screen = args.screen
     captured = []
@@ -395,6 +480,8 @@ def capture_all_screens(args, sim_env, base_env, lock_delay):
 def main(argv):
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.isolated and not args.all_screens:
+        parser.error('--isolated requires --all-screens.')
     if args.all_screens and args.output:
         parser.error('--output only applies to single-screen capture; use --output-dir with --all-screens.')
 
@@ -423,7 +510,8 @@ def main(argv):
         if not PBW.exists() and not args.dry_run:
             raise SystemExit('PBW not found: {}'.format(PBW))
 
-        capture_all_screens(args, sim_env, base_env, lock_delay)
+        capture_flow = capture_all_screens if args.isolated else capture_shared_flow
+        capture_flow(args, sim_env, base_env, lock_delay)
         return 0
 
     if not args.reuse_emulator:

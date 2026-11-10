@@ -21,7 +21,8 @@ static const char *HISTORY_STATUS_LABELS[] = {
   "PROCESSING",
   "UPLOADED",
   "FAILED",
-  "SKIPPED"
+  "SKIPPED",
+  "UNCONFIRMED"
 };
 
 PaceletModel g_pacelet;
@@ -92,6 +93,10 @@ void pacelet_model_reset_activity(bool preserve_hr) {
   g_pacelet.summary_distance_m = 0;
   g_pacelet.summary_moving_s = 0;
   g_pacelet.summary_points = 0;
+  g_pacelet.finished_activity_id[0] = '\0';
+  g_pacelet.finished_strava_status = HistoryStravaUnknown;
+  g_pacelet.route_size = 0;
+  g_pacelet.route_received = false;
   g_pacelet.recovery_moving_s = 0;
   g_pacelet.activity_checkpointed_at = 0;
   g_pacelet.pending_command = 0;
@@ -189,7 +194,7 @@ const char *pacelet_activity_short_label(ActivityType type) {
 
 const char *pacelet_history_status_label(HistoryStravaStatus status) {
   return HISTORY_STATUS_LABELS[pacelet_clamp_i32(
-      status, HistoryStravaUnknown, HistoryStravaSkipped)];
+      status, HistoryStravaUnknown, HistoryStravaUnconfirmed)];
 }
 
 void pacelet_set_state(ActivityState state) {

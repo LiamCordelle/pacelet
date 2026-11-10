@@ -83,7 +83,11 @@ function createHttpRequest(XMLHttpRequestConstructor) {
     xhr.onerror = function() {
       callback(new Error('Network error'));
     };
+    xhr.ontimeout = function() {
+      callback(new Error('Network request timed out'));
+    };
     xhr.open(options.method || 'GET', options.url);
+    xhr.timeout = 20000;
     for (key in headers) {
       if (headers.hasOwnProperty(key)) {
         xhr.setRequestHeader(key, headers[key]);
@@ -106,7 +110,8 @@ function createStravaService(options) {
   function isUploadPending(activity) {
     return !!activity && !!activity.stravaUploadId &&
       (activity.stravaStatus === 'uploading' ||
-       activity.stravaStatus === 'processing');
+       activity.stravaStatus === 'processing' ||
+       activity.stravaStatus === 'unconfirmed');
   }
 
   function updateActivity(activityId, patch) {
@@ -218,7 +223,7 @@ function createStravaService(options) {
     if (attempt > 10) {
       delete polls[activityId];
       updateActivity(activityId, {
-        stravaStatus: 'processing',
+        stravaStatus: 'unconfirmed',
         stravaUploadStatus: 'Timed out waiting for Strava',
         stravaError: ''
       });
@@ -302,6 +307,9 @@ function createStravaService(options) {
       resumeUpload(saved);
       return;
     }
+    if (saved && (saved.stravaStatus === 'uploading' || saved.stravaStatus === 'uploaded')) {
+      return;
+    }
     if (!Strava.hasActivityWrite(settings)) {
       updateActivity(activity.id, {
         stravaStatus: 'failed',
@@ -377,6 +385,14 @@ function createStravaService(options) {
         }
 
         uploadId = json.id || json.id_str || '';
+        if (!uploadId) {
+          updateActivity(activity.id, {
+            stravaStatus: json.activity_id ? 'uploaded' : 'failed',
+            stravaActivityId: json.activity_id || '',
+            stravaError: json.activity_id ? '' : 'Strava did not return an upload ID'
+          });
+          return;
+        }
         updateActivity(activity.id, {
           stravaStatus: 'processing',
           stravaUploadId: uploadId,
@@ -416,8 +432,15 @@ function createStravaService(options) {
     getAccessToken(function(err) {
       if (err) {
         delete polls[activity.id];
+        updateActivity(activity.id, {
+          stravaStatus: 'unconfirmed',
+          stravaUploadStatus: err.message
+        });
         log('Strava polling deferred: ' + err.message);
         return;
+      }
+      if (activity.stravaStatus === 'unconfirmed') {
+        updateActivity(activity.id, { stravaStatus: 'processing' });
       }
       pollUpload(activity.id, activity.stravaUploadId, 1);
     });
@@ -425,7 +448,8 @@ function createStravaService(options) {
 
   function resumePendingUploads() {
     store.getActivities().forEach(function(activity) {
-      if (activity.stravaStatus === 'uploading' && !activity.stravaUploadId) {
+      if ((activity.stravaStatus === 'uploading' ||
+           activity.stravaStatus === 'processing') && !activity.stravaUploadId) {
         updateActivity(activity.id, {
           stravaStatus: 'failed',
           stravaError: 'Upload interrupted before Strava confirmed receipt. Retry to check.',
@@ -442,6 +466,12 @@ function createStravaService(options) {
         ok: false,
         message: 'Strava retry failed: activity not found.'
       };
+    }
+    if (activity.stravaActivityId || activity.stravaStatus === 'uploaded') {
+      return { ok: false, message: 'Already uploaded to Strava.' };
+    }
+    if (activity.stravaStatus === 'uploading' && !activity.stravaUploadId) {
+      return { ok: false, message: 'Strava upload is already in progress.' };
     }
     if (activity.rawDataPruned) {
       return { ok: false, message: 'Track archived to Strava; local raw data was freed to save storage.' };

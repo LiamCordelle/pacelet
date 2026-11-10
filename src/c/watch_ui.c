@@ -17,7 +17,7 @@
 // All animations consume view snapshots. Sensor data and controller timers are
 // authoritative; frame callbacks never mutate recording state.
 typedef enum { ScenePicker, SceneGps, SceneCountdown, SceneLive, SceneLaps,
-  SceneZones, SceneHeart, SceneRecap, SceneUpload, SceneHistory, SceneDetail, SceneRecovery } Scene;
+  SceneZones, SceneHeart, SceneRoute, SceneRecap, SceneUpload, SceneHistory, SceneDetail, SceneRecovery } Scene;
 typedef struct {
   PaceletModel model;
   int32_t elapsed;
@@ -85,7 +85,16 @@ static void pb_icon(GContext*c,int icon,int cy,GColor ink){
  case I_CHECK:pb_line(c,184,cy,188,cy+4,ink,2);pb_line(c,188,cy+4,196,cy-5,ink,2);break;
  case I_BACK:pb_line(c,193,cy-5,187,cy,ink,2);pb_line(c,187,cy,193,cy+5,ink,2);break;
  case I_DELETE:pb_line(c,185,cy-5,195,cy+5,ink,2);pb_line(c,195,cy-5,185,cy+5,ink,2);break;
- case I_PAGES:for(int i=0;i<3;i++)pb_fill(c,187,cy-7+i*6,6,3,ink,0);break;
+ case I_PAGES:
+   for (int i = 0; i < PageCount; i++) {
+     int y = cy - 11 + i * 5;
+     if (i == s_ui.view.model.page) pb_fill(c, 185, y, 10, 4, ink, 0);
+     else {
+       graphics_context_set_stroke_color(c, ink);
+       graphics_draw_rect(c, GRect(185, y + pb_dy, 10, 4));
+     }
+   }
+   break;
  case I_FILE:pb_line(c,186,cy-7,194,cy-7,ink,1);pb_line(c,194,cy-7,194,cy+7,ink,1);pb_line(c,194,cy+7,186,cy+7,ink,1);pb_line(c,186,cy+7,186,cy-7,ink,1);pb_line(c,188,cy-2,192,cy-2,ink,1);pb_line(c,188,cy+2,192,cy+2,ink,1);break;
  case I_RETRY:graphics_context_set_stroke_color(c,ink);graphics_context_set_stroke_width(c,2);graphics_draw_arc(c,GRect(185,cy-5,11,11),GOvalScaleModeFitCircle,DEG_TO_TRIGANGLE(45),DEG_TO_TRIGANGLE(320));pb_line(c,194,cy-5,194,cy,ink,2);pb_line(c,194,cy-5,189,cy-5,ink,2);break;
  default:break;
@@ -112,8 +121,17 @@ static Scene scene_for(const PaceletModel*m) {
     case ActivityStateGps:case ActivityStateReady:return SceneGps;
     case ActivityStateCountdown:return SceneCountdown;
     case ActivityStateActive:case ActivityStatePaused:
-      return m->page==1?SceneLaps:m->page==2?SceneZones:m->page==3?SceneHeart:SceneLive;
-    case ActivityStateFinished:return m->upload_pending&&!m->pending_command?SceneUpload:SceneRecap;
+      switch (m->page) {
+        case PageLaps: return SceneLaps;
+        case PageZones: return SceneZones;
+        case PageHeart: return SceneHeart;
+        case PageRoute: return SceneRoute;
+        default: return SceneLive;
+      }
+    case ActivityStateFinished:
+      return (m->finished_strava_status == HistoryStravaUploading ||
+              m->finished_strava_status == HistoryStravaProcessing) &&
+              !m->pending_command ? SceneUpload : SceneRecap;
     case ActivityStateHistoryList:return SceneHistory;
     case ActivityStateHistoryDetail:return SceneDetail;
     default:return SceneRecovery;
@@ -208,7 +226,16 @@ static void live(GContext*c,const WatchView*v,bool recap) {
   pb_number(c,hero,4,35,172,73,FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM,FONT_KEY_LECO_42_NUMBERS,paused?PB_MUTED:PB_INK,GTextAlignmentCenter);
   pb_pair(c,distance,second,walk&&!recap?"STEPS":"ELAPSED");
   pb_line(c,8,161,172,161,PB_RULE,1);
-  if(recap) {
+  if (recap && m->finished_strava_status == HistoryStravaFailed) {
+    PB_LABEL(c, "STRAVA UPLOAD FAILED", 8, 162, 164, PB_RED);
+    PB_LABEL(c, "RETRY IN HISTORY", 8, 180, 164, PB_MUTED);
+  } else if (recap && m->finished_strava_status == HistoryStravaUnconfirmed) {
+    PB_LABEL(c, "STRAVA NOT CONFIRMED", 8, 162, 164, PB_INK);
+    PB_LABEL(c, "CHECK IN HISTORY", 8, 180, 164, PB_MUTED);
+  } else if (recap && m->finished_strava_status == HistoryStravaSkipped) {
+    PB_LABEL(c, "STRAVA UPLOAD SKIPPED", 8, 162, 164, PB_INK);
+    PB_LABEL(c, "CHECK STRAVA SETTINGS", 8, 180, 164, PB_MUTED);
+  } else if(recap) {
     int32_t total=0;for(int i=0;i<4;i++)total+=m->zone_s[i];
     if(total) {
       for(int i=0;i<4;i++){char z[3];snprintf(z,sizeof(z),"Z%d",i);pb_fill(c,8+i*42,170,7,7,pb_zone(i),0);PB_LABEL(c,z,18+i*42,164,25,PB_MUTED);}
@@ -228,7 +255,17 @@ static void live(GContext*c,const WatchView*v,bool recap) {
   }
   hr_band(c,v,recap);
 }
-static int gps_radius(int accuracy){return accuracy<0?60:pb_clamp(accuracy*12/10,0,60);}
+static int gps_radius(int accuracy) {
+  if (accuracy < 0) return 60;
+  // Show improvement earlier in acquisition and meet the inner ring at 25 m.
+  return 30 + pb_clamp(accuracy - PACELET_GPS_LOCK_ACCURACY_M, 0, 75) * 30 / 75;
+}
+static int visible_gps_radius(const WatchView *view) {
+  if (s_ui.effect == FxFix) {
+    return pb_lerp(s_ui.radius_from, s_ui.radius_to, pb_ease(s_ui.progress));
+  }
+  return gps_radius(view->model.gps_accuracy_m);
+}
 static void gps(GContext*c,const WatchView*v) {
   const PaceletModel*m=&v->model;bool ready=m->gps_state==GpsStateLocked,error=m->gps_state==GpsStateError;
   int p=s_ui.effect==FxLock?s_ui.progress:1000;
@@ -254,12 +291,26 @@ static void gps(GContext*c,const WatchView*v) {
   pb_text(c,error?(m->gps_error[0]?m->gps_error:"Check phone location"):detail,FONT_KEY_GOTHIC_18,8,183,164,27,PB_MUTED,GTextAlignmentCenter);
   PB_LABEL(c,error?"UP TO RETRY":ready?"SELECT TO START":"KEEP PHONE NEARBY",28,211,148,PB_MUTED);
 }
-static void countdown(GContext*c,const WatchView*v) {
-  int r=60,p=s_ui.effect==FxCount?s_ui.progress:1000;
-  if(p<1000){const int radii[]={60,66,60,63,60};int seg=pb_clamp(p/250,0,3);r=pb_lerp(radii[seg],radii[seg+1],p%250*4);}
-  graphics_context_set_fill_color(c,PB_MIST);graphics_fill_circle(c,GPoint(90,112+pb_dy),r);
-  char n[4];snprintf(n,sizeof(n),"%d",v->model.countdown_value);
-  pb_text(c,n,FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM,30,68,120,90,PB_INK,GTextAlignmentCenter);PB_LABEL(c,"STARTING",60,195,95,PB_MUTED);
+// Centre within the body between the status header and the bottom edge.
+#define COUNTDOWN_CENTRE_Y 125
+#define COUNTDOWN_RADIUS 60
+static void countdown(GContext *c, const WatchView *v) {
+  int centre_y = COUNTDOWN_CENTRE_Y + pb_dy;
+  GRect disc = GRect(30, centre_y - COUNTDOWN_RADIUS, 120, 120);
+  graphics_context_set_fill_color(c, PB_MIST);
+  graphics_fill_circle(c, GPoint(90, centre_y), COUNTDOWN_RADIUS);
+  if (s_ui.effect == FxCount && s_ui.progress < 1000) {
+    graphics_context_set_fill_color(c, PB_TEAL);
+    int remaining = TRIG_MAX_ANGLE * (1000 - s_ui.progress) / 1000;
+    graphics_fill_radial(c, disc, GOvalScaleModeFitCircle, 5,
+                         TRIG_MAX_ANGLE - remaining, TRIG_MAX_ANGLE);
+  }
+  char numeral[4];
+  snprintf(numeral, sizeof(numeral), "%d", v->model.countdown_value);
+  pb_text(c, numeral, FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM, 30,
+          COUNTDOWN_CENTRE_Y - 38, 120, 90, PB_INK, GTextAlignmentCenter);
+  pb_text(c, "STARTING", FONT_KEY_GOTHIC_14_BOLD, 0, 201, 180, 18,
+          PB_MUTED, GTextAlignmentCenter);
 }
 static void laps(GContext*c,const WatchView*v) {
   pb_text(c,"Kilometres",FONT_KEY_GOTHIC_24_BOLD,8,27,164,35,PB_INK,GTextAlignmentLeft);
@@ -289,6 +340,46 @@ static void heart_page(GContext*c,const WatchView*v) {
   for(int i=0;i<60;i++){int b=v->model.hr_history[(v->now-59+i)%60];if(b<=0)continue;int h=pb_clamp((b-40)*47/180,2,47);pb_fill(c,8+i*164/60,206-h,2,h,pb_zone(zone_for(v,b)),0);}
   PB_LABEL(c,"-60S",8,211,60,PB_MUTED);pb_text(c,"NOW",FONT_KEY_GOTHIC_14_BOLD,120,211,52,18,PB_MUTED,GTextAlignmentRight);
 }
+static void route_page(GContext *c, const WatchView *v) {
+  const PaceletModel *model = &v->model;
+  pb_text(c, "Route", FONT_KEY_GOTHIC_24_BOLD, 8, 27, 164, 35,
+          PB_INK, GTextAlignmentLeft);
+  if (!model->route_size) {
+    const char *message = !model->phone_connected ? "Phone disconnected" :
+        model->route_received ? "Waiting for GPS points" : "Loading route";
+    pb_text(c, message, FONT_KEY_GOTHIC_18, 8, 115, 164, 30,
+            PB_MUTED, GTextAlignmentCenter);
+    return;
+  }
+
+  GPoint previous = GPointZero;
+  for (unsigned i = 0; i < model->route_size; i += 2) {
+    int x = 15 + model->route_points[i];
+    uint8_t encoded_y = model->route_points[i + 1];
+    int y = 70 + (encoded_y & 127);
+    if (i && !(encoded_y & 128)) {
+      pb_line(c, previous.x, previous.y, x, y, PB_TEAL, 3);
+    }
+    previous = GPoint(x, y);
+  }
+  graphics_context_set_fill_color(c, PB_INK);
+  graphics_fill_circle(c, GPoint(previous.x, previous.y + pb_dy), 4);
+  PB_LABEL(c, model->phone_connected ? "RECORDED GPS TRACK" : "LAST RECEIVED ROUTE",
+           8, 207, 164, PB_MUTED);
+}
+
+static void history_status_icon(GContext *c, HistoryStravaStatus status, int y) {
+  if (status == HistoryStravaUploaded) {
+    pb_line(c, 9, y, 13, y + 4, PB_INK, 2);
+    pb_line(c, 13, y + 4, 21, y - 5, PB_INK, 2);
+  } else if (status == HistoryStravaUploading || status == HistoryStravaProcessing) {
+    for (int x = 9; x <= 19; x += 5) pb_fill(c, x, y, 2, 2, PB_MUTED, 0);
+  } else {
+    GColor ink = status == HistoryStravaFailed ? PB_RED : PB_MUTED;
+    pb_line(c, 10, y - 5, 20, y + 5, ink, 2);
+    pb_line(c, 20, y - 5, 10, y + 5, ink, 2);
+  }
+}
 static void history(GContext*c,const WatchView*v) {
   const PaceletModel*m=&v->model;
   if(m->history_loading){pb_text(c,"Loading history",FONT_KEY_GOTHIC_24_BOLD,8,60,164,70,PB_INK,GTextAlignmentCenter);return;}
@@ -298,7 +389,10 @@ static void history(GContext*c,const WatchView*v) {
     if(i==m->history_selected_index)pb_fill(c,0,y,180,58,PB_MIST,0);
     if(i==m->history_count){pb_text(c,"Back",FONT_KEY_GOTHIC_24_BOLD,8,y,164,32,PB_INK,GTextAlignmentLeft);continue;}
     const HistoryItem*item=&m->history_items[i];char dist[16],time[20],line[48];distance_text(dist,sizeof(dist),item->distance_m);duration_text(time,sizeof(time),item->moving_s);snprintf(line,sizeof(line),"%s KM   %s",dist,time);
-    pb_text(c,pacelet_activity_label(item->activity_type),FONT_KEY_GOTHIC_24_BOLD,8,y,164,32,PB_INK,GTextAlignmentLeft);PB_LABEL(c,line,8,y+34,164,PB_MUTED);
+    history_status_icon(c, item->strava_status, y + 21);
+    pb_text(c, pacelet_activity_label(item->activity_type), FONT_KEY_GOTHIC_24_BOLD,
+            29, y, 143, 32, PB_INK, GTextAlignmentLeft);
+    PB_LABEL(c, line, 29, y + 34, 143, PB_MUTED);
     if(i!=m->history_selected_index)pb_line(c,8,y+58,172,y+58,PB_RULE,1);
   }
 }
@@ -327,6 +421,7 @@ static void content(GContext*c,const WatchView*v) {
     case SceneLaps:laps(c,v);break;
     case SceneZones:zones(c,v);break;
     case SceneHeart:heart_page(c,v);break;
+    case SceneRoute:route_page(c,v);break;
     case SceneRecap:live(c,v,true);break;
     case SceneUpload:upload(c);break;
     case SceneHistory:history(c,v);break;
@@ -363,7 +458,7 @@ static void render_content(GContext*c,int origin) {
   if(s_ui.effect==FxPush){pb_dy=origin-206*e/1000;content(c,&s_ui.from);pb_dy=origin+206*(1000-e)/1000;content(c,&s_ui.view);}
   else if(s_ui.effect==FxStart){
     pb_dy=origin+(1000-e)*90/1000;content(c,&s_ui.view);pb_dy=origin;
-    pb_fill(c,0,22,180,88,PB_PAPER,0);int x=pb_lerp(30,0,e),y=pb_lerp(52,22,e),w=pb_lerp(120,180,e),h=pb_lerp(120,88,e);
+    pb_fill(c,0,22,180,88,PB_PAPER,0);int x=pb_lerp(30,0,e),y=pb_lerp(COUNTDOWN_CENTRE_Y-COUNTDOWN_RADIUS,22,e),w=pb_lerp(120,180,e),h=pb_lerp(120,88,e);
     pb_fill(c,x,y,w,h,PB_MIST,pb_lerp(60,0,e));
     if(s_ui.progress<500)pb_text(c,"GO",FONT_KEY_BITHAM_42_BOLD,x,y+h/2-26,w,60,PB_INK,GTextAlignmentCenter);
     else {
@@ -398,7 +493,7 @@ static void draw_header(Layer*layer,GContext*c) {
   const WatchView*v=&s_ui.view;const PaceletModel*m=&v->model;pb_dy=0;pb_fill(c,0,0,180,22,PB_PAPER,0);
   const char*mode=v->scene==ScenePicker?"PACELET":v->scene==SceneHistory||v->scene==SceneDetail?"HIST":pacelet_activity_short_label(m->activity_type);
   char clock[12],status[16];struct tm*tm=localtime(&v->now);strftime(clock,sizeof(clock),clock_is_24h_style()?"%H:%M":"%I:%M",tm);
-  snprintf(status,sizeof(status),"%s",m->low_battery?"LOW BAT":!m->phone_connected?"OFFLINE":m->activity_state==ActivityStatePaused?"PAUSED":m->activity_state==ActivityStateFinished?(m->pending_command?"SAVING":m->upload_pending?"STRAVA":"SAVED"):v->scene==SceneLaps?"LAPS":v->scene==SceneZones?"ZONES":v->scene==SceneHeart?"TRACE":v->scene==SceneGps?(m->gps_state==GpsStateLocked?"READY":m->gps_state==GpsStateError?"GPS ERR":"GPS"):v->scene==SceneRecovery?"RECOVER":"");
+  snprintf(status,sizeof(status),"%s",m->low_battery?"LOW BAT":!m->phone_connected?"OFFLINE":m->activity_state==ActivityStatePaused?"PAUSED":m->activity_state==ActivityStateFinished?(m->pending_command?"SAVING":v->scene==SceneUpload?"STRAVA":"SAVED"):v->scene==SceneLaps?"LAPS":v->scene==SceneZones?"ZONES":v->scene==SceneHeart?"TRACE":v->scene==SceneRoute?"ROUTE":v->scene==SceneGps?(m->gps_state==GpsStateLocked?"READY":m->gps_state==GpsStateError?"GPS ERR":"GPS"):v->scene==SceneRecovery?"RECOVER":"");
   if(m->overlay==OverlayFinish)snprintf(status,sizeof(status),"FINISH?");
   if(m->overlay==OverlayDiscard)snprintf(status,sizeof(status),"DELETE?");
   if(m->overlay==OverlaySplit)snprintf(status,sizeof(status),"SPLIT");
@@ -414,7 +509,7 @@ static void draw_rail(Layer*layer,GContext*c) {
   else if(v->scene==ScenePicker||v->scene==SceneHistory){up=I_UP;sel=I_PLAY;down=I_DOWN;}
   else if(v->scene==SceneGps){up=I_RETRY;sel=m->gps_state==GpsStateLocked?I_PLAY:I_RETRY;down=I_DOWN;}
   else if(live_state(m->activity_state)){up=m->activity_state==ActivityStatePaused?I_PLAY:I_PAUSE;sel=m->page||m->overlay==OverlaySplit?I_BACK:m->activity_state==ActivityStatePaused?I_STOP:I_NONE;down=I_PAGES;}
-  else if(v->scene==SceneRecap||v->scene==SceneUpload){up=I_PLAY;sel=I_PAGES;down=I_BACK;}
+  else if(v->scene==SceneRecap||v->scene==SceneUpload){up=I_PLAY;sel=I_FILE;down=I_BACK;}
   else if(v->scene==SceneDetail){up=I_FILE;sel=I_RETRY;down=I_BACK;}
   else if(v->scene==SceneRecovery){up=m->recovery_phone_draft_available?I_PLAY:I_NONE;sel=m->recovery_phone_draft_available?I_STOP:I_NONE;down=I_DELETE;}
   pb_fill(c,180,0,20,228,PB_INK,0);pb_icon(c,up,57,PB_PAPER);pb_icon(c,sel,114,PB_PAPER);pb_icon(c,down,171,PB_PAPER);
@@ -465,18 +560,18 @@ void watch_ui_mark_dirty(void) {
     else if(next->model.overlay!=OverlayNone){effect=FxSheet;duration=next->model.overlay==OverlaySplit?280:240;}
     else if(previous->model.overlay==OverlaySplit&&!state_change){effect=FxSplitOut;duration=240;}
     else if(next->scene==SceneUpload){effect=FxUpload;duration=720;}
-    else if(next->scene==SceneCountdown){effect=FxCount;duration=280;}
+    else if(next->scene==SceneCountdown){effect=FxCount;duration=1000;}
     else if(next->model.activity_state==ActivityStateActive&&previous->scene==SceneCountdown){effect=FxStart;duration=440;}
     else if(next->scene==SceneRecap&&next->model.pending_command==0&&previous->model.pending_command!=0){effect=FxSave;duration=760;}
     else if(next->scene==ScenePicker&&previous->scene==ScenePicker){effect=FxPick;duration=240;}
     else if(live_state(next->model.activity_state)&&live_state(previous->model.activity_state)&&state_change){effect=FxPause;duration=200;}
     else if(next->scene!=previous->scene){effect=FxPush;duration=240;}
-    s_ui.view=*next;s_ui.radius_from=gps_radius(previous->model.gps_accuracy_m);s_ui.radius_to=gps_radius(next->model.gps_accuracy_m);begin_motion(effect,duration);
+    s_ui.view=*next;s_ui.radius_from=visible_gps_radius(previous);s_ui.radius_to=gps_radius(next->model.gps_accuracy_m);begin_motion(effect,duration);
   }else {
     s_ui.view=*next;
-    if(next->scene==SceneGps&&next->model.gps_state!=previous->model.gps_state){s_ui.from=*previous;s_ui.radius_from=gps_radius(previous->model.gps_accuracy_m);if(next->model.gps_state==GpsStateSearching){s_ui.gps_began=clock_ms();begin_motion(FxOrbit,15000);}
+    if(next->scene==SceneGps&&next->model.gps_state!=previous->model.gps_state){s_ui.from=*previous;s_ui.radius_from=visible_gps_radius(previous);if(next->model.gps_state==GpsStateSearching){s_ui.gps_began=clock_ms();begin_motion(FxOrbit,15000);}
       else begin_motion(next->model.gps_state==GpsStateLocked?FxLock:FxNone,480);}
-    else if(next->scene==SceneGps&&next->model.gps_state==GpsStateSearching&&next->model.gps_accuracy_m!=previous->model.gps_accuracy_m&&optional_motion()){s_ui.radius_from=gps_radius(previous->model.gps_accuracy_m);s_ui.radius_to=gps_radius(next->model.gps_accuracy_m);begin_motion(FxFix,320);}
+    else if(next->scene==SceneGps&&next->model.gps_state==GpsStateSearching&&next->model.gps_accuracy_m!=previous->model.gps_accuracy_m&&optional_motion()){s_ui.radius_from=visible_gps_radius(previous);s_ui.radius_to=gps_radius(next->model.gps_accuracy_m);begin_motion(FxFix,320);}
     else if(next->scene==SceneRecap&&previous->model.pending_command&&!next->model.pending_command){s_ui.from=*previous;begin_motion(FxSave,760);}
     else if(s_ui.effect==FxNone&&next->scene==SceneLive&&next->model.display_zone!=previous->model.display_zone){s_ui.from=*previous;begin_motion(FxZone,320);}
     else if(s_ui.effect==FxNone&&next->scene==SceneLive&&next->model.last_hr_update_at!=previous->model.last_hr_update_at&&next->model.last_hr_bpm>0)begin_motion(FxHr,120);

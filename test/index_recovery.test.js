@@ -73,7 +73,7 @@ function launchRuntime(storage, options) {
       }
     }
   };
-  global.XMLHttpRequest = function() {};
+  global.XMLHttpRequest = options.XMLHttpRequest || function() {};
   global.setInterval = function() { return 12; };
   global.clearInterval = function() {};
   if (options.sendFailures) {
@@ -284,4 +284,69 @@ run('runtime echoes pause snapshots, makes target states idempotent, and protect
   assert.strictEqual(runtime.messages[runtime.messages.length-1].PAUSE_WINDOWS,undefined);
   runtime.send({PAUSE_ACTIVITY:1,ACTIVITY_ID:'wrong',PAUSE_WINDOWS:paused});
   assert.strictEqual(runtime.messages[runtime.messages.length-1].RECOVERY_MESSAGE,'SESSION CHANGED');
+});
+
+run('a new GPS search rejects cached fixes and stale callbacks', function() {
+  var clock = 1800000000000;
+  Date.now = function() { return clock; };
+  var runtime = launchRuntime(createMemoryStorage(), { manualGps: true });
+  runtime.ready();
+  runtime.send({ REQUEST_GPS: 1, GPS_REQUEST_ID: 10 });
+  runtime.fix();
+  var oldCallback = global.navigator.geolocation.watchSuccess;
+  assert.strictEqual(latestMessageWith(runtime.messages, 'GPS_STATUS').GPS_STATUS, 2);
+  clock += 1000;
+  runtime.send({ REQUEST_GPS: 1, GPS_REQUEST_ID: 11 });
+  oldCallback({coords: { latitude: 51, longitude: 0, accuracy: 8 }});
+  runtime.fix(clock - 500);
+  var searching = latestMessageWith(runtime.messages, 'GPS_STATUS');
+  assert.strictEqual(searching.GPS_REQUEST_ID, 11);
+  assert.strictEqual(searching.GPS_STATUS, 1);
+  assert.strictEqual(searching.GPS_ACCURACY, -1);
+  runtime.fix();
+  runtime.send({ REQUEST_GPS: 1, GPS_REQUEST_ID: 11 });
+  assert.strictEqual(latestMessageWith(runtime.messages, 'GPS_STATUS').GPS_STATUS, 2);
+});
+
+run('only the current recording can request a bounded route', function() {
+  var runtime = launchRuntime(createMemoryStorage());
+  runtime.ready();
+  runtime.send({ REQUEST_GPS: 1, GPS_REQUEST_ID: 10 });
+  runtime.send({ START_ACTIVITY: 1, ACTIVITY_TYPE: 1 });
+  var id = latestMessageWith(runtime.messages, 'ACTIVITY_STATE', 1).ACTIVITY_ID;
+  runtime.send({ REQUEST_ROUTE: 1, ACTIVITY_ID: 'old' });
+  assert.strictEqual(latestMessageWith(runtime.messages, 'ROUTE_POINTS'), null);
+  runtime.send({ REQUEST_ROUTE: 1, ACTIVITY_ID: id });
+  var reply = latestMessageWith(runtime.messages, 'ROUTE_POINTS');
+  assert.strictEqual(reply.ACTIVITY_ID, id);
+  assert.deepStrictEqual(reply.ROUTE_POINTS, [1, 75, 190]);
+});
+
+run('an offline Strava upload reports failure and keeps the saved activity', function() {
+  var storage = createMemoryStorage();
+  storage.setItem(ActivityStore.SETTINGS_KEY, JSON.stringify({
+    stravaEnabled: true, stravaAutoUpload: true,
+    stravaClientId: '42', stravaClientSecret: 'test',
+    stravaRefreshToken: 'test-refresh', stravaAccessToken: 'test-access',
+    stravaExpiresAt: 9999999999, stravaScope: 'activity:write'
+  }));
+  function OfflineRequest() {}
+  OfflineRequest.prototype.open = function() {};
+  OfflineRequest.prototype.setRequestHeader = function() {};
+  OfflineRequest.prototype.send = function() { this.onerror(); };
+  var runtime = launchRuntime(storage, { XMLHttpRequest: OfflineRequest });
+  runtime.ready();
+  runtime.send({ REQUEST_GPS: 1, GPS_REQUEST_ID: 1 });
+  runtime.send({ START_ACTIVITY: 1, ACTIVITY_TYPE: 1 });
+  var id = latestMessageWith(runtime.messages, 'ACTIVITY_STATE', 1).ACTIVITY_ID;
+  runtime.send({ FINISH_ACTIVITY: 1, ACTIVITY_ID: id });
+  var failure = latestMessageWith(runtime.messages, 'STRAVA_STATUS', 5);
+  assert.strictEqual(failure.ACTIVITY_ID, id);
+  assert.strictEqual(failure.UPLOAD_PENDING, 0);
+  var saved = JSON.parse(storage.getItem(ActivityStore.ACTIVITIES_KEY))[0];
+  assert.strictEqual(saved.id, id);
+  assert.strictEqual(saved.stravaStatus, 'failed');
+  assert.strictEqual(saved.stravaError, 'Network error');
+  var history = latestMessageWith(runtime.messages, 'HISTORY_ITEMS');
+  assert.strictEqual(history.HISTORY_ITEMS.split(',').pop(), '5');
 });

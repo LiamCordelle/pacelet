@@ -57,8 +57,10 @@ display.
   finishes the checkpointed activity, and `DOWN` opens discard confirmation.
 - Discard confirmation: `UP` permanently discards the matching draft and
   `DOWN` cancels.
-- Active/Paused: `DOWN` cycles dashboard, kilometres, zones and HR history.
-  `SELECT` returns from a secondary page; pages return after 20 seconds.
+- Active/Paused: `DOWN` cycles dashboard, kilometres, zones, HR history and route.
+  `SELECT` returns from a secondary page. Pages return after 20 seconds.
+  The filled indicator marks your current page. Route shows recorded points with
+  gaps at pauses and recovery boundaries.
 - BACK pauses Active, cancels a countdown or confirmation sheet, and keeps a
   paused/interrupted activity open. During a save/upload it offers Leave / Stay;
   Strava may still complete an upload after leaving.
@@ -256,11 +258,11 @@ remains the historical software mock renderer.
 The emulator screenshot harness builds and installs the PBW, drives the app to a
 selected screen or the main app flow, and saves real captures under
 `screenshots/emulator/`. The all-screens mode captures choose, GPS searching,
-GPS ready, countdown, activity, split, paused/finish, upload exit, three data
-pages, history/detail and recovery/discard states with ordered filenames. Unless `--reuse-emulator` is supplied, the harness wipes the
-disposable emulator state before installing; all-screens mode does this for
-every capture so previous watch persistence and phone localStorage cannot leak
-into the next screenshot.
+GPS ready, countdown, activity, split, paused/finish, upload exit, four data
+pages, history/detail and recovery/discard states with ordered filenames. It
+starts a clean emulator once and advances through the flow, reinstalling once
+to verify recovery. Pass `--isolated` for a fresh emulator per capture. Use
+`--reuse-emulator` only when the running phone simulator already has the GPS shim.
 Useful variants:
 
 ```sh

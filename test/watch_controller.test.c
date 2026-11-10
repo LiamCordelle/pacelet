@@ -7,6 +7,7 @@ static time_t clock_s = 1800000000;
 static int steps_today, bpm = 140, exits, lights, hr_sends;
 static uint32_t last_command;
 static int state_requests;
+static bool route_outbox_busy;
 static BatteryChargeState battery = {100, false};
 BatteryChargeState battery_state_service_peek(void){return battery;}
 static AppTimer timer;
@@ -27,6 +28,10 @@ void watch_ui_mark_dirty(void){} void watch_ui_apply_theme(void){}
 void watch_services_clear_activity_state(void){g_pacelet.pending_command=0;g_pacelet.activity_id[0]=0;}
 void watch_services_save_activity_state(void){}
 void watch_services_send_command(uint32_t command){last_command=command;g_pacelet.pending_command=command;}
+bool watch_services_request_route(void){
+ last_command=MESSAGE_KEY_REQUEST_ROUTE;
+ return !route_outbox_busy;
+}
 void watch_services_request_history(void){}
 void watch_services_request_initial_state(void){state_requests++;}
 void watch_services_send_history_action(uint32_t command,int32_t index){}
@@ -95,6 +100,14 @@ int main(void){
  activity_controller_handle_down();assert(g_pacelet.page==1);
  activity_controller_handle_down();assert(g_pacelet.page==2);
  activity_controller_handle_down();assert(g_pacelet.page==3);
+ activity_controller_handle_down();assert(g_pacelet.page==PageRoute);
+ assert(last_command==MESSAGE_KEY_REQUEST_ROUTE);
+ route_outbox_busy=true;clock_s+=5;
+ time_t last_route=g_pacelet.route_requested_at;
+ activity_controller_handle_tick();assert(g_pacelet.route_requested_at==last_route);
+ route_outbox_busy=false;clock_s++;
+ activity_controller_handle_tick();assert(g_pacelet.route_requested_at==clock_s);
+ puts("ok - a route refresh retries on the next tick when the outbox is busy");
  activity_controller_handle_select();assert(g_pacelet.page==0);assert(g_pacelet.activity_state==ActivityStateActive);
  activity_controller_handle_down();clock_s+=21;activity_controller_handle_tick();assert(g_pacelet.page==0);
  activity_controller_handle_down();activity_controller_handle_up();assert(g_pacelet.page==0);assert(g_pacelet.activity_state==ActivityStatePaused);

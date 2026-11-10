@@ -240,8 +240,9 @@ and installs the PBW in the `emery` emulator, saves PNGs under
 `screenshots/emulator/`, and kills/restarts existing emulators unless
 `--reuse-emulator` is passed. Use `npm run screenshots:emulator:all` after UI
 changes to capture choose, GPS searching, GPS ready, countdown, activity,
-kilometre split, paused/finish, live pages, history and recovery. All-screens mode starts from a fresh install
-for each screen so state does not leak between captures.
+kilometre split, paused/finish, live pages (including route), history and
+recovery. All-screens mode drives one emulator session by default. Pass
+`--isolated` to start from a fresh install for each capture.
 
 Run the manual `emery` emulator GPS harness:
 

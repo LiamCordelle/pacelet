@@ -13,6 +13,7 @@ void watch_services_request_settings(void);
 void watch_services_request_initial_state(void);
 void watch_services_request_activity_state(void);
 void watch_services_request_history(void);
+bool watch_services_request_route(void);
 void watch_services_send_command(uint32_t command_key);
 void watch_services_send_history_action(uint32_t command_key,
                                         int32_t history_index);

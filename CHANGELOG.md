@@ -7,6 +7,21 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-10
+
+- Show a breadcrumb route from the live dashboard and highlight the current page
+  in the action rail.
+- Centre the countdown and use a circular wipe for each second.
+- Prevent old GPS fixes from briefly showing Ready on a new search and make the
+  orbit radius track improving accuracy.
+- Show failed and unconfirmed Strava uploads on the saved screen, and show
+  uploaded, unsent and pending markers in history.
+- Keep a pending save through reconnect or restart until the matching summary
+  arrives. Recover older Strava uploads that have no upload ID as retryable
+  failures.
+- Capture the full emulator flow in one session by default. Use `--isolated`
+  to start a fresh emulator for each screen.
+
 ## [0.7.0] - 2026-11-06
 
 ### Added

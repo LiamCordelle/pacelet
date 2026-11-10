@@ -696,8 +696,19 @@ run('polling stays bounded and restart can continue processing', function() {
   store.updateActivity('pending',{stravaStatus:'processing',stravaUploadId:42});
   var service=StravaService.createStravaService({store:store,setTimeoutFn:function(fn){fn();},request:function(o,cb){count++;cb(new Error('offline'));}});
   service.resumePendingUploads();assert.strictEqual(count,10);
-  assert.strictEqual(store.getActivity('pending').stravaStatus,'processing');
+  assert.strictEqual(store.getActivity('pending').stravaStatus,'unconfirmed');
   service.resumePendingUploads();assert.strictEqual(count,20);
+});
+
+run('legacy processing without an upload ID becomes retryable', function() {
+  var store = configuredUploadStore();
+  store.updateActivity('pending', { stravaStatus: 'processing', stravaUploadId: '' });
+  var service = StravaService.createStravaService({
+    store: store,
+    request: function() { throw new Error('No upload ID to poll'); }
+  });
+  service.resumePendingUploads();
+  assert.strictEqual(store.getActivity('pending').stravaStatus, 'failed');
 });
 
 run('Strava duplicate response retires pending uploads without another POST', function() {

@@ -16,6 +16,8 @@ function createGpsService(options) {
   var log = options.log || function() {};
   var onPosition = options.onPosition || function() {};
 
+  var requestId = 0;
+  var acquisitionStartedAt = null;
   var gpsWatchId = null;
   var gpsPollTimer = null;
   var latestPosition = null;
@@ -51,6 +53,7 @@ function createGpsService(options) {
     var fresh = latestPosition &&
         TrackerCore.freshPosition(latestPosition, nowMs());
     return {
+      GPS_REQUEST_ID: requestId,
       GPS_STATUS: latestGpsStatus === 2 && !fresh ? 1 : latestGpsStatus,
       GPS_ACCURACY: latestPosition ?
         Math.round(latestPosition.accuracy) : -1,
@@ -107,7 +110,8 @@ function createGpsService(options) {
       altitude: coords.altitude,
       timestamp: missingTimestamp ? receivedAt : timestamp
     };
-    if (!TrackerCore.freshPosition(candidate, receivedAt)) {
+    if (!TrackerCore.freshPosition(candidate, receivedAt) ||
+        (acquisitionStartedAt !== null && candidate.timestamp < acquisitionStartedAt)) {
       diagnostic('stale_or_invalid', candidate);
       if (lastRejectedLogAt === null || receivedAt - lastRejectedLogAt >= 30000) {
         lastRejectedLogAt = receivedAt;
@@ -174,7 +178,7 @@ function createGpsService(options) {
       {
         enableHighAccuracy: true,
         timeout: 20000,
-        maximumAge: 1000
+        maximumAge: 0
       }
     );
   }
@@ -193,7 +197,7 @@ function createGpsService(options) {
             requestWatchGeneration === watchGeneration) {
           onLocationError(error);
         }
-      }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 1000 });
+      }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
     }
   }
 
@@ -217,7 +221,13 @@ function createGpsService(options) {
     requestOneLocation();
   }
 
-  function start() {
+  function start(newRequestId) {
+    if (typeof newRequestId === 'number' && newRequestId !== requestId) {
+      stopAcquisition();
+      requestId = newRequestId;
+      acquisitionStartedAt = nowMs();
+      latestPosition = null;
+    }
     latestGpsStatus = latestPosition &&
         latestPosition.accuracy <= lockAccuracyM ? 2 : 1;
     latestGpsError = '';
@@ -237,11 +247,7 @@ function createGpsService(options) {
     requestOneLocation();
   }
 
-  function stopIfIdle() {
-    if (tracker.getActiveActivity()) {
-      return;
-    }
-
+  function stopAcquisition() {
     running = false;
     generation += 1;
     pollPending = false;
@@ -253,6 +259,15 @@ function createGpsService(options) {
     if (gpsPollTimer !== null) {
       clearIntervalFn(gpsPollTimer);
       gpsPollTimer = null;
+    }
+  }
+
+  function stopIfIdle() {
+    if (!tracker.getActiveActivity()) {
+      stopAcquisition();
+      latestPosition = null;
+      latestGpsStatus = 0;
+      acquisitionStartedAt = null;
     }
   }
 

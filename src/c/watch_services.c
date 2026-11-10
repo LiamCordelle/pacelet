@@ -248,6 +248,12 @@ static bool send_command(uint32_t command_key, bool mark_pending) {
   }
 
   dict_write_uint8(iter, command_key, 1);
+  if (command_key == MESSAGE_KEY_REQUEST_GPS) {
+    dict_write_int32(iter, MESSAGE_KEY_GPS_REQUEST_ID, g_pacelet.gps_request_id);
+  }
+  if (command_key == MESSAGE_KEY_REQUEST_ROUTE) {
+    dict_write_cstring(iter, MESSAGE_KEY_ACTIVITY_ID, g_pacelet.activity_id);
+  }
   if (command_key == MESSAGE_KEY_START_ACTIVITY) {
     dict_write_uint8(iter, MESSAGE_KEY_ACTIVITY_TYPE,
                      (uint8_t)g_pacelet.activity_type);
@@ -287,6 +293,11 @@ void watch_services_send_command(uint32_t command_key) {
       (is_reliable_command(command_key) || s_gps_pending || s_history_pending)) {
     schedule_retry();
   }
+}
+
+bool watch_services_request_route(void) {
+  return g_pacelet.phone_connected && g_pacelet.activity_id[0] &&
+      !g_pacelet.pending_command && send_command(MESSAGE_KEY_REQUEST_ROUTE, false);
 }
 
 void watch_services_send_history_action(uint32_t command_key,
@@ -423,7 +434,7 @@ static void parse_history_items(const char *items_text) {
     g_pacelet.history_items[parsed].moving_s = (int32_t)moving_value;
     g_pacelet.history_items[parsed].strava_status = (HistoryStravaStatus)
         pacelet_clamp_i32(status_value, HistoryStravaUnknown,
-                          HistoryStravaSkipped);
+                          HistoryStravaUnconfirmed);
     parsed++;
 
     if (*cursor == ';') {
@@ -439,12 +450,51 @@ static void parse_history_items(const char *items_text) {
   }
 }
 
+static bool awaiting_gps(void) {
+  return g_pacelet.activity_state == ActivityStateGps ||
+      g_pacelet.activity_state == ActivityStateReady ||
+      g_pacelet.activity_state == ActivityStateCountdown;
+}
+
 static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   bool settings_changed = false;
   Tuple *phone_activity_state =
       dict_find(iter, MESSAGE_KEY_ACTIVITY_STATE);
   Tuple *pause_ack = dict_find(iter, MESSAGE_KEY_PAUSE_WINDOWS);
   Tuple *reply_id = dict_find(iter, MESSAGE_KEY_ACTIVITY_ID);
+  Tuple *summary_points = dict_find(iter, MESSAGE_KEY_SUMMARY_POINTS);
+  bool finish_pending = g_pacelet.pending_command == MESSAGE_KEY_FINISH_ACTIVITY;
+  if (summary_points) {
+    const char *expected_id = finish_pending ? g_pacelet.activity_id :
+        g_pacelet.finished_activity_id;
+    if (!reply_id || !expected_id[0] ||
+        strcmp(expected_id, reply_id->value->cstring) != 0 ||
+        (g_pacelet.activity_state != ActivityStateFinished &&
+         !(finish_pending && g_pacelet.activity_state == ActivityStateRecovery))) {
+      return;
+    }
+  }
+  Tuple *route = dict_find(iter, MESSAGE_KEY_ROUTE_POINTS);
+  if (route) {
+    // Tuple values store their payload at the start of the SDK value union.
+    const uint8_t *bytes = (const uint8_t *)route->value;
+    if (g_pacelet.page != PageRoute || !reply_id ||
+        strcmp(g_pacelet.activity_id, reply_id->value->cstring) != 0 ||
+        g_pacelet.pending_command || route->length < 1 ||
+        route->length > PACELET_ROUTE_BYTES + 1 || !(route->length % 2) ||
+        bytes[0] != 1) {
+      return;
+    }
+    for (unsigned i = 1; i < route->length; i += 2) {
+      if (bytes[i] > PACELET_ROUTE_WIDTH ||
+          (bytes[i + 1] & 127) > PACELET_ROUTE_HEIGHT) return;
+    }
+    g_pacelet.route_size = route->length - 1;
+    memcpy(g_pacelet.route_points, bytes + 1, g_pacelet.route_size);
+    g_pacelet.route_received = true;
+    watch_ui_mark_dirty();
+    return;
+  }
   if (phone_activity_state &&
       (phone_activity_state->value->int32 == PhoneActivityStateActive ||
        phone_activity_state->value->int32 == PhoneActivityStatePaused) &&
@@ -463,13 +513,19 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   }
 
   Tuple *gps_status = dict_find(iter, MESSAGE_KEY_GPS_STATUS);
+  Tuple *gps_request = dict_find(iter, MESSAGE_KEY_GPS_REQUEST_ID);
+  bool acquiring = awaiting_gps();
+  if (acquiring && g_pacelet.gps_request_id &&
+      (!gps_request || gps_request->value->int32 != g_pacelet.gps_request_id)) {
+    gps_status = NULL;
+  }
   if (gps_status) {
     s_gps_pending = false;
     GpsState previous_gps_state = g_pacelet.gps_state;
     int32_t status = gps_status->value->int32;
     g_pacelet.gps_state = (GpsState)pacelet_clamp_i32(
         status, GpsStateIdle, GpsStateError);
-    if (g_pacelet.gps_state == GpsStateLocked &&
+    if (acquiring && g_pacelet.gps_state == GpsStateLocked &&
         previous_gps_state != GpsStateLocked) {
       vibes_short_pulse();
       light_enable_interaction();
@@ -482,12 +538,12 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
   }
 
   Tuple *gps_accuracy = dict_find(iter, MESSAGE_KEY_GPS_ACCURACY);
-  if (gps_accuracy) {
+  if (gps_status && gps_accuracy) {
     g_pacelet.gps_accuracy_m = gps_accuracy->value->int32;
   }
 
   Tuple *gps_error = dict_find(iter, MESSAGE_KEY_GPS_ERROR);
-  if (gps_error) {
+  if (gps_status && gps_error) {
     snprintf(g_pacelet.gps_error, sizeof(g_pacelet.gps_error), "%s",
              gps_error->value->cstring);
   }
@@ -526,13 +582,22 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
     g_pacelet.finished_elapsed_s = g_pacelet.summary_moving_s;
   }
 
-  Tuple *summary_points = dict_find(iter, MESSAGE_KEY_SUMMARY_POINTS);
   if (summary_points) {
     g_pacelet.summary_points = summary_points->value->int32;
   }
 
-  Tuple *activity_id = dict_find(iter, MESSAGE_KEY_ACTIVITY_ID);
-  if (activity_id) {
+  Tuple *strava_status = dict_find(iter, MESSAGE_KEY_STRAVA_STATUS);
+  Tuple *activity_id = reply_id;
+  if (summary_points) {
+    snprintf(g_pacelet.finished_activity_id, sizeof(g_pacelet.finished_activity_id),
+             "%s", activity_id->value->cstring);
+  }
+  if (strava_status && activity_id && g_pacelet.finished_activity_id[0] &&
+      strcmp(g_pacelet.finished_activity_id, activity_id->value->cstring) == 0) {
+    g_pacelet.finished_strava_status = pacelet_clamp_i32(strava_status->value->int32,
+        HistoryStravaUnknown, HistoryStravaUnconfirmed);
+  }
+  if (activity_id && !summary_points && !strava_status) {
     if (g_pacelet.pending_command != 0 &&
         g_pacelet.pending_command != MESSAGE_KEY_START_ACTIVITY &&
         g_pacelet.activity_id[0] != '\0' &&
@@ -680,10 +745,18 @@ static void inbox_received_callback(DictionaryIterator *iter, void *context) {
 
   if (phone_activity_state) {
     s_initial_state_pending = false;
-    activity_controller_handle_phone_activity_state(
-        (PhoneActivityState)pacelet_clamp_i32(
-            phone_activity_state->value->int32,
-            PhoneActivityStateNone, PhoneActivityStateRecovery));
+    PhoneActivityState state = (PhoneActivityState)pacelet_clamp_i32(
+        phone_activity_state->value->int32,
+        PhoneActivityStateNone, PhoneActivityStateRecovery);
+    if (finish_pending && state == PhoneActivityStateNone && !summary_points &&
+        (!recovery_message ||
+         strcmp(recovery_message->value->cstring, "NO ACTIVE ACTIVITY") != 0)) {
+      // An idle-state snapshot is not the reply to FINISH. The retry can
+      // retrieve the saved summary or an explicit no-activity reply.
+      schedule_retry();
+    } else {
+      activity_controller_handle_phone_activity_state(state);
+    }
   }
 
   Tuple *upload_pending = dict_find(iter, MESSAGE_KEY_UPLOAD_PENDING);
@@ -709,6 +782,7 @@ static void retry_timer_callback(void *context) {
   if (!g_pacelet.phone_connected) {
     return;
   }
+  if (!awaiting_gps()) s_gps_pending = false;
   if (g_pacelet.pending_command != 0) {
     if (!send_command(g_pacelet.pending_command, false)) {
       schedule_retry();
@@ -772,6 +846,11 @@ static void app_connection_handler(bool connected) {
       schedule_retry();
     }
   } else {
+    // Reconcile an existing phone draft/settings before retrying acquisition.
+    if (awaiting_gps()) {
+      s_gps_pending = true;
+      s_request_retries = 0;
+    }
     watch_services_request_initial_state();
   }
 }

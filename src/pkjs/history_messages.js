@@ -7,6 +7,7 @@ var STATUS_PROCESSING = 3;
 var STATUS_UPLOADED = 4;
 var STATUS_FAILED = 5;
 var STATUS_SKIPPED = 6;
+var STATUS_UNCONFIRMED = 7;
 var MAX_WATCH_DISTANCE_M = 999999;
 var MAX_WATCH_MOVING_S = 999999;
 
@@ -38,6 +39,9 @@ function stravaStatusCode(activity) {
   }
   if (status === 'processing') {
     return STATUS_PROCESSING;
+  }
+  if (status === 'unconfirmed') {
+    return STATUS_UNCONFIRMED;
   }
   if (status === 'failed') {
     return STATUS_FAILED;
@@ -83,6 +87,8 @@ function activityStatusMessage(activity) {
         return shortMessage(activity.stravaUploadStatus);
       }
       return 'Strava is processing';
+    case 'unconfirmed':
+      return 'Strava upload unconfirmed. Retry from history.';
     case 'failed':
       if (activity.stravaError) {
         return shortMessage(activity.stravaError);

@@ -16,9 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SCREENS = ['choose','gps-search','gps-ready','gps-error','countdown','activity',
            'walking','cycling','split','kilometres','zones','heart-history','paused',
            'end-confirm','finished','upload','upload-exit','history','history-detail',
-           'recovery','recovery-discard','measuring-hr','offline','long-values','first-km','low-battery','sync-paused']
+           'recovery','recovery-discard','measuring-hr','offline','long-values','first-km','low-battery','sync-paused','route','upload-failed','upload-unconfirmed']
 MOTIONS = [('picker',0,'FxPick',240),('gps-lock',2,'FxLock',480),
-           ('countdown',4,'FxCount',280),('start',5,'FxStart',440),
+           ('countdown',4,'FxCount',1000),('start',5,'FxStart',440),
            ('split',8,'FxSheet',280),('split-out',5,'FxSplitOut',240),
            ('page',9,'FxPush',240),('pause',12,'FxPause',200),
            ('confirm',13,'FxSheet',240),('saved',14,'FxSave',760),

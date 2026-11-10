@@ -1,0 +1,7 @@
+Press DOWN during an activity to see a breadcrumb map of the GPS track you have recorded so far. The filled indicator shows your current page.
+
+GPS Ready now waits for the current search, and the orbit moves inward as accuracy improves. The countdown uses a circular wipe around the centred numeral.
+
+Failed or unconfirmed Strava uploads show a message on the saved screen. In history, a tick means uploaded, a cross means unsent, and dots mean the upload is pending. You can retry from the activity detail. Pacelet uses your own Strava API client, with its secret and tokens stored in Pebble app settings on your phone.
+
+Save acknowledgements now stay tied to the correct activity through a reconnect or restart.

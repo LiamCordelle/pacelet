@@ -201,6 +201,14 @@ bytes. Empty old summaries remain empty; the watch never invents HR data.
 - Phone messages are serialized and retried up to three times. Watch activity
   commands stay pending until a matching application reply, rather than only
   Bluetooth delivery success.
+- `GPS_REQUEST_ID` identifies a watch acquisition and is echoed on GPS status
+  and metric packets. A new request starts a fresh acquisition.
+- `REQUEST_ROUTE` requests the current recording's route by activity ID.
+  `ROUTE_POINTS` starts with a version byte followed by up to 64 screen-space
+  coordinate pairs. The high bit of Y starts a new segment.
+- `STRAVA_STATUS` accompanies the saved summary and later upload updates.
+  The activity ID ties the status to the recap. An unconfirmed upload retains
+  its Strava upload ID so a retry polls for the result.
 - `UPLOAD_PENDING` covers uploading/processing activities. On ready, uploads
   with a saved Strava ID resume GET polling instead of POSTing the file again.
   Unconfirmed interrupted POSTs require an explicit retry; duplicate responses

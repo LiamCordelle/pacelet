@@ -6,6 +6,7 @@ var HistoryMessages = require('./history_messages');
 var Strava = require('./strava');
 var StravaService = require('./strava_service');
 var TrackerCore = require('./tracker_core');
+var projectRoute = require('./route_preview');
 
 function log(message) {
   console.log(message);
@@ -104,17 +105,22 @@ var strava = StravaService.createStravaService({
   onActivityUpdate: function(activityId) {
     var activity = store.getActivity(activityId);
     log('Strava activity updated: ' + activityId);
-    sendUploadStateToWatch();
+    sendUploadStateToWatch(activity);
     sendHistoryToWatch(HistoryMessages.activityStatusMessage(activity));
   }
 });
 
-function sendUploadStateToWatch() {
+function sendUploadStateToWatch(activity) {
   var pending = store.getActivities().some(function(activity) {
     return activity.stravaStatus === 'uploading' ||
       activity.stravaStatus === 'processing';
   });
-  sendMessage({ UPLOAD_PENDING: pending ? 1 : 0 });
+  var message = { UPLOAD_PENDING: pending ? 1 : 0 };
+  if (activity) {
+    message.ACTIVITY_ID = activity.id;
+    message.STRAVA_STATUS = HistoryMessages.stravaStatusCode(activity);
+  }
+  sendMessage(message);
 }
 
 function sendSettingsToWatch() {
@@ -254,6 +260,7 @@ function sendFinishedSummary(finishedActivity, saved) {
       finishedActivity.distanceM || 0,
     SUMMARY_MOVING_S: finishedActivity.movingTimeS || 0,
     SUMMARY_HR: HistoryMessages.hrSummaryString(finishedActivity),
+    STRAVA_STATUS: HistoryMessages.stravaStatusCode(finishedActivity),
     SUMMARY_POINTS: finishedActivity.points ?
       finishedActivity.points.length : 0,
     ACTIVITY_ID: finishedActivity.id,
@@ -482,7 +489,16 @@ function handleConfigPayload(payload) {
 
 function handleAppMessage(payload) {
   if (payload.REQUEST_GPS) {
-    gps.start();
+    gps.start(payload.GPS_REQUEST_ID);
+  }
+  if (payload.REQUEST_ROUTE) {
+    var activity = tracker.getActiveActivity();
+    if (activity && activity.id === payload.ACTIVITY_ID) {
+      sendMessage({
+        ACTIVITY_ID: activity.id,
+        ROUTE_POINTS: projectRoute(activity.points)
+      });
+    }
   }
   if (payload.REQUEST_SETTINGS && !payload.REQUEST_ACTIVITY_STATE) {
     sendSettingsToWatch();
@@ -490,6 +506,7 @@ function handleAppMessage(payload) {
   if (payload.REQUEST_ACTIVITY_STATE) {
     recovery.checkpoint();
     sendActivityStateToWatch('', !!payload.REQUEST_SETTINGS);
+    if (!tracker.getActiveActivity()) sendUploadStateToWatch(store.getActivities()[0]);
   }
   if (payload.REQUEST_HISTORY) {
     log('Watch requested activity history');

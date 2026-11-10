@@ -128,8 +128,11 @@ failed sends retain the bytes until transport acknowledgement. The phone
 retains original timestamps and deduplicates retries. Split/GPS-lock haptics
 also enable the backlight.
 
-DOWN cycles the dashboard and three focused pages. SELECT returns from a data
-page; a 20-second controller timeout also returns to the dashboard. The model
+DOWN cycles the dashboard and four focused pages, including the GPS route. SELECT returns from a data
+page and a 20-second controller timeout also returns to the dashboard. The
+route page requests a bounded breadcrumb snapshot on entry and every five
+seconds while visible. A busy outbox defers the request to the next tick.
+Replies carry the activity ID and segment breaks. The model
 keeps eight recent splits, four active HR-zone second counters, a debounced
 visual zone, and a timestamp-indexed 60-byte HR ring. Missing/paused seconds are
 empty columns. A separate versioned, activity-ID-tagged metric checkpoint
