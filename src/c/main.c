@@ -10,25 +10,36 @@ static Window *s_main_window;
 
 static void select_click_handler(ClickRecognizerRef recognizer,
                                  void *context) {
+  watch_ui_hide_button_guide();
   activity_controller_handle_select();
 }
 
+static void select_hold_handler(ClickRecognizerRef recognizer, void *context) {
+  activity_controller_cancel_back_pause();
+  light_enable_interaction();
+  watch_ui_show_button_guide();
+}
+
 static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
+  watch_ui_hide_button_guide();
   activity_controller_handle_up();
 }
 
 static void down_click_handler(ClickRecognizerRef recognizer,
                                void *context) {
+  watch_ui_hide_button_guide();
   activity_controller_handle_down();
 }
 
 static void back_click_handler(ClickRecognizerRef recognizer, void *context) {
+  watch_ui_hide_button_guide();
   activity_controller_handle_back();
 }
 
 static void click_config_provider(void *context) {
   window_single_click_subscribe(BUTTON_ID_BACK, back_click_handler);
   window_single_click_subscribe(BUTTON_ID_SELECT, select_click_handler);
+  window_long_click_subscribe(BUTTON_ID_SELECT, 500, select_hold_handler, NULL);
   window_single_click_subscribe(BUTTON_ID_UP, up_click_handler);
   window_single_click_subscribe(BUTTON_ID_DOWN, down_click_handler);
 }
@@ -49,7 +60,10 @@ static void health_event_handler(HealthEventType event, void *context) {
   activity_controller_handle_health_event(event);
 }
 
-static void focus_handler(bool focused) { watch_ui_set_focus(focused); }
+static void focus_handler(bool focused) {
+  watch_ui_set_focus(focused);
+  if (!focused) activity_controller_cancel_back_pause();
+}
 
 static void init(void) {
   pacelet_model_init();

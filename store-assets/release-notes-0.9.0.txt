@@ -1,0 +1,7 @@
+Sand & Slate brings warmer backgrounds, darker numbers, and a charcoal button rail to Paceboard.
+
+Hold SELECT on any screen to see what each button does. The guide closes after four seconds or when you press a button.
+
+Press BACK during a recording to wake the backlight and show a Pause tab. Press BACK again within three seconds to pause. While paused, BACK wakes the backlight.
+
+Activity history shows a circled green tick for a confirmed Strava upload, a circled red cross when an upload is unconfirmed or absent, and grey dots while an upload is in progress. Pacelet uses your own Strava API client, with its secret and tokens stored in Pebble app settings on your phone.

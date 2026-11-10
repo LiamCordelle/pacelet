@@ -36,7 +36,7 @@ display.
   configuration page.
 - Watch-side Activity History menu for recent activity status, TCX export, and
   Strava retry actions.
-- Paceboard's soft aqua and deep teal palette, with pace first for Running.
+- Paceboard's soft sand and slate palette, with pace first for Running.
 - Last completed kilometre and change from the previous split.
 - Focused kilometre, time-in-zone and rolling-minute HR pages.
 - Smooth GPS acquisition and short transition animations, with Full / Key moments /
@@ -61,9 +61,12 @@ display.
   `SELECT` returns from a secondary page. Pages return after 20 seconds.
   The filled indicator marks your current page. Route shows recorded points with
   gaps at pauses and recovery boundaries.
-- BACK pauses Active, cancels a countdown or confirmation sheet, and keeps a
-  paused/interrupted activity open. During a save/upload it offers Leave / Stay;
-  Strava may still complete an upload after leaving.
+- BACK wakes the backlight during an activity. While recording, it also shows
+  Pause for three seconds. Press BACK again within that window to pause.
+  BACK cancels a countdown or confirmation sheet and offers Leave / Stay
+  during a save or upload.
+- Hold SELECT on any Pacelet screen to see the current button actions.
+  The guide closes after four seconds or when you press a button.
 - Saved: `UP` starts another activity, `SELECT` opens history, and `DOWN` returns
   to the picker. These actions wait for the phone's save acknowledgement.
 - Activity History: `UP` and `DOWN` choose a saved activity or Back; `SELECT`

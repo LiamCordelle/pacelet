@@ -200,6 +200,7 @@ const char *pacelet_history_status_label(HistoryStravaStatus status) {
 void pacelet_set_state(ActivityState state) {
   if (g_pacelet.activity_state == state) return;
   g_pacelet.activity_state = state;
+  g_pacelet.back_pause_armed = false;
   g_pacelet.page = 0;
   g_pacelet.overlay = OverlayNone;
   g_pacelet.metrics_was_active = false;

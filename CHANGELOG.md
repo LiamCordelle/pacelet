@@ -7,6 +7,14 @@ and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-10
+
+- Use a soft Sand & Slate palette with darker numbers on warm backgrounds.
+- Hold SELECT on any watch screen to see labels for its button actions.
+- Press BACK during an activity to wake the backlight. Press it again while
+  the Pause tab is visible to pause the recording.
+- Use circled green ticks and red crosses for Strava status in activity history.
+
 ## [0.8.0] - 2026-11-10
 
 - Show a breadcrumb route from the live dashboard and highlight the current page

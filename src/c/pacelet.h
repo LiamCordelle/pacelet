@@ -81,6 +81,7 @@ typedef struct {
   bool dark_mode; // Legacy storage/protocol slot, ignored by Paceboard.
   MotionMode motion_mode;
   PaceletOverlay overlay;
+  bool back_pause_armed;
   ActivityPage page;
   time_t page_opened_at;
   int32_t recent_splits[PACELET_RECENT_SPLITS]; // Newest first, seconds per km.

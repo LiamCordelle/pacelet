@@ -16,7 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SCREENS = ['choose','gps-search','gps-ready','gps-error','countdown','activity',
            'walking','cycling','split','kilometres','zones','heart-history','paused',
            'end-confirm','finished','upload','upload-exit','history','history-detail',
-           'recovery','recovery-discard','measuring-hr','offline','long-values','first-km','low-battery','sync-paused','route','upload-failed','upload-unconfirmed']
+           'recovery','recovery-discard','measuring-hr','offline','long-values','first-km','low-battery','sync-paused','route','upload-failed','upload-unconfirmed',
+           'controls-picker','controls-history','back-pause','controls-active']
 MOTIONS = [('picker',0,'FxPick',240),('gps-lock',2,'FxLock',480),
            ('countdown',4,'FxCount',1000),('start',5,'FxStart',440),
            ('split',8,'FxSheet',280),('split-out',5,'FxSplitOut',240),
@@ -86,12 +87,12 @@ def main():
             images[ids[0]].save(args.output/(name+'-motion.gif'),save_all=True,append_images=[images[i] for i in ids[1:]],duration=max(20,round(ms/12)),loop=0)
         images[orbit[0]].save(args.output/'gps-orbit.gif',save_all=True,append_images=[images[i] for i in orbit[1:-1]],duration=33,loop=0)
         cols=5;rows=(len(SCREENS)+cols-1)//cols
-        sheet=Image.new('RGB',(cols*230+20,rows*282+20),'#eef5f3');draw=ImageDraw.Draw(sheet)
+        sheet=Image.new('RGB',(cols*230+20,rows*282+20),'#f5f1e9');draw=ImageDraw.Draw(sheet)
         font=ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc',15)
         for i,name in enumerate(SCREENS):
-            x=20+i%cols*230;y=20+i//cols*282;sheet.paste(images[i],(x,y));draw.text((x,y+235),name.replace('-',' '),font=font,fill='#005555')
+            x=20+i%cols*230;y=20+i//cols*282;sheet.paste(images[i],(x,y));draw.text((x,y+235),name.replace('-',' '),font=font,fill='#4a161b')
         sheet.save(args.output/'paceboard-overview.png')
-        compact=Image.new('RGB',(648,496),'#eef5f3')
+        compact=Image.new('RGB',(648,496),'#f5f1e9')
         for i,name in enumerate(('choose','gps-search','activity','kilometres','zones','finished')):
             compact.paste(images[SCREENS.index(name)],(12+i%3*212,12+i//3*244))
         compact.save(args.output/'paceboard-release.png')

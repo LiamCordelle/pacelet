@@ -11,11 +11,13 @@
 #define HR_READING_STALE_S 60
 #define SPLIT_DISTANCE_M 1000
 #define SPLIT_SUMMARY_MS 6000
+#define BACK_PAUSE_WINDOW_MS 3000
 #define CHOOSE_ITEM_COUNT 4
 #define ACTIVITY_PERSIST_INTERVAL_S 30
 
 static AppTimer *s_countdown_timer;
 static AppTimer *s_split_timer;
+static AppTimer *s_back_pause_timer;
 static bool s_hr_sample_period_requested;
 static int32_t s_last_persist_elapsed_s;
 
@@ -667,7 +669,24 @@ static bool saving_on_phone(void) {
       g_pacelet.pending_command == MESSAGE_KEY_FINISH_ACTIVITY;
 }
 
+void activity_controller_cancel_back_pause(void) {
+  if (s_back_pause_timer) {
+    app_timer_cancel(s_back_pause_timer);
+    s_back_pause_timer = NULL;
+  }
+  if (g_pacelet.back_pause_armed) {
+    g_pacelet.back_pause_armed = false;
+    watch_ui_mark_dirty();
+  }
+}
+
+static void back_pause_expired(void *context) {
+  s_back_pause_timer = NULL;
+  activity_controller_cancel_back_pause();
+}
+
 void activity_controller_handle_select(void) {
+  activity_controller_cancel_back_pause();
   if (saving_on_phone()) { vibes_short_pulse(); return; }
   if (g_pacelet.overlay == OverlayExit) { return; }
   if ((g_pacelet.overlay == OverlayFinish) ||
@@ -726,6 +745,7 @@ void activity_controller_handle_select(void) {
 }
 
 void activity_controller_handle_up(void) {
+  activity_controller_cancel_back_pause();
   if (g_pacelet.overlay == OverlayExit) { pacelet_set_overlay(OverlayNone); window_stack_pop_all(true); return; }
   if (saving_on_phone()) { vibes_short_pulse(); return; }
   if (g_pacelet.overlay == OverlayDiscard) {
@@ -752,6 +772,7 @@ void activity_controller_handle_up(void) {
 }
 
 void activity_controller_handle_down(void) {
+  activity_controller_cancel_back_pause();
   if (g_pacelet.overlay == OverlayExit) { pacelet_set_overlay(OverlayNone); watch_ui_mark_dirty(); return; }
   if (saving_on_phone()) { vibes_short_pulse(); return; }
   if (g_pacelet.overlay == OverlayDiscard) {
@@ -1002,6 +1023,7 @@ void activity_controller_handle_phone_activity_state(
 }
 
 void activity_controller_deinit(void) {
+  activity_controller_cancel_back_pause();
   cancel_countdown();
   hide_split_summary();
   set_activity_hr_sampling(false);
@@ -1009,16 +1031,26 @@ void activity_controller_deinit(void) {
 
 void activity_controller_handle_back(void) {
   if (g_pacelet.overlay == OverlayExit) {
-    if (g_pacelet.overlay == OverlayExit) pacelet_set_overlay(OverlayNone);
+    pacelet_set_overlay(OverlayNone);
   } else if (g_pacelet.overlay == OverlayFinish) {
     hide_finish_confirmation();
   } else if (g_pacelet.overlay == OverlayDiscard) {
     hide_discard_confirmation();
   } else if (g_pacelet.activity_state == ActivityStateActive) {
-    pause_activity();
-  } else if (g_pacelet.activity_state == ActivityStatePaused ||
-             g_pacelet.activity_state == ActivityStateRecovery) {
-    // A live or interrupted recording needs an explicit finish/discard action.
+    if (g_pacelet.back_pause_armed) {
+      activity_controller_cancel_back_pause();
+      pause_activity();
+    } else {
+      light_enable_interaction();
+      activity_controller_cancel_back_pause();
+      s_back_pause_timer = app_timer_register(BACK_PAUSE_WINDOW_MS,
+          back_pause_expired, NULL);
+      g_pacelet.back_pause_armed = s_back_pause_timer != NULL;
+    }
+  } else if (g_pacelet.activity_state == ActivityStatePaused) {
+    light_enable_interaction();
+  } else if (g_pacelet.activity_state == ActivityStateRecovery) {
+    // An interrupted recording needs an explicit finish/discard action.
     vibes_short_pulse();
   } else if (g_pacelet.activity_state == ActivityStateCountdown) {
     cancel_countdown();

@@ -103,6 +103,21 @@ static void fixture(int index,GContext*c,int effect,int progress) {
       m->activity_state = ActivityStateFinished;
       m->finished_strava_status = HistoryStravaUnconfirmed;
       break;
+    case 30:
+      m->activity_state = ActivityStateChoose;
+      s_ui.button_guide_timer = (AppTimer *)&timer_storage;
+      break;
+    case 31:
+      m->activity_state = ActivityStateHistoryDetail;
+      m->history_count = 3;
+      s_ui.button_guide_timer = (AppTimer *)&timer_storage;
+      break;
+    case 32:
+      m->back_pause_armed = true;
+      break;
+    case 33:
+      s_ui.button_guide_timer = (AppTimer *)&timer_storage;
+      break;
     case 26:m->activity_state=ActivityStatePaused;m->paused_at=v->now-68;strcpy(m->recovery_message,"SYNC PHONE TO RESUME");break;
   }
   for(int i=0;i<3;i++){HistoryItem*item=&m->history_items[i];item->activity_type=(i+1)%3;item->distance_m=i==0?4620:i==1?18740:2120;item->moving_s=i==0?1394:i==1?1896:1458;item->avg_hr=146;memcpy(item->zone_s,m->zone_s,sizeof(item->zone_s));item->strava_status=i==0?HistoryStravaUploaded:i==1?HistoryStravaFailed:HistoryStravaProcessing;}

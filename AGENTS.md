@@ -31,7 +31,7 @@ Core behavior:
   configuration page. This is intentionally personal-use only.
 - Recent saved activities are surfaced in the configuration page for TCX export
   and Strava retry.
-- Paceboard uses one fixed soft aqua / deep teal palette. The configuration page
+- Paceboard uses one fixed Sand & Slate palette. The configuration page
   controls Full / Key moments / Off motion and HR thresholds. The former
   DARK_MODE protocol slot remains for compatibility but does not affect drawing.
 
@@ -104,7 +104,7 @@ Keep watch-side and phone-side responsibilities separate:
   drawing in `watch_ui.c`.
 - Watch screens use a right-side action rail with small icons aligned to the
   hardware `UP`, `SELECT`, and `DOWN` buttons instead of footer button text.
-  The rail uses deep teal with pale action icons in the fixed Paceboard palette.
+  The rail uses slate with pale action icons in the fixed Paceboard palette.
 - Phone JS should own GPS acquisition, GPS point filtering, distance math,
   smoothed speed/pace calculations, persistence, and sync integrations.
 - Pure logic that can be tested without Pebble runtime should live in

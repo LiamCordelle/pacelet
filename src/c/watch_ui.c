@@ -5,14 +5,17 @@
 
 // One fixed Emery palette. Drawn in native Pebble primitives; no frame copies.
 #define PB_PAPER GColorWhite
-#define PB_MIST GColorFromHEX(0xAAFFFF)
-#define PB_INK GColorFromHEX(0x005555)
+#define PB_SAND GColorFromHEX(0xFFFFAA)
+#define PB_INK GColorFromHEX(0x550000)
+#define PB_SLATE GColorDarkGray
 #define PB_MUTED GColorFromHEX(0x555555)
 #define PB_RULE GColorFromHEX(0xAAAAAA)
-#define PB_TEAL GColorFromHEX(0x00AAAA)
+#define PB_COPPER GColorFromHEX(0xAA5500)
 #define PB_AMBER GColorFromHEX(0xFFAA00)
 #define PB_CORAL GColorFromHEX(0xFFAAAA)
 #define PB_RED GColorFromHEX(0xAA0000)
+#define BACK_HINT_SLIDE_MS 165
+#define BUTTON_GUIDE_MS 4000
 
 // All animations consume view snapshots. Sensor data and controller timers are
 // authoritative; frame callbacks never mutate recording state.
@@ -29,7 +32,8 @@ typedef enum { FxNone, FxPick, FxOrbit, FxFix, FxLock, FxCount, FxStart,
 static struct {
   Window *window;
   Layer *content, *overlay, *header, *rail;
-  AppTimer *timer;
+  AppTimer *timer, *button_guide_timer, *back_hint_timer;
+  uint32_t back_hint_began;
   WatchView view, from, pending, previous;
   Effect effect;
   uint32_t began, duration, gps_began;
@@ -184,13 +188,14 @@ static void pb_pair(GContext*c,const char*distance,const char*second,const char*
 }
 static void pb_picker(GContext*c,int selected,int old,int progress){
  int y=pb_lerp(s_ui.effect==FxPick?s_ui.picker_from_y:37+old*44,37+selected*44,progress);
- pb_fill(c,0,y,180,42,PB_MIST,0);pb_fill(c,0,y,3,42,PB_TEAL,0);
+ pb_fill(c,0,y,180,42,PB_SAND,0);pb_fill(c,0,y,3,42,PB_COPPER,0);
  const char*names[]={"Walking","Running","Cycling","History"};
  for(int i=0;i<4;i++){
   if(i<3)pb_activity_icon(c,i,26,58+i*44,PB_INK,1000);
   else{graphics_context_set_stroke_color(c,PB_INK);graphics_context_set_stroke_width(c,2);graphics_draw_circle(c,GPoint(26,58+i*44+pb_dy),11);pb_line(c,26,51+i*44,26,58+i*44,PB_INK,2);pb_line(c,26,58+i*44,32,61+i*44,PB_INK,2);}
   pb_text(c,names[i],FONT_KEY_GOTHIC_24_BOLD,51,41+i*44,122,32,PB_INK,GTextAlignmentLeft);
  }
+ PB_LABEL(c,"HOLD SELECT FOR HELP",8,210,164,PB_MUTED);
 }
 
 static const char *hero_value(const WatchView*v,bool recap,char*hero,size_t size) {
@@ -220,7 +225,7 @@ static void live(GContext*c,const WatchView*v,bool recap) {
   distance_text(distance,sizeof(distance),metres);
   if(walk&&!recap)snprintf(second,sizeof(second),m->current_steps_available?"%ld":"--",(long)m->current_steps);
   else duration_text(second,sizeof(second),elapsed);
-  pb_fill(c,0,22,180,88,PB_MIST,0);
+  pb_fill(c,0,22,180,88,PB_SAND,0);
   PB_LABEL(c,label,8,25,164,PB_INK);
   if(paused){char pause[24],time[16];duration_text(time,sizeof(time),v->now-m->paused_at);snprintf(pause,sizeof(pause),"FOR %s",time);pb_text(c,pause,FONT_KEY_GOTHIC_14_BOLD,100,25,73,18,PB_INK,GTextAlignmentRight);}
   pb_number(c,hero,4,35,172,73,FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM,FONT_KEY_LECO_42_NUMBERS,paused?PB_MUTED:PB_INK,GTextAlignmentCenter);
@@ -273,14 +278,14 @@ static void gps(GContext*c,const WatchView*v) {
   int angle=s_ui.orbit_angle;
   if(s_ui.effect==FxOrbit||(s_ui.effect==FxFix&&clock_ms()-s_ui.gps_began<15000))
     angle=(clock_ms()-s_ui.gps_began)%10200*360/10200;
-  graphics_context_set_fill_color(c,error?PB_PAPER:PB_MIST);graphics_fill_circle(c,GPoint(90,85+pb_dy),30);
+  graphics_context_set_fill_color(c,error?PB_PAPER:PB_SAND);graphics_fill_circle(c,GPoint(90,85+pb_dy),30);
   for(int i=0;i<24;i++){int a=DEG_TO_TRIGANGLE(i*15);graphics_context_set_fill_color(c,PB_RULE);graphics_fill_circle(c,GPoint(90+sin_lookup(a)*60/TRIG_MAX_RATIO,85+pb_dy-cos_lookup(a)*60/TRIG_MAX_RATIO),1);}
-  graphics_context_set_stroke_color(c,error?PB_RULE:PB_TEAL);graphics_context_set_stroke_width(c,2);graphics_draw_circle(c,GPoint(90,85+pb_dy),30);
-  if(!ready&&!error){pb_line(c,85,85,95,85,PB_TEAL,1);pb_line(c,90,80,90,90,PB_TEAL,1);}
+  graphics_context_set_stroke_color(c,error?PB_RULE:PB_COPPER);graphics_context_set_stroke_width(c,2);graphics_draw_circle(c,GPoint(90,85+pb_dy),30);
+  if(!ready&&!error){pb_line(c,85,85,95,85,PB_COPPER,1);pb_line(c,90,80,90,90,PB_COPPER,1);}
   if(error){graphics_context_set_fill_color(c,PB_RED);graphics_fill_circle(c,GPoint(140,52+pb_dy),4);}
   else if(!ready||p<850)for(int i=0;i<3;i++) {int a=DEG_TO_TRIGANGLE(15+angle+i*120);graphics_context_set_fill_color(c,PB_AMBER);graphics_fill_circle(c,GPoint(90+sin_lookup(a)*radius/TRIG_MAX_RATIO,85+pb_dy-cos_lookup(a)*radius/TRIG_MAX_RATIO),3);}
   if(ready) {
-    graphics_context_set_fill_color(c,PB_TEAL);graphics_fill_radial(c,GRect(59,54+pb_dy,62,62),GOvalScaleModeFitCircle,3,0,TRIG_MAX_ANGLE*p/1000);
+    graphics_context_set_fill_color(c,PB_COPPER);graphics_fill_radial(c,GRect(59,54+pb_dy,62,62),GOvalScaleModeFitCircle,3,0,TRIG_MAX_ANGLE*p/1000);
     int check=pb_clamp((p-450)*1000/550,0,1000),first=pb_clamp(check,0,350);
     if(check>0)pb_line(c,78,85,78+10*first/350,85+10*first/350,PB_INK,3);
     if(check>350)pb_line(c,88,95,88+17*(check-350)/650,95-22*(check-350)/650,PB_INK,3);
@@ -297,10 +302,10 @@ static void gps(GContext*c,const WatchView*v) {
 static void countdown(GContext *c, const WatchView *v) {
   int centre_y = COUNTDOWN_CENTRE_Y + pb_dy;
   GRect disc = GRect(30, centre_y - COUNTDOWN_RADIUS, 120, 120);
-  graphics_context_set_fill_color(c, PB_MIST);
+  graphics_context_set_fill_color(c, PB_SAND);
   graphics_fill_circle(c, GPoint(90, centre_y), COUNTDOWN_RADIUS);
   if (s_ui.effect == FxCount && s_ui.progress < 1000) {
-    graphics_context_set_fill_color(c, PB_TEAL);
+    graphics_context_set_fill_color(c, PB_COPPER);
     int remaining = TRIG_MAX_ANGLE * (1000 - s_ui.progress) / 1000;
     graphics_fill_radial(c, disc, GOvalScaleModeFitCircle, 5,
                          TRIG_MAX_ANGLE - remaining, TRIG_MAX_ANGLE);
@@ -316,11 +321,11 @@ static void laps(GContext*c,const WatchView*v) {
   pb_text(c,"Kilometres",FONT_KEY_GOTHIC_24_BOLD,8,27,164,35,PB_INK,GTextAlignmentLeft);
   for(int i=0;i<5;i++) {
     int y=68+i*29;char label[20],value[20];
-    if(i==0){pb_fill(c,0,y-1,180,28,PB_MIST,0);snprintf(label,sizeof(label),"NOW");duration_text(value,sizeof(value),v->elapsed-v->model.last_split_elapsed_s);}
+    if(i==0){pb_fill(c,0,y-1,180,28,PB_SAND,0);snprintf(label,sizeof(label),"NOW");duration_text(value,sizeof(value),v->elapsed-v->model.last_split_elapsed_s);}
     else {
       int index=i-1;if(v->model.recent_splits[index]<=0)continue;
       snprintf(label,sizeof(label),"KM %ld",(long)v->model.split_number-index);duration_text(value,sizeof(value),v->model.recent_splits[index]);
-      if(v->model.recent_splits[index]==v->model.best_split_s)pb_fill(c,159,y+9,5,5,PB_TEAL,2);
+      if(v->model.recent_splits[index]==v->model.best_split_s)pb_fill(c,159,y+9,5,5,PB_COPPER,2);
     }
     PB_LABEL(c,label,8,y+1,68,PB_MUTED);pb_number(c,value,80,y-4,68,28,FONT_KEY_LECO_20_BOLD_NUMBERS,FONT_KEY_GOTHIC_18_BOLD,PB_INK,GTextAlignmentRight);
   }
@@ -358,7 +363,7 @@ static void route_page(GContext *c, const WatchView *v) {
     uint8_t encoded_y = model->route_points[i + 1];
     int y = 70 + (encoded_y & 127);
     if (i && !(encoded_y & 128)) {
-      pb_line(c, previous.x, previous.y, x, y, PB_TEAL, 3);
+      pb_line(c, previous.x, previous.y, x, y, PB_COPPER, 3);
     }
     previous = GPoint(x, y);
   }
@@ -369,15 +374,22 @@ static void route_page(GContext *c, const WatchView *v) {
 }
 
 static void history_status_icon(GContext *c, HistoryStravaStatus status, int y) {
-  if (status == HistoryStravaUploaded) {
-    pb_line(c, 9, y, 13, y + 4, PB_INK, 2);
-    pb_line(c, 13, y + 4, 21, y - 5, PB_INK, 2);
-  } else if (status == HistoryStravaUploading || status == HistoryStravaProcessing) {
+  if (status == HistoryStravaUploading || status == HistoryStravaProcessing) {
     for (int x = 9; x <= 19; x += 5) pb_fill(c, x, y, 2, 2, PB_MUTED, 0);
+    return;
+  }
+
+  bool uploaded = status == HistoryStravaUploaded;
+  GColor ink = uploaded ? GColorDarkGreen : PB_RED;
+  graphics_context_set_stroke_color(c, ink);
+  graphics_context_set_stroke_width(c, 1);
+  graphics_draw_circle(c, GPoint(15, y + pb_dy), 9);
+  if (uploaded) {
+    pb_line(c, 11, y, 14, y + 3, ink, 2);
+    pb_line(c, 14, y + 3, 19, y - 4, ink, 2);
   } else {
-    GColor ink = status == HistoryStravaFailed ? PB_RED : PB_MUTED;
-    pb_line(c, 10, y - 5, 20, y + 5, ink, 2);
-    pb_line(c, 20, y - 5, 10, y + 5, ink, 2);
+    pb_line(c, 11, y - 4, 19, y + 4, ink, 2);
+    pb_line(c, 19, y - 4, 11, y + 4, ink, 2);
   }
 }
 static void history(GContext*c,const WatchView*v) {
@@ -386,7 +398,7 @@ static void history(GContext*c,const WatchView*v) {
   if(!m->history_count){pb_text(c,"No saved activities",FONT_KEY_GOTHIC_24_BOLD,8,60,164,70,PB_INK,GTextAlignmentCenter);PB_LABEL(c,m->history_message,8,151,164,PB_MUTED);return;}
   int first=m->history_selected_index>2?m->history_selected_index-2:0;
   for(int row=0;row<3;row++){int i=first+row,y=35+row*61;if(i>m->history_count)break;
-    if(i==m->history_selected_index)pb_fill(c,0,y,180,58,PB_MIST,0);
+    if(i==m->history_selected_index)pb_fill(c,0,y,180,58,PB_SAND,0);
     if(i==m->history_count){pb_text(c,"Back",FONT_KEY_GOTHIC_24_BOLD,8,y,164,32,PB_INK,GTextAlignmentLeft);continue;}
     const HistoryItem*item=&m->history_items[i];char dist[16],time[20],line[48];distance_text(dist,sizeof(dist),item->distance_m);duration_text(time,sizeof(time),item->moving_s);snprintf(line,sizeof(line),"%s KM   %s",dist,time);
     history_status_icon(c, item->strava_status, y + 21);
@@ -397,18 +409,18 @@ static void history(GContext*c,const WatchView*v) {
   }
 }
 static void recovery(GContext*c,const WatchView*v) {
-  pb_text(c,"Activity interrupted",FONT_KEY_GOTHIC_24_BOLD,8,34,164,38,PB_INK,GTextAlignmentLeft);pb_fill(c,0,82,180,69,PB_MIST,0);PB_LABEL(c,"RECORDED",8,84,164,PB_INK);
+  pb_text(c,"Activity interrupted",FONT_KEY_GOTHIC_24_BOLD,8,34,164,38,PB_INK,GTextAlignmentLeft);pb_fill(c,0,82,180,69,PB_SAND,0);PB_LABEL(c,"RECORDED",8,84,164,PB_INK);
   char time[20],distance[16],line[50];duration_text(time,sizeof(time),v->model.recovery_moving_s);distance_text(distance,sizeof(distance),v->model.distance_m);
   pb_number(c,time,6,100,168,48,FONT_KEY_LECO_36_BOLD_NUMBERS,FONT_KEY_LECO_32_BOLD_NUMBERS,PB_INK,GTextAlignmentLeft);
   snprintf(line,sizeof(line),"%s km on phone",distance);pb_text(c,line,FONT_KEY_GOTHIC_18,8,157,164,27,PB_MUTED,GTextAlignmentLeft);
   pb_text(c,v->model.recovery_message,FONT_KEY_GOTHIC_14_BOLD,8,183,164,38,PB_MUTED,GTextAlignmentLeft);
 }
 static void upload(GContext*c) {
-  pb_fill(c,24,57,132,67,PB_MIST,5);
+  pb_fill(c,24,57,132,67,PB_SAND,5);
   pb_line(c,60,105,60,77,PB_INK,3);pb_line(c,60,77,52,85,PB_INK,3);pb_line(c,60,77,68,85,PB_INK,3);
   pb_text(c,"Sending\nto Strava",FONT_KEY_GOTHIC_24_BOLD,81,63,75,59,PB_INK,GTextAlignmentLeft);
-  if(s_ui.effect==FxUpload&&s_ui.progress<1000){pb_fill(c,24,143,132,4,PB_RULE,0);pb_fill(c,24+pb_ease(s_ui.progress)*92/1000,143,40,4,PB_TEAL,0);}
-  else for(int i=0;i<3;i++)pb_fill(c,76+i*12,143,5,5,PB_TEAL,2);
+  if(s_ui.effect==FxUpload&&s_ui.progress<1000){pb_fill(c,24,143,132,4,PB_RULE,0);pb_fill(c,24+pb_ease(s_ui.progress)*92/1000,143,40,4,PB_COPPER,0);}
+  else for(int i=0;i<3;i++)pb_fill(c,76+i*12,143,5,5,PB_COPPER,2);
   pb_text(c,"Your activity is saved.",FONT_KEY_GOTHIC_18,8,170,164,27,PB_MUTED,GTextAlignmentCenter);
 }
 static void content(GContext*c,const WatchView*v) {
@@ -435,7 +447,7 @@ static void content(GContext*c,const WatchView*v) {
   }
 }
 static void split(GContext*c,const WatchView*v) {
-  pb_fill(c,0,22,180,177,PB_MIST,0);char label[32],value[20];snprintf(label,sizeof(label),"KILOMETRE %ld",(long)v->model.split_number);PB_LABEL(c,label,8,28,164,PB_INK);
+  pb_fill(c,0,22,180,177,PB_SAND,0);char label[32],value[20];snprintf(label,sizeof(label),"KILOMETRE %ld",(long)v->model.split_number);PB_LABEL(c,label,8,28,164,PB_INK);
   duration_text(value,sizeof(value),v->model.split_elapsed_s);pb_number(c,value,4,49,172,73,FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM,FONT_KEY_LECO_42_NUMBERS,PB_INK,GTextAlignmentCenter);
   if(v->model.activity_type==ActivityTypeCycling){char speed[16];speed_text(speed,sizeof(speed),v->model.split_elapsed_s>0?100000/v->model.split_elapsed_s:0);snprintf(label,sizeof(label),"%s KM/H AVERAGE",speed);}
   else if(v->model.previous_split_s>0){int delta=v->model.split_elapsed_s-v->model.previous_split_s;snprintf(label,sizeof(label),"%d SEC %s",delta<0?-delta:delta,delta<0?"FASTER":delta>0?"SLOWER":"CHANGE");}
@@ -448,7 +460,7 @@ static void sheet(GContext*c,const WatchView*v) {
   PaceletOverlay overlay=v->model.overlay;if(overlay==OverlayNone)return;
   if(overlay==OverlaySplit){split(c,v);return;}
   bool leave=overlay==OverlayExit,discard=overlay==OverlayDiscard;
-  pb_fill(c,0,22,180,206,PB_PAPER,0);pb_fill(c,8,39,164,4,leave?PB_MIST:PB_CORAL,0);
+  pb_fill(c,0,22,180,206,PB_PAPER,0);pb_fill(c,8,39,164,4,leave?PB_SAND:PB_CORAL,0);
   pb_text(c,leave?(v->model.upload_pending?"Upload in\nprogress":"Saving on\nphone"):discard?"Delete activity?":"Finish activity?",FONT_KEY_GOTHIC_28_BOLD,8,57,164,68,PB_INK,GTextAlignmentLeft);
   pb_text(c,leave?"Leaving may pause\nstatus checks. Strava\nmay still finish.":discard?"This cannot be undone.":"Save this activity.",FONT_KEY_GOTHIC_18,8,135,164,64,PB_MUTED,GTextAlignmentLeft);
   PB_LABEL(c,leave?"UP LEAVE / DOWN STAY":discard?"UP DELETE / DOWN KEEP":"UP SAVE / DOWN KEEP",8,207,164,PB_INK);
@@ -459,7 +471,7 @@ static void render_content(GContext*c,int origin) {
   else if(s_ui.effect==FxStart){
     pb_dy=origin+(1000-e)*90/1000;content(c,&s_ui.view);pb_dy=origin;
     pb_fill(c,0,22,180,88,PB_PAPER,0);int x=pb_lerp(30,0,e),y=pb_lerp(COUNTDOWN_CENTRE_Y-COUNTDOWN_RADIUS,22,e),w=pb_lerp(120,180,e),h=pb_lerp(120,88,e);
-    pb_fill(c,x,y,w,h,PB_MIST,pb_lerp(60,0,e));
+    pb_fill(c,x,y,w,h,PB_SAND,pb_lerp(60,0,e));
     if(s_ui.progress<500)pb_text(c,"GO",FONT_KEY_BITHAM_42_BOLD,x,y+h/2-26,w,60,PB_INK,GTextAlignmentCenter);
     else {
       char hero[20];const char*label=hero_value(&s_ui.view,false,hero,sizeof(hero));
@@ -467,11 +479,11 @@ static void render_content(GContext*c,int origin) {
       pb_number(c,hero,4,35,172,73,FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM,FONT_KEY_LECO_42_NUMBERS,PB_INK,GTextAlignmentCenter);
     }
   }else if(s_ui.effect==FxSave&&s_ui.progress<450){
-    pb_fill(c,0,22,180,206,PB_PAPER,0);pb_fill(c,48,42,84,84,PB_MIST,42);
+    pb_fill(c,0,22,180,206,PB_PAPER,0);pb_fill(c,48,42,84,84,PB_SAND,42);
     int a=pb_clamp(s_ui.progress*1000/450,0,1000);pb_line(c,65,83,65+18*a/1000,83+18*a/1000,PB_INK,4);if(a>450)pb_line(c,83,101,83+(a-450)*35/550,101-(a-450)*45/550,PB_INK,4);
     pb_text(c,"Saved",FONT_KEY_GOTHIC_28_BOLD,8,146,164,38,PB_INK,GTextAlignmentCenter);
   }else if(s_ui.effect==FxSave){
-    pb_fill(c,0,22,180,206,PB_PAPER,0);pb_fill(c,48,42,84,84,PB_MIST,42);
+    pb_fill(c,0,22,180,206,PB_PAPER,0);pb_fill(c,48,42,84,84,PB_SAND,42);
     pb_line(c,65,83,83,101,PB_INK,4);pb_line(c,83,101,118,56,PB_INK,4);
     pb_text(c,"Saved",FONT_KEY_GOTHIC_28_BOLD,8,146,164,38,PB_INK,GTextAlignmentCenter);
     int q=pb_clamp((s_ui.progress-450)*1000/550,0,1000);
@@ -479,7 +491,7 @@ static void render_content(GContext*c,int origin) {
   }else content(c,&s_ui.view);
   pb_dy=origin;
   if(s_ui.effect==FxPause&&s_ui.progress<1000)pb_fill(c,0,110,180*(1000-e)/1000,2,PB_AMBER,0);
-  if(s_ui.effect==FxSave&&s_ui.progress>200&&s_ui.progress<850)for(int i=0;i<12;i++){int p=s_ui.progress;pb_fill(c,90+((i*37)%151-75)*p/1000,38+((i*17)%41)*p/1000+p*p/24000,3,4,i%2?PB_TEAL:PB_AMBER,0);}
+  if(s_ui.effect==FxSave&&s_ui.progress>200&&s_ui.progress<850)for(int i=0;i<12;i++){int p=s_ui.progress;pb_fill(c,90+((i*37)%151-75)*p/1000,38+((i*17)%41)*p/1000+p*p/24000,3,4,i%2?PB_COPPER:PB_AMBER,0);}
 }
 static void render_overlay(GContext*c,int origin) {
   pb_dy=origin;
@@ -498,22 +510,166 @@ static void draw_header(Layer*layer,GContext*c) {
   if(m->overlay==OverlayDiscard)snprintf(status,sizeof(status),"DELETE?");
   if(m->overlay==OverlaySplit)snprintf(status,sizeof(status),"SPLIT");
   PB_LABEL(c,mode,7,1,54,PB_INK);pb_text(c,clock,FONT_KEY_GOTHIC_18_BOLD,55,-3,70,23,PB_INK,GTextAlignmentCenter);pb_text(c,status,FONT_KEY_GOTHIC_14_BOLD,120,1,54,18,PB_MUTED,GTextAlignmentRight);
-  pb_fill(c,0,20,180,2,m->overlay==OverlayFinish||m->overlay==OverlayDiscard?PB_CORAL:m->activity_state==ActivityStatePaused?PB_AMBER:PB_TEAL,0);
+  pb_fill(c,0,20,180,2,m->overlay==OverlayFinish||m->overlay==OverlayDiscard?PB_CORAL:m->activity_state==ActivityStatePaused?PB_AMBER:PB_COPPER,0);
 }
-static void draw_rail(Layer*layer,GContext*c) {
-  // This layer's bounds use native screen coordinates.
-  const WatchView*v=&s_ui.view;const PaceletModel*m=&v->model;int up=I_NONE,sel=I_NONE,down=I_NONE;pb_dy=0;
-  if(m->overlay==OverlayFinish||m->overlay==OverlayDiscard){up=I_CHECK;down=I_BACK;}
-  else if(m->overlay==OverlayExit){up=I_DELETE;down=I_BACK;}
-  else if(m->activity_state==ActivityStateFinished&&m->pending_command==MESSAGE_KEY_FINISH_ACTIVITY){}
-  else if(v->scene==ScenePicker||v->scene==SceneHistory){up=I_UP;sel=I_PLAY;down=I_DOWN;}
-  else if(v->scene==SceneGps){up=I_RETRY;sel=m->gps_state==GpsStateLocked?I_PLAY:I_RETRY;down=I_DOWN;}
-  else if(live_state(m->activity_state)){up=m->activity_state==ActivityStatePaused?I_PLAY:I_PAUSE;sel=m->page||m->overlay==OverlaySplit?I_BACK:m->activity_state==ActivityStatePaused?I_STOP:I_NONE;down=I_PAGES;}
-  else if(v->scene==SceneRecap||v->scene==SceneUpload){up=I_PLAY;sel=I_FILE;down=I_BACK;}
-  else if(v->scene==SceneDetail){up=I_FILE;sel=I_RETRY;down=I_BACK;}
-  else if(v->scene==SceneRecovery){up=m->recovery_phone_draft_available?I_PLAY:I_NONE;sel=m->recovery_phone_draft_available?I_STOP:I_NONE;down=I_DELETE;}
-  pb_fill(c,180,0,20,228,PB_INK,0);pb_icon(c,up,57,PB_PAPER);pb_icon(c,sel,114,PB_PAPER);pb_icon(c,down,171,PB_PAPER);
+typedef struct {
+  int icon;
+  const char *label;
+} RailAction;
+
+typedef struct {
+  RailAction up, select, down;
+  const char *back;
+} ButtonActions;
+
+static ButtonActions button_actions(const WatchView *v) {
+  const PaceletModel *m = &v->model;
+  if (m->overlay == OverlayFinish) {
+    return (ButtonActions){.up = {I_CHECK, "Save activity"},
+      .down = {I_BACK, "Keep activity"}, .back = "Cancel"};
+  }
+  if (m->overlay == OverlayDiscard) {
+    return (ButtonActions){.up = {I_DELETE, "Delete activity"},
+      .down = {I_BACK, "Keep activity"}, .back = "Cancel"};
+  }
+  if (m->overlay == OverlayExit) {
+    return (ButtonActions){.up = {I_DELETE, "Leave app"},
+      .down = {I_BACK, "Stay"}, .back = "Stay"};
+  }
+  if (m->activity_state == ActivityStateFinished &&
+      m->pending_command == MESSAGE_KEY_FINISH_ACTIVITY) {
+    return (ButtonActions){.back = "Leave options"};
+  }
+  if (live_state(m->activity_state)) {
+    bool paused = m->activity_state == ActivityStatePaused;
+    ButtonActions actions = {
+      .up = paused ? (RailAction){I_PLAY, "Resume"} : (RailAction){I_PAUSE, "Pause"},
+      .down = {I_PAGES, "Next page"},
+      .back = paused ? "Backlight" : "Light, then pause",
+    };
+    if (m->page) actions.select = (RailAction){I_BACK, "Dashboard"};
+    else if (m->overlay == OverlaySplit) actions.select = (RailAction){I_BACK, "Close split"};
+    else if (paused) actions.select = (RailAction){I_STOP, "Finish options"};
+    return actions;
+  }
+  switch (v->scene) {
+    case ScenePicker:
+      return (ButtonActions){.up = {I_UP, "Previous item"},
+        .select = {I_PLAY, m->choose_index > ActivityTypeCycling ? "Open history" : "Choose activity"},
+        .down = {I_DOWN, "Next item"}, .back = "Close Pacelet"};
+    case SceneHistory:
+      return (ButtonActions){.up = {I_UP, "Previous item"},
+        .select = {I_PLAY, m->history_selected_index < m->history_count ? "Open activity" : "Activity picker"},
+        .down = {I_DOWN, "Next item"}, .back = "Activity picker"};
+    case SceneGps:
+      return (ButtonActions){.up = {I_RETRY, "Refresh GPS"},
+        .select = m->gps_state == GpsStateLocked ?
+            (RailAction){I_PLAY, "Start countdown"} : (RailAction){I_RETRY, "Retry GPS"},
+        .down = {I_DOWN, "Change activity"}, .back = "Activity picker"};
+    case SceneCountdown:
+      return (ButtonActions){.back = "Cancel countdown"};
+    case SceneRecap:
+    case SceneUpload:
+      return (ButtonActions){.up = {I_PLAY, "New activity"},
+        .select = {I_FILE, "Open history"}, .down = {I_BACK, "Activity picker"},
+        .back = m->upload_pending ? "Leave options" : "Close Pacelet"};
+    case SceneDetail: {
+      ButtonActions actions = {.down = {I_BACK, "History list"}, .back = "History list"};
+      if (m->history_selected_index >= 0 && m->history_selected_index < m->history_count) {
+        actions.up = (RailAction){I_FILE, "Export TCX"};
+        actions.select = (RailAction){I_RETRY, "Retry Strava"};
+      }
+      return actions;
+    }
+    case SceneRecovery: {
+      ButtonActions actions = {.down = {I_DELETE, "Discard options"}};
+      if (m->recovery_phone_draft_available) {
+        actions.up = (RailAction){I_PLAY, "Resume"};
+        actions.select = (RailAction){I_STOP, "Save activity"};
+      }
+      return actions;
+    }
+    default:
+      return (ButtonActions){0};
+  }
 }
+
+static void draw_button_guide(GContext *c, ButtonActions actions) {
+  pb_fill(c, 0, 22, 180, 206, PB_PAPER, 0);
+  pb_fill(c, 0, 22, 180, 20, PB_SAND, 0);
+  PB_LABEL(c, "BUTTON GUIDE", 8, 22, 164, PB_INK);
+  const char *buttons[] = {"UP", "SELECT", "DOWN"};
+  const RailAction right[] = {actions.up, actions.select, actions.down};
+  for (int i = 0; i < (int)ARRAY_LENGTH(right); i++) {
+    int y = 57 + i * 57;
+    PB_LABEL(c, buttons[i], 8, y - 8, 49, PB_MUTED);
+    pb_text(c, right[i].label ? right[i].label : "No action",
+        FONT_KEY_GOTHIC_18_BOLD, 58, y - 12, 114, 24,
+        right[i].label ? PB_INK : PB_MUTED, GTextAlignmentRight);
+    pb_line(c, 8, y + 19, 172, y + 19, PB_RULE, 1);
+  }
+  PB_LABEL(c, "BACK", 8, 202, 49, PB_MUTED);
+  pb_text(c, actions.back ? actions.back : "No action", FONT_KEY_GOTHIC_18_BOLD,
+      54, 198, 118, 24, actions.back ? PB_INK : PB_MUTED, GTextAlignmentRight);
+}
+
+static void draw_back_pause_hint(GContext *c) {
+  const int width = 67;
+  int x = 0;
+  if (s_ui.back_hint_timer) {
+    int elapsed = pb_clamp(clock_ms() - s_ui.back_hint_began, 0, BACK_HINT_SLIDE_MS);
+    x = pb_lerp(-width, 0, pb_ease(elapsed * 1000 / BACK_HINT_SLIDE_MS));
+  }
+  pb_fill(c, x - 5, 23, width + 5, 23, PB_SLATE, 4);
+  pb_fill(c, x + 7, 30, 2, 9, PB_PAPER, 0);
+  pb_fill(c, x + 11, 30, 2, 9, PB_PAPER, 0);
+  pb_text(c, "Pause", FONT_KEY_GOTHIC_18_BOLD, x + 19, 22, 46, 23,
+      PB_PAPER, GTextAlignmentLeft);
+}
+
+static void draw_rail(Layer *layer, GContext *c) {
+  pb_dy = 0;
+  ButtonActions actions = button_actions(&s_ui.view);
+  if (s_ui.button_guide_timer) draw_button_guide(c, actions);
+  else if (s_ui.view.model.back_pause_armed) draw_back_pause_hint(c);
+  pb_fill(c, 180, 0, 20, 228, PB_SLATE, 0);
+  pb_icon(c, actions.up.icon, 57, PB_PAPER);
+  pb_icon(c, actions.select.icon, 114, PB_PAPER);
+  pb_icon(c, actions.down.icon, 171, PB_PAPER);
+}
+
+static void button_guide_expired(void *context) {
+  s_ui.button_guide_timer = NULL;
+  layer_mark_dirty(s_ui.rail);
+}
+
+void watch_ui_hide_button_guide(void) {
+  if (!s_ui.button_guide_timer) return;
+  app_timer_cancel(s_ui.button_guide_timer);
+  button_guide_expired(NULL);
+}
+
+void watch_ui_show_button_guide(void) {
+  if (!s_ui.loaded || !s_ui.focused) return;
+  watch_ui_hide_button_guide();
+  s_ui.button_guide_timer = app_timer_register(BUTTON_GUIDE_MS, button_guide_expired, NULL);
+  layer_mark_dirty(s_ui.rail);
+}
+
+static void stop_back_hint_slide(void) {
+  if (!s_ui.back_hint_timer) return;
+  app_timer_cancel(s_ui.back_hint_timer);
+  s_ui.back_hint_timer = NULL;
+}
+
+static void back_hint_frame(void *context) {
+  s_ui.back_hint_timer = NULL;
+  if (clock_ms() - s_ui.back_hint_began < BACK_HINT_SLIDE_MS) {
+    s_ui.back_hint_timer = app_timer_register(33, back_hint_frame, NULL);
+  }
+  layer_mark_dirty(s_ui.rail);
+}
+
 static void cancel_motion(void) {
   if(s_ui.timer){app_timer_cancel(s_ui.timer);s_ui.timer=NULL;}
   s_ui.effect=FxNone;s_ui.progress=1000;
@@ -550,6 +706,14 @@ void watch_ui_mark_dirty(void) {
   Effect effect=FxNone;uint32_t duration=240;
   bool state_change=next->model.activity_state!=previous->model.activity_state;
   bool overlay_change=next->model.overlay!=previous->model.overlay;
+  bool animate_hint = s_ui.focused && next->model.back_pause_armed &&
+      next->model.motion_mode != MotionOff && !next->model.low_battery;
+  if (!animate_hint) {
+    stop_back_hint_slide();
+  } else if (!previous->model.back_pause_armed) {
+    s_ui.back_hint_began = clock_ms();
+    s_ui.back_hint_timer = app_timer_register(33, back_hint_frame, NULL);
+  }
   if(state_change||next->scene!=previous->scene||overlay_change||next->model.choose_index!=previous->model.choose_index||next->model.countdown_value!=previous->model.countdown_value) {
     int picker_y=s_ui.effect==FxPick?pb_lerp(s_ui.picker_from_y,37+previous->model.choose_index*44,pb_ease(s_ui.progress)):37+previous->model.choose_index*44;
     if(s_ui.effect==FxOrbit||(s_ui.effect==FxFix&&clock_ms()-s_ui.gps_began<15000))s_ui.orbit_angle=(clock_ms()-s_ui.gps_began)%10200*360/10200;
@@ -579,7 +743,10 @@ void watch_ui_mark_dirty(void) {
   dirty_layers();layer_mark_dirty(s_ui.header);layer_mark_dirty(s_ui.rail);
 }
 void watch_ui_set_focus(bool focused) {
-  s_ui.focused=focused;cancel_motion();if(focused&&s_ui.loaded){capture_view(&s_ui.view);dirty_layers();}
+  s_ui.focused=focused;cancel_motion();
+  watch_ui_hide_button_guide();
+  stop_back_hint_slide();
+  if(focused&&s_ui.loaded){capture_view(&s_ui.view);dirty_layers();layer_mark_dirty(s_ui.rail);}
 }
 void watch_ui_apply_theme(void){if(s_ui.window)window_set_background_color(s_ui.window,PB_PAPER);watch_ui_mark_dirty();}
 void watch_ui_load(Window*window) {
@@ -592,5 +759,7 @@ void watch_ui_load(Window*window) {
   s_ui.loaded=true;watch_ui_apply_theme();
 }
 void watch_ui_unload(void) {
+  watch_ui_hide_button_guide();
+  stop_back_hint_slide();
   s_ui.loaded=false;cancel_motion();layer_destroy(s_ui.rail);layer_destroy(s_ui.header);layer_destroy(s_ui.overlay);layer_destroy(s_ui.content);s_ui.window=NULL;
 }
